@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "recce-quickstart",
-      "source": ".",
+      "source": "..",
       "description": "Quick onboarding for Recce - dbt data validation and diff tool",
       "version": "0.1.0"
     }
