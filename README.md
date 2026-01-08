@@ -43,7 +43,7 @@ cd recce-claude-plugin
 
 In Claude Code, run:
 ```
-/plugin marketplace add /path/to/recce-claude-plugin/.claude-plugin/marketplace.json
+/plugin marketplace add /path/to/recce-claude-plugin
 ```
 
 **Step 3: Install the plugin**
