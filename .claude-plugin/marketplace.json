@@ -1,0 +1,10 @@
+{
+  "name": "recce-plugins",
+  "description": "Official Recce plugins for Claude Code - dbt data validation and diff tools",
+  "plugins": [
+    {
+      "name": "recce-quickstart",
+      "path": "."
+    }
+  ]
+}
