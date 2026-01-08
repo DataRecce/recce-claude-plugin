@@ -10,9 +10,13 @@
   "plugins": [
     {
       "name": "recce-quickstart",
-      "source": "..",
+      "source": "./plugins/recce-quickstart",
       "description": "Quick onboarding for Recce - dbt data validation and diff tool",
-      "version": "0.1.0"
+      "version": "0.1.0",
+      "author": {
+        "name": "DataRecce",
+        "email": "support@datarecce.io"
+      }
     }
   ]
 }
