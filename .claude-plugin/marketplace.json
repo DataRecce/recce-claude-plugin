@@ -1,10 +1,18 @@
 {
   "name": "recce-plugins",
-  "description": "Official Recce plugins for Claude Code - dbt data validation and diff tools",
+  "owner": {
+    "name": "DataRecce",
+    "email": "support@datarecce.io"
+  },
+  "metadata": {
+    "description": "Official Recce plugins for Claude Code - dbt data validation and diff tools"
+  },
   "plugins": [
     {
       "name": "recce-quickstart",
-      "path": "."
+      "source": ".",
+      "description": "Quick onboarding for Recce - dbt data validation and diff tool",
+      "version": "0.1.0"
     }
   ]
 }
