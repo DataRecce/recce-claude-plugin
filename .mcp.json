@@ -2,7 +2,7 @@
   "mcpServers": {
     "recce": {
       "type": "sse",
-      "url": "http://localhost:8081/sse"
+      "url": "http://localhost:8085/sse"
     }
   }
 }

@@ -7,8 +7,9 @@ PID_FILE="/tmp/recce-mcp-server.pid"
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if ps -p "$PID" > /dev/null 2>&1; then
-        # Check if endpoint responds
-        if curl -s --max-time 2 "http://localhost:$PORT/sse" > /dev/null 2>&1; then
+        # Check if endpoint responds (use HTTP status code since SSE keeps connection open)
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:$PORT/sse" 2>/dev/null)
+        if [ "$HTTP_CODE" = "200" ]; then
             echo "STATUS=RUNNING"
             echo "RECCE_MCP_PORT=$PORT"
             echo "RECCE_MCP_URL=http://localhost:$PORT/sse"

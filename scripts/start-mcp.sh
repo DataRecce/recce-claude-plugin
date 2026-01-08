@@ -82,8 +82,9 @@ for i in {1..15}; do
         exit 1
     fi
 
-    # Check if SSE endpoint is available
-    if curl -s --max-time 2 "http://localhost:$PORT/sse" > /dev/null 2>&1; then
+    # Check if SSE endpoint is available (use HTTP status code since SSE keeps connection open)
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:$PORT/sse" 2>/dev/null)
+    if [ "$HTTP_CODE" = "200" ]; then
         echo "STATUS=STARTED"
         echo "RECCE_MCP_PORT=$PORT"
         echo "RECCE_MCP_URL=http://localhost:$PORT/sse"
