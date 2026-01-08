@@ -1,0 +1,13 @@
+{
+  "name": "recce-quickstart",
+  "version": "0.1.0",
+  "description": "Quick onboarding for Recce - dbt data validation and diff tool",
+  "author": {
+    "name": "DataRecce",
+    "url": "https://datarecce.io"
+  },
+  "homepage": "https://github.com/DataRecce/recce-claude-plugin",
+  "repository": "https://github.com/DataRecce/recce-claude-plugin",
+  "license": "MIT",
+  "keywords": ["recce", "dbt", "data-validation", "data-quality", "onboarding"]
+}
