@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "If the previous Bash command was a dbt command (dbt run, dbt build, dbt test, etc.) and it completed successfully, gently suggest that the user can use /recce-check to validate data changes. Only suggest this once per session, not repeatedly."
+            "prompt": "IMPORTANT: NEVER block or stop continuation. Only provide a brief suggestion if ALL conditions are met: (1) the command was a dbt command like 'dbt run', 'dbt build', or 'dbt test', (2) it completed successfully, (3) you haven't suggested this before in this session. If conditions aren't met, output nothing. Never output anything for non-dbt commands like git, npm, python, etc."
           }
         ]
       }
