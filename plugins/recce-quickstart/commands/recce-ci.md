@@ -323,3 +323,79 @@ After generating both files, display:
 • .github/workflows/recce-ci-pr.yml
 • .github/workflows/recce-ci-main.yml
 ```
+
+---
+
+### 4b: Integration Mode (MODE=integrate)
+
+When user selects integration mode, help them add Recce steps to their existing CI workflow.
+
+#### 4b.1 Analyze Existing Workflow
+
+Read the user's selected `TARGET_WORKFLOW` file using the Read tool.
+
+Look for:
+1. **dbt build step** - Where dbt commands are executed
+2. **Python setup** - How Python environment is configured
+3. **Workflow trigger** - What triggers the workflow (push, pull_request)
+4. **Job structure** - Single job or matrix build
+
+#### 4b.2 Determine Integration Strategy
+
+**If workflow has a dbt build step:**
+
+Suggest adding after the dbt build step:
+```yaml
+      - name: Generate dbt docs
+        run: dbt docs generate
+
+      - name: Recce Cloud Review
+        uses: DataRecce/recce-cloud-cicd-action@v1
+        # with:
+        #   project-dir: ${PROJECT_DIR}  # Uncomment if monorepo
+```
+
+**If workflow doesn't have dbt:**
+
+Tell user: "This workflow doesn't appear to have dbt commands. Consider using standalone mode instead, or show me the workflow where you run dbt."
+
+#### 4b.3 Search Documentation for Best Practices
+
+Use `recce-docs` MCP to search for integration guidance:
+
+```
+Search: "GitHub Actions integration existing CI"
+```
+
+Apply relevant recommendations from the documentation.
+
+#### 4b.4 Present Changes
+
+Show the user the proposed changes using diff format:
+
+```diff
++ # Added by Recce CI Setup
++       - name: Generate dbt docs
++         run: dbt docs generate
++
++       - name: Recce Cloud Review
++         uses: DataRecce/recce-cloud-cicd-action@v1
+```
+
+Ask for confirmation before applying changes.
+
+#### 4b.5 Apply Changes
+
+Use the Edit tool to modify the workflow file.
+
+Display:
+```
+✅ Updated workflow: ${TARGET_WORKFLOW}
+   Added Recce Cloud integration steps.
+```
+
+**Important notes for integration mode:**
+- Preserve existing workflow structure and formatting
+- Add comments explaining new steps
+- Don't remove or modify existing steps
+- If workflow uses matrix builds, apply Recce step to appropriate jobs only
