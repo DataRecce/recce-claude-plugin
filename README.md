@@ -7,7 +7,7 @@ A Claude Code plugin that helps dbt users quickly onboard to [Recce](https://dat
 - **Guided Setup** - `/recce-setup` walks you through environment configuration
 - **PR Analysis** - `/recce-pr` analyzes data impact of pull requests
 - **Data Checks** - `/recce-check` runs validation checks between environments
-- **Smart Guidance** - Automatic suggestions when working with dbt projects
+- **CI/CD Setup** - `/recce-ci` generates GitHub Actions workflows for Recce Cloud
 
 ## Installation
 
@@ -82,6 +82,7 @@ Navigate to the **Installed** tab to see `recce-quickstart`.
 | `/recce-setup` | Guided environment setup (installs dependencies, generates artifacts, starts MCP server) |
 | `/recce-pr [url]` | Analyze PR data changes (auto-detects PR from current branch) |
 | `/recce-check [type] [selector]` | Run data validation checks (row-count, schema, profile, query-diff) |
+| `/recce-ci` | Set up Recce Cloud CI/CD for GitHub Actions (PR review + main branch workflows) |
 
 ## Requirements
 
