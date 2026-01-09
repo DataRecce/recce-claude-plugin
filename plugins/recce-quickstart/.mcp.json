@@ -3,6 +3,11 @@
     "recce": {
       "type": "sse",
       "url": "http://localhost:8085/sse"
+    },
+    "recce-docs": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/../../packages/recce-docs-mcp/dist/index.js"]
     }
   }
 }
