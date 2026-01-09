@@ -174,3 +174,152 @@ Use AskUserQuestion with options:
 1. **已建立，繼續** - User confirms project exists, proceed to Step 4
 2. **開啟 Recce Cloud** - Inform user to create project in browser, then wait for confirmation
 3. **稍後設定，先生成 workflow** - Skip for now, proceed with workflow generation (will show warning in generated files)
+
+---
+
+## Step 4: Generate Workflows
+
+### 4a: Standalone Mode (MODE=standalone)
+
+Create `.github/workflows/` directory if it doesn't exist:
+```bash
+mkdir -p .github/workflows
+```
+
+#### Generate recce-ci-pr.yml
+
+Create `.github/workflows/recce-ci-pr.yml` using the Write tool with this template:
+
+**Template variables to substitute:**
+- `${PATHS_FILTER}` - If PROJECT_DIR is empty: `"**"`, else: `"${PROJECT_DIR}/**"`
+- `${WORKING_DIR_DEFAULTS}` - If PROJECT_DIR is empty: omit, else: include defaults block
+- `${PROJECT_DIR_WITH}` - If PROJECT_DIR is empty: omit, else: include with block
+- `${ADAPTER_ENV_VARS}` - Based on ADAPTER_TYPE (see Step 5 for mapping)
+
+```yaml
+name: Recce CI - PR Review
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "${PATHS_FILTER}"
+
+# ⚠️ Prerequisites:
+# 1. Create Recce Cloud Project: https://cloud.datarecce.io
+#    - Repository: ${REPO_URL}
+#    - Project Dir: ${PROJECT_DIR}
+# 2. Configure GitHub Secrets (see comments in env section)
+
+concurrency:
+  group: recce-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+${ADAPTER_ENV_VARS}
+
+jobs:
+  recce-pr-review:
+    runs-on: ubuntu-latest
+${WORKING_DIR_DEFAULTS}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: dbt Build & Docs
+        run: |
+          dbt deps
+          dbt build
+          dbt docs generate
+
+      - name: Recce Cloud Review
+        uses: DataRecce/recce-cloud-cicd-action@v1
+${PROJECT_DIR_WITH}
+```
+
+#### Generate recce-ci-main.yml
+
+Create `.github/workflows/recce-ci-main.yml` using the Write tool:
+
+```yaml
+name: Recce CI - Main Branch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "${PATHS_FILTER}"
+  workflow_dispatch:
+
+# ⚠️ Prerequisites: (same as PR workflow)
+
+concurrency:
+  group: recce-main-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  DBT_TARGET: prod
+${ADAPTER_ENV_VARS}
+
+jobs:
+  recce-base-update:
+    runs-on: ubuntu-latest
+${WORKING_DIR_DEFAULTS}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download previous artifacts
+        run: recce cloud download-artifacts --target-path previous
+        continue-on-error: true
+
+      - name: dbt Build & Docs
+        run: |
+          dbt deps
+          dbt build --target ${{ env.DBT_TARGET }}
+          dbt docs generate --target ${{ env.DBT_TARGET }}
+
+      - name: Recce Cloud Upload
+        uses: DataRecce/recce-cloud-cicd-action@v1
+${PROJECT_DIR_WITH}
+```
+
+#### Template Substitution Rules
+
+**WORKING_DIR_DEFAULTS (if PROJECT_DIR is not empty):**
+```yaml
+    defaults:
+      run:
+        working-directory: ${PROJECT_DIR}
+```
+
+**PROJECT_DIR_WITH (if PROJECT_DIR is not empty):**
+```yaml
+        with:
+          project-dir: ${PROJECT_DIR}
+```
+
+After generating both files, display:
+```
+✅ Generated workflow files:
+• .github/workflows/recce-ci-pr.yml
+• .github/workflows/recce-ci-main.yml
+```
