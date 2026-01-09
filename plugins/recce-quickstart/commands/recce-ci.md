@@ -97,3 +97,48 @@ Display:
 ```
 🔌 Detected Warehouse: ${ADAPTER_TYPE}
 ```
+
+---
+
+## Step 2: Check Existing CI & Select Mode
+
+### 2.1 Scan for Existing Workflows
+
+Run: `ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null`
+
+Parse results into a list of existing workflow files.
+
+### 2.2 Mode Selection
+
+**If NO existing workflows found:**
+
+Inform user:
+```
+📋 No existing CI workflows detected.
+   I'll create standalone Recce CI workflows for you.
+```
+
+Set `MODE=standalone` and proceed to Step 3.
+
+**If existing workflows found:**
+
+Use AskUserQuestion to present options:
+
+```
+偵測到現有 CI workflows:
+• .github/workflows/ci.yml
+• .github/workflows/deploy.yml
+
+請選擇設置方式：
+```
+
+Options:
+1. **建立獨立 Recce workflow (推薦)** - Creates separate recce-ci-pr.yml and recce-ci-main.yml files that won't interfere with existing CI
+2. **整合到現有 CI workflow** - I'll help you add Recce steps to an existing workflow
+
+Store selection as `MODE` (standalone or integrate).
+
+**If MODE=integrate:**
+- List the workflow files
+- Ask user which workflow to modify
+- Store as `TARGET_WORKFLOW`
