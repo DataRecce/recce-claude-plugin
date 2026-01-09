@@ -142,3 +142,35 @@ Store selection as `MODE` (standalone or integrate).
 - List the workflow files
 - Ask user which workflow to modify
 - Store as `TARGET_WORKFLOW`
+
+---
+
+## Step 3: Recce Cloud Project Setup
+
+### Important Prerequisite
+
+Display this reminder to the user:
+
+```
+⚠️  重要：請先在 Recce Cloud 建立 Project
+
+CI/CD 上傳需要對應的 Recce Cloud Project。
+Project 由 Repository URL + Project Directory 唯一識別。
+
+您的設定：
+• Repository: ${REPO_URL}
+• Project Directory: ${PROJECT_DIR:-"(repo root)"}
+
+請確認已在 Recce Cloud 建立對應 Project：
+👉 https://cloud.datarecce.io/projects/new
+
+設定時請確保：
+1. Repository URL 完全匹配
+2. Project Directory 設為: ${PROJECT_DIR:-"(留空)"}
+```
+
+Use AskUserQuestion with options:
+
+1. **已建立，繼續** - User confirms project exists, proceed to Step 4
+2. **開啟 Recce Cloud** - Inform user to create project in browser, then wait for confirmation
+3. **稍後設定，先生成 workflow** - Skip for now, proceed with workflow generation (will show warning in generated files)
