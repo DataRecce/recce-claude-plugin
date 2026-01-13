@@ -1,11 +1,18 @@
 {
   "name": "@datarecce/docs-mcp",
   "version": "0.1.0",
-  "description": "MCP Server for Recce documentation search",
+  "description": "Recce documentation service with MCP server and library API",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "bin": {
-    "recce-docs-mcp": "./dist/index.js"
+    "recce-docs-mcp": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
