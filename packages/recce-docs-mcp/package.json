@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@types/turndown": "^5.0.5",
     "cheerio": "^1.0.0",
     "minisearch": "^7.1.1",
     "turndown": "^7.2.0",
@@ -31,7 +32,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/turndown": "^5.0.5",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
   },
