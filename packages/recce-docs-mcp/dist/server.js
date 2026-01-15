@@ -8,7 +8,8 @@ import { Cache } from './cache/index.js';
 import { SearchIndex } from './search/index.js';
 import { fetchSitemap, crawlAll } from './crawler/index.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = path.join(__dirname, '..', 'cache');
+// Use RECCE_DOCS_CACHE_DIR env var for container environments, fallback to package-relative cache
+const CACHE_DIR = process.env.RECCE_DOCS_CACHE_DIR || path.join(__dirname, '..', 'cache');
 const DOCS_BASE_URL = 'https://docs.reccehq.com';
 const TTL_DAYS = 7;
 // Helper to create a text content result
