@@ -265,30 +265,29 @@ Generate based on `DETECTED_PKG_MANAGER` and `DETECTED_PYTHON_VERSION`:
 
 **Note:** If the user already has dbt installation steps in their workflows, just add `recce-cloud` to their existing install command.
 
-**Job steps - dbt build (user's existing setup):**
-```yaml
-      # User's existing dbt setup (warehouse credentials, profiles, etc.)
-      # ...
+**Job steps - CI workflow order:**
 
-      - name: Run dbt
-        run: |
-          dbt deps
-          dbt build
-          dbt docs generate  # Required for Recce artifacts
-```
+1. **Download baseline** (before dbt):
+   ```yaml
+   - name: Download production baseline from Recce Cloud
+     run: uv run recce-cloud download --prod --target-path target-base  # pip: source .venv/bin/activate && recce-cloud ...
+     env:
+       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
 
-**Job steps - Recce Cloud integration (ADD THESE):**
-```yaml
-      - name: Download production baseline from Recce Cloud
-        run: recce-cloud download --prod --target-path target-base
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+2. **Run dbt** - Use the `dbt-ci` skill (Incremental Build) with:
+   - `{TARGET}` = user's CI target (e.g., `ci`, `dev`)
+   - `{STATE_PATH}` = `target-base`
 
-      - name: Upload PR artifacts to Recce Cloud
-        run: recce-cloud upload
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
+   This runs `dbt build --select state:modified+ --state target-base` to only rebuild changed models.
+
+3. **Upload artifacts** (after dbt):
+   ```yaml
+   - name: Upload PR artifacts to Recce Cloud
+     run: uv run recce-cloud upload  # pip: source .venv/bin/activate && recce-cloud ...
+     env:
+       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
 
 #### Generate CD Workflow
 
@@ -304,15 +303,22 @@ on:
   workflow_dispatch:
 ```
 
-**Job steps** - Use the same skill (`python-uv-ci` or `python-pip-ci`) as CI for Python/package setup, then add:
-```yaml
-      - name: Upload production baseline to Recce Cloud
-        run: |
-          source .venv/bin/activate  # or use `uv run` for uv
-          recce-cloud upload --type prod
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
+**Job steps - CD workflow order:**
+
+1. Python/package setup - Use `python-uv-ci` or `python-pip-ci` skill (same as CI)
+
+2. Run dbt - Use the `dbt-ci` skill (Full Build) with:
+   - `{TARGET}` = user's production target (e.g., `prod`)
+
+   This runs a full `dbt build` without `--state` flag.
+
+3. **Upload as production baseline**:
+   ```yaml
+   - name: Upload production baseline to Recce Cloud
+     run: uv run recce-cloud upload --type prod  # pip: source .venv/bin/activate && recce-cloud ...
+     env:
+       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
 
 #### Key Integration Points
 
