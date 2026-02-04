@@ -29,68 +29,17 @@ First, understand what the user needs:
 ## Setup Flow Overview
 
 Run checks in this order:
-1. **Prerequisites** - Login status, project binding
-2. **Environment Detection** - Git repo, dbt project, CI/CD workflows
-3. **Gap Analysis** - What's missing for Recce Cloud integration
-4. **Setup Assistance** - Help configure CI/CD workflows
+1. **Environment Detection** - Git repo, dbt project, Python tooling, CI/CD workflows
+2. **Gap Analysis** - What's missing for Recce Cloud integration
+3. **Setup Assistance** - Help configure CI/CD workflows
 
 ---
 
-## Phase 1: Prerequisites Check
+## Phase 1: Environment Detection
 
-### 1.1 Check Recce Cloud Login
+Detect the environment:
 
-Run: `recce-cloud login --status`
-
-**If exit code is 0 (logged in):**
-- Parse output for email (e.g., "Logged in as user@example.com")
-- Display: `✅ Logged in as user@example.com`
-- Continue to next check
-
-**If exit code is non-zero (not logged in):**
-- Display:
-  ```
-  ❌ Not logged in to Recce Cloud
-
-  To authenticate, run:
-    recce-cloud login
-
-  This will open a browser for OAuth authentication.
-  For headless environments, use:
-    recce-cloud login --token <your-api-token>
-  ```
-- Stop here and wait for user to login
-
-### 1.2 Check Project Binding
-
-Run: `recce-cloud init --status`
-
-**If exit code is 0 (bound):**
-- Parse output for org/project info
-- Display: `✅ Bound to org/project`
-- Continue to next phase
-
-**If exit code is non-zero (not bound):**
-- Display:
-  ```
-  ❌ Project not bound to Recce Cloud
-
-  To bind this project, run:
-    recce-cloud init
-
-  This will let you select an organization and project interactively.
-  For scripting, use:
-    recce-cloud init --org <org-name> --project <project-name>
-  ```
-- Stop here and wait for user to bind project
-
----
-
-## Phase 2: Environment Detection
-
-Once prerequisites pass, detect the environment:
-
-### 2.1 Git Repository
+### 1.1 Git Repository
 
 Run: `git remote get-url origin 2>/dev/null`
 
@@ -104,7 +53,7 @@ Run: `git remote get-url origin 2>/dev/null`
 - Display: `⚠️ No git remote found`
 - This is a warning, not a blocker
 
-### 2.2 dbt Project
+### 1.2 dbt Project
 
 Check: `ls dbt_project.yml 2>/dev/null`
 
@@ -116,7 +65,52 @@ Check: `ls dbt_project.yml 2>/dev/null`
 - Display: `⚠️ No dbt_project.yml found in current directory`
 - This is a warning for CI/CD setup
 
-### 2.3 CI/CD Workflows
+### 1.3 Detect Python Tooling Preference
+
+Check these indicators in order to determine package manager preference:
+
+**Check 1: Existing GitHub workflows**
+```bash
+grep -r "astral-sh/setup-uv" .github/workflows/ 2>/dev/null
+grep -r "pip install" .github/workflows/ 2>/dev/null
+```
+- If `setup-uv` found → `uv`
+- If only `pip install` found → `pip`
+
+**Check 2: Project files**
+```bash
+ls pyproject.toml uv.lock requirements.txt 2>/dev/null
+```
+- If `uv.lock` exists → `uv`
+- If `pyproject.toml` exists (without uv.lock) → likely `uv` (modern tooling)
+- If only `requirements.txt` exists → `pip`
+
+**Check 3: Python version from existing workflows**
+```bash
+grep -r "python-version" .github/workflows/ 2>/dev/null
+```
+Extract the version number (e.g., "3.11", "3.12")
+
+**Detection Result:**
+Store detected values:
+- `DETECTED_PKG_MANAGER`: `uv` | `pip` | `unknown`
+- `DETECTED_PYTHON_VERSION`: e.g., `3.12` | `unknown`
+
+Display detection summary:
+```
+🔧 Tooling Detection:
+  • Package manager: uv (detected from existing workflows)
+  • Python version: 3.12 (detected from existing workflows)
+```
+
+Or if unclear:
+```
+🔧 Tooling Detection:
+  • Package manager: unknown (will ask)
+  • Python version: unknown (will ask)
+```
+
+### 1.4 CI/CD Workflows
 
 Run: `ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null`
 
@@ -146,11 +140,11 @@ Display summary:
 
 ---
 
-## Phase 3: Gap Analysis
+## Phase 2: Gap Analysis
 
 Based on detection results, identify what's needed:
 
-### 3.1 Determine Recce Integration Status
+### 2.1 Determine Recce Integration Status
 
 **Already configured if ANY of:**
 - Workflow contains `recce-cloud upload`
@@ -170,7 +164,7 @@ View your project: https://cloud.datarecce.io
 ```
 - End here (success state)
 
-### 3.2 Identify Gaps
+### 2.2 Identify Gaps
 
 **If NOT configured, show gaps:**
 
@@ -191,11 +185,32 @@ To enable Recce Cloud on PRs, you need:
 
 ---
 
-## Phase 4: Setup Assistance
+## Phase 3: Setup Assistance
 
 If gaps exist, offer to help:
 
-### 4.1 Ask User How to Proceed
+### 3.1 Resolve Unknown Preferences
+
+**Only ask if detection was unclear.** Use AskUserQuestion for unknowns:
+
+**If `DETECTED_PKG_MANAGER` is `unknown`:**
+```
+Which package manager do you use for Python dependencies?
+```
+Options:
+1. **uv (Recommended)** - Fast, modern Python package manager
+2. **pip** - Traditional Python package manager
+
+**If `DETECTED_PYTHON_VERSION` is `unknown`:**
+```
+Which Python version should the CI use?
+```
+Options:
+1. **3.12 (Recommended)** - Latest stable
+2. **3.11** - Previous stable
+3. **3.10** - Older stable
+
+### 3.2 Ask User How to Proceed
 
 Use AskUserQuestion:
 
@@ -208,7 +223,7 @@ Options:
 2. **Show me the changes** - I'll show the exact changes needed, you apply manually
 3. **Skip for now** - Exit without making changes
 
-### 4.2 Option 1: Create PR with Changes
+### 3.3 Option 1: Create PR with Changes
 
 #### Determine which workflow to modify
 
@@ -221,67 +236,65 @@ Options:
 **If no workflows have dbt commands:**
 - Create new standalone workflows
 
-#### Generate CI changes
+#### Generate CI Workflow
 
-**For CI workflow (create new file `.github/workflows/recce-ci.yml`):**
+Create `.github/workflows/recce-ci.yml` with these components:
 
-This workflow runs on PRs: downloads production baseline, runs dbt, uploads PR artifacts.
-
+**Workflow header:**
 ```yaml
 name: Recce CI
 
 on:
   pull_request:
     branches: [main]
+```
 
-env:
-  # Warehouse credentials - user must configure these secrets
-  # For Snowflake:
-  SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-  SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+**Job steps - Python/Package Setup:**
 
-jobs:
-  recce-ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+Generate based on `DETECTED_PKG_MANAGER` and `DETECTED_PYTHON_VERSION`:
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+**If uv:** Use the `python-uv-ci` skill to generate the setup steps with:
+- `{PYTHON_VERSION}` = `DETECTED_PYTHON_VERSION`
+- `{DEPENDENCIES}` = user's existing dbt packages + `recce-cloud`
+- `{COMMAND}` = dbt and recce-cloud commands
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+**If pip:** Use the `python-pip-ci` skill to generate the setup steps with:
+- `{PYTHON_VERSION}` = `DETECTED_PYTHON_VERSION`
+- `{DEPENDENCIES}` = user's existing dbt packages + `recce-cloud`
+- `{COMMAND}` = dbt and recce-cloud commands
 
-      - name: Install dbt
-        run: uv pip install dbt-core dbt-<ADAPTER> --system
+**Note:** If the user already has dbt installation steps in their workflows, just add `recce-cloud` to their existing install command.
 
-      - name: Install recce-cloud
-        run: uv pip install recce-cloud --system
-
-      - name: Download production artifacts from Recce Cloud
-        run: recce-cloud download --prod --target-path target-base
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+**Job steps - dbt build (user's existing setup):**
+```yaml
+      # User's existing dbt setup (warehouse credentials, profiles, etc.)
+      # ...
 
       - name: Run dbt
         run: |
           dbt deps
           dbt build
-          dbt docs generate
+          dbt docs generate  # Required for Recce artifacts
+```
 
-      - name: Upload to Recce Cloud
+**Job steps - Recce Cloud integration (ADD THESE):**
+```yaml
+      - name: Download production baseline from Recce Cloud
+        run: recce-cloud download --prod --target-path target-base
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload PR artifacts to Recce Cloud
         run: recce-cloud upload
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-**For CD workflow (create new file `.github/workflows/recce-prod.yml`):**
+#### Generate CD Workflow
 
-This workflow runs on push to main: runs dbt, uploads as production baseline.
+Create `.github/workflows/recce-prod.yml` (or add to existing main branch workflow):
 
+**Workflow header:**
 ```yaml
 name: Recce Production Baseline
 
@@ -289,52 +302,32 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+```
 
-env:
-  # Warehouse credentials - user must configure these secrets
-  # For Snowflake:
-  SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-  SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-
-jobs:
-  recce-prod:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install dbt
-        run: uv pip install dbt-core dbt-<ADAPTER> --system
-
-      - name: Run dbt
+**Job steps** - Use the same skill (`python-uv-ci` or `python-pip-ci`) as CI for Python/package setup, then add:
+```yaml
+      - name: Upload production baseline to Recce Cloud
         run: |
-          dbt deps
-          dbt build
-          dbt docs generate
-
-      - name: Upload to Recce Cloud
-        run: uvx recce-cloud upload --type prod
+          source .venv/bin/activate  # or use `uv run` for uv
+          recce-cloud upload --type prod
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-**Note:** Replace `<ADAPTER>` with detected adapter from profiles.yml (snowflake, bigquery, postgres, etc.)
+#### Key Integration Points
 
-**Adapter-specific env vars:**
-- **Snowflake**: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`
-- **BigQuery**: `GOOGLE_APPLICATION_CREDENTIALS_JSON` (service account JSON)
-- **PostgreSQL**: `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`
-- **Databricks**: `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_HTTP_PATH`
+The only additions needed for Recce Cloud are:
+
+1. **Install recce-cloud** - Add to existing pip/uv install step
+2. **`dbt docs generate`** - Ensure this runs (generates required artifacts)
+3. **CI workflow**: Add `recce-cloud download` (before dbt) and `recce-cloud upload` (after dbt)
+4. **CD workflow**: Add `recce-cloud upload --type prod` (after dbt on main branch)
+
+`GITHUB_TOKEN` is automatically provided by GitHub Actions - no additional secrets needed for Recce Cloud.
 
 #### Create branch and PR
+
+After generating the workflow files:
 
 ```bash
 # Create branch
@@ -344,11 +337,10 @@ git checkout -b recce/setup-cloud-integration
 git add .github/workflows/
 
 # Commit
-git commit -m "ci: add Recce Cloud integration
+git commit -s -m "ci: add Recce Cloud integration
 
-- Add dbt docs generate step for artifact generation
-- Add recce-cloud upload for PR review
-- Add production baseline workflow
+- Add recce-ci.yml for PR artifact uploads
+- Add recce-prod.yml for production baseline
 
 Generated by /recce-doctor"
 
@@ -362,14 +354,19 @@ gh pr create \
 This PR adds Recce Cloud integration to the CI/CD pipeline.
 
 ### Changes
-- Added \`dbt docs generate\` step to generate artifacts
-- Added \`recce-cloud upload\` step to upload PR artifacts
-- Created \`recce-prod.yml\` workflow for production baseline updates
+- Added \`recce-ci.yml\` - Downloads prod baseline, runs dbt, uploads PR artifacts
+- Added \`recce-prod.yml\` - Uploads production baseline on merge to main
+
+### How it works
+- **On PRs**: Downloads production baseline → runs dbt → uploads PR artifacts to Recce Cloud
+- **On merge to main**: Runs dbt → uploads new production baseline
+
+No additional secrets required - uses the built-in \`GITHUB_TOKEN\`.
 
 ### Next Steps
 1. Merge this PR
-2. Trigger the production workflow manually to create baseline:
-   - Go to Actions → 'Update Recce Production Baseline' → Run workflow
+2. Trigger the production workflow manually to create initial baseline:
+   - Go to Actions → 'Recce Production Baseline' → Run workflow
 3. Create a test PR with a dbt change to verify integration
 
 ### Documentation
@@ -387,52 +384,39 @@ PR URL: https://github.com/owner/repo/pull/123
 
 Next steps:
 1. Review and merge the PR
-2. Trigger production workflow manually to create baseline
+2. Trigger production workflow manually to create initial baseline
 3. Create a test PR with a dbt change to see Recce in action
 
 View your project: https://cloud.datarecce.io
 ```
 
-### 4.3 Option 2: Show Changes
+### 3.4 Option 2: Show Changes
 
-Display the exact changes needed:
+Generate and display the exact workflow files (using the dynamic generation rules above):
 
 ```
 📝 Changes needed for Recce Cloud integration:
+
+Configuration detected:
+  • Package manager: {DETECTED_PKG_MANAGER}
+  • Python version: {DETECTED_PYTHON_VERSION}
 
 ──────────────────────────────────────────────
 File: .github/workflows/recce-ci.yml (CREATE)
 ──────────────────────────────────────────────
 
-[Show full CI workflow content from template above]
-
-Key steps:
-1. Download production baseline: recce-cloud download --prod --target-path target-base
-2. Run dbt: dbt deps && dbt build && dbt docs generate
-3. Upload PR artifacts: recce-cloud upload
+{GENERATE_FULL_CI_WORKFLOW_YAML}
 
 ──────────────────────────────────────────────
 File: .github/workflows/recce-prod.yml (CREATE)
 ──────────────────────────────────────────────
 
-[Show full CD workflow content from template above]
-
-Key steps:
-1. Run dbt: dbt deps && dbt build && dbt docs generate
-2. Upload as production: recce-cloud upload --type prod
+{GENERATE_FULL_PROD_WORKFLOW_YAML}
 
 ──────────────────────────────────────────────
-GitHub Secrets Required:
-──────────────────────────────────────────────
 
-Configure at: https://github.com/<owner>/<repo>/settings/secrets/actions
-
-For <ADAPTER>:
-  • SECRET_NAME_1
-  • SECRET_NAME_2
-  • ...
-
-──────────────────────────────────────────────
+No additional GitHub Secrets required - Recce Cloud uses the
+built-in GITHUB_TOKEN which is automatically available.
 
 After adding these files:
 1. Commit and push to main
@@ -440,7 +424,7 @@ After adding these files:
 3. Create a test PR to verify CI workflow
 ```
 
-### 4.4 Option 3: Skip
+### 3.5 Option 3: Skip
 
 ```
 Okay, no changes made.
@@ -471,10 +455,13 @@ If `recce-cloud` commands fail with "command not found":
 ```
 ❌ recce-cloud CLI not found
 
-Install it with:
+Install with pip:
   pip install recce-cloud
 
-Or run directly with uvx (no install needed):
+Install with uv:
+  uv pip install recce-cloud
+
+Or run directly without installing (uv only):
   uvx recce-cloud login
   uvx recce-cloud init
 ```
@@ -608,33 +595,12 @@ Verify trigger:
 
 **Symptoms**: Workflow fails at dbt build step
 
-**Diagnosis**:
-1. Check warehouse credentials: Are secrets configured?
-2. Check profiles.yml: Is it committed or generated in CI?
-3. Check dbt adapter: Is correct adapter installed?
+This is a dbt configuration issue, not a Recce issue. Common causes:
+- Missing warehouse credentials (secrets not configured)
+- profiles.yml not set up for CI environment
+- Wrong dbt adapter installed
 
-**Solutions**:
-```
-dbt build failing in CI.
-
-Check these GitHub Secrets are configured:
-  Settings → Secrets and variables → Actions
-
-For Snowflake:
-  SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD
-
-For BigQuery:
-  GOOGLE_APPLICATION_CREDENTIALS_JSON
-
-Ensure profiles.yml uses environment variables:
-  snowflake:
-    target: ci
-    outputs:
-      ci:
-        account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-        user: "{{ env_var('SNOWFLAKE_USER') }}"
-        password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-```
+**Recommendation**: Fix dbt CI setup first, then re-run `/recce-doctor` to add Recce integration.
 
 ### Issue: Download fails in CI but upload worked
 
