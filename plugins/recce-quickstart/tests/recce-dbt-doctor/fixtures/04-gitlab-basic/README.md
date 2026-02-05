@@ -17,7 +17,7 @@ A dbt project with basic GitLab CI/CD:
   - `recce-cloud upload` after CI
   - `recce-cloud upload --type prod` after CD
   - `recce-cloud` to pip install
-- Should show GitLab MR URL for PR creation (not gh)
+- PR creation: `gh` CLI won't work, should fall back to manual instructions
 
 ## Files
 - `dbt_project.yml` - Basic dbt project config
