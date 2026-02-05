@@ -9,7 +9,6 @@
 
 Repository
   • Remote: ⚠️ No git remote
-  • Platform: unknown
 
 dbt Project
   • Name: jaffle_shop
@@ -74,5 +73,5 @@ Python Tooling
 
 ## Notes
 
-- GitLab uses different syntax for environment variables
-- PR creation should show GitLab MR URL, not use `gh` CLI
+- GitLab uses different syntax for environment variables (`$CI_JOB_TOKEN`)
+- PR creation: `gh` CLI won't work, should show manual instructions

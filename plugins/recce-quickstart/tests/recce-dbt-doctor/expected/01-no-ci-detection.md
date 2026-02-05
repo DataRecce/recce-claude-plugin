@@ -9,7 +9,6 @@
 
 Repository
   • Remote: ⚠️ No git remote
-  • Platform: unknown
 
 dbt Project
   • Name: jaffle_shop
