@@ -1,13 +1,13 @@
 ---
-name: recce-doctor
-description: Configure or troubleshoot Recce Cloud CI/CD integration - set up GitHub Actions workflows or diagnose pipeline issues
+name: recce-dbt-doctor
+description: Configure or troubleshoot Recce Cloud CI/CD integration for dbt projects - set up GitHub Actions workflows or diagnose pipeline issues
 args:
   - name: issue
     description: Optional issue description (e.g., "workflow failing", "baseline not found")
     required: false
 ---
 
-# Recce Doctor - Cloud CI/CD Configuration & Troubleshooting
+# Recce dbt Doctor - Cloud CI/CD Configuration & Troubleshooting
 
 You are helping the user configure or troubleshoot Recce Cloud CI/CD integration. This command can:
 - **Set up new CI/CD** - Add Recce Cloud to GitHub Actions workflows
@@ -37,106 +37,146 @@ Run checks in this order:
 
 ## Phase 1: Environment Detection
 
-Detect the environment:
+Run all detection checks and store results. Do NOT display output until all checks complete.
 
 ### 1.1 Git Repository
 
-Run: `git remote get-url origin 2>/dev/null`
+```bash
+git remote get-url origin 2>/dev/null
+```
 
-**If succeeds:**
-- Parse remote URL to extract:
-  - Platform: `github.com` → GitHub, `gitlab.com` → GitLab
-  - Repository: `owner/repo` format
-- Display: `📦 Repository: owner/repo (GitHub)`
-
-**If fails:**
-- Display: `⚠️ No git remote found`
-- This is a warning, not a blocker
+Store:
+- `REPO_REMOTE`: Full URL or `none`
+- `REPO_OWNER_NAME`: `owner/repo` format (parsed from URL)
 
 ### 1.2 dbt Project
 
-Check: `ls dbt_project.yml 2>/dev/null`
+```bash
+ls dbt_project.yml 2>/dev/null
+```
 
-**If exists:**
-- Read `dbt_project.yml` to get project name
-- Display: `📊 dbt Project: project_name`
+If exists, read to extract project name.
 
-**If not exists:**
-- Display: `⚠️ No dbt_project.yml found in current directory`
-- This is a warning for CI/CD setup
+Store:
+- `DBT_PROJECT_NAME`: Project name or `none`
 
-### 1.3 Detect Python Tooling Preference
+### 1.3 Python Tooling
 
-Check these indicators in order to determine package manager preference:
-
-**Check 1: Existing GitHub workflows**
+**Check workflows first:**
 ```bash
 grep -r "astral-sh/setup-uv" .github/workflows/ 2>/dev/null
 grep -r "pip install" .github/workflows/ 2>/dev/null
+grep -r "python-version" .github/workflows/ 2>/dev/null
 ```
-- If `setup-uv` found → `uv`
-- If only `pip install` found → `pip`
 
-**Check 2: Project files**
+**Check project files:**
 ```bash
 ls pyproject.toml uv.lock requirements.txt 2>/dev/null
 ```
-- If `uv.lock` exists → `uv`
-- If `pyproject.toml` exists (without uv.lock) → likely `uv` (modern tooling)
-- If only `requirements.txt` exists → `pip`
 
-**Check 3: Python version from existing workflows**
-```bash
-grep -r "python-version" .github/workflows/ 2>/dev/null
-```
-Extract the version number (e.g., "3.11", "3.12")
-
-**Detection Result:**
-Store detected values:
+Store:
 - `DETECTED_PKG_MANAGER`: `uv` | `pip` | `unknown`
 - `DETECTED_PYTHON_VERSION`: e.g., `3.12` | `unknown`
 
-Display detection summary:
-```
-🔧 Tooling Detection:
-  • Package manager: uv (detected from existing workflows)
-  • Python version: 3.12 (detected from existing workflows)
-```
+### 1.4 CI/CD Workflows & Patterns
 
-Or if unclear:
-```
-🔧 Tooling Detection:
-  • Package manager: unknown (will ask)
-  • Python version: unknown (will ask)
-```
-
-### 1.4 CI/CD Workflows
-
-Run: `ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null`
-
-**If workflows found:**
-- List each workflow file
-- For each file, check if it contains:
-  - `dbt` commands (dbt build, dbt run, dbt test, dbt docs generate)
-  - `recce-cloud` commands (recce-cloud upload, recce-cloud download)
-  - `DataRecce/recce-cloud-cicd-action` (GitHub Action)
-
-Display summary:
-```
-📋 CI/CD Workflows Detected:
-
-.github/workflows/ci.yml
-  • dbt commands: ✅ (dbt deps, dbt build, dbt test)
-  • dbt docs generate: ❌
-  • Recce integration: ❌
-
-.github/workflows/deploy.yml
-  • dbt commands: ❌
-  • Recce integration: ❌
+```bash
+ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
 ```
 
 **If no workflows found:**
-- Display: `📋 No GitHub Actions workflows found`
+Store `WORKFLOWS_FOUND=false` and skip to Detection Report.
+
+**If workflows found, for each workflow file extract:**
+
+**Triggers:**
+```bash
+grep -A5 "^on:" <workflow_file>
+```
+Look for:
+- `pull_request:` → CI trigger
+- `push:` with `branches: [main]` → CD trigger
+- `workflow_dispatch:` → Manual trigger
+
+**Build strategy:**
+```bash
+grep -E "state:modified|--state" <workflow_file>
+```
+- If found → Slim CI (incremental)
+- If not found but has `dbt build` → Full build
+
+**State source:**
+```bash
+grep -E "recce-cloud download|target-base|--state" <workflow_file>
+```
+- If `recce-cloud download` → Recce Cloud baseline
+- If `--state` with local path → Local baseline
+- If neither → No state management
+
+**Recce integration:**
+```bash
+grep -E "recce-cloud|DataRecce/recce-cloud" <workflow_file>
+```
+
+Store:
+- `WORKFLOWS_FOUND`: `true` | `false`
+- `CI_TRIGGER`: `pull_request` | `none`
+- `CD_TRIGGER`: `push to main` | `none`
+- `BUILD_STRATEGY`: `slim` | `full` | `unknown`
+- `STATE_SOURCE`: `recce-cloud` | `local` | `none`
+- `RECCE_CONFIGURED`: `true` | `false`
+- `DBT_DOCS_GENERATE`: `true` | `false`
+
+### 1.5 Detection Report
+
+After ALL detection completes, display this fixed template:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 Environment Detection Report
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Repository
+  • Remote: {REPO_OWNER_NAME} | ⚠️ No git remote
+
+dbt Project
+  • Name: {DBT_PROJECT_NAME} | ⚠️ No dbt_project.yml
+
+GitHub Actions Workflows
+  • Found: {count} workflow(s) | ⚠️ None found
+  • CI trigger: {CI_TRIGGER} | ⚠️ None
+  • CD trigger: {CD_TRIGGER} | ⚠️ None
+
+Current CI Pattern
+  • Build strategy: {BUILD_STRATEGY}
+    - slim = uses state:modified+ (efficient)
+    - full = rebuilds everything
+  • State source: {STATE_SOURCE}
+    - recce-cloud = downloads prod baseline
+    - local = uses local state path
+    - none = no state comparison
+  • dbt docs generate: ✅ | ❌
+
+Python Tooling
+  • Package manager: {DETECTED_PKG_MANAGER}
+  • Python version: {DETECTED_PYTHON_VERSION}
+
+Recce Cloud Integration
+  • Status: ✅ Configured | ❌ Not configured
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**If `WORKFLOWS_FOUND=false`:**
+
+Add after the report:
+```
+⚠️ No GitHub Actions workflows detected.
+
+This command currently supports GitHub Actions.
+For dbt Cloud or other orchestration, see:
+  https://docs.datarecce.io/recce-cloud/ci-integration
+```
 
 ---
 
@@ -331,7 +371,7 @@ The only additions needed for Recce Cloud are:
 
 `GITHUB_TOKEN` is automatically provided by GitHub Actions - no additional secrets needed for Recce Cloud.
 
-#### Create branch and PR
+#### Create branch, push, and PR
 
 After generating the workflow files:
 
@@ -348,47 +388,74 @@ git commit -s -m "ci: add Recce Cloud integration
 - Add recce-ci.yml for PR artifact uploads
 - Add recce-prod.yml for production baseline
 
-Generated by /recce-doctor"
+Generated by /recce-dbt-doctor"
 
-# Push
+# Always push first (don't block on gh availability)
 git push -u origin recce/setup-cloud-integration
-
-# Create PR
-gh pr create \
-  --title "Add Recce Cloud CI/CD integration" \
-  --body "## Summary
-This PR adds Recce Cloud integration to the CI/CD pipeline.
-
-### Changes
-- Added \`recce-ci.yml\` - Downloads prod baseline, runs dbt, uploads PR artifacts
-- Added \`recce-prod.yml\` - Uploads production baseline on merge to main
-
-### How it works
-- **On PRs**: Downloads production baseline → runs dbt → uploads PR artifacts to Recce Cloud
-- **On merge to main**: Runs dbt → uploads new production baseline
-
-No additional secrets required - uses the built-in \`GITHUB_TOKEN\`.
-
-### Next Steps
-1. Merge this PR
-2. Trigger the production workflow manually to create initial baseline:
-   - Go to Actions → 'Recce Production Baseline' → Run workflow
-3. Create a test PR with a dbt change to verify integration
-
-### Documentation
-- [Recce Cloud CI/CD Guide](https://datarecce.io/docs/recce-cloud/ci-integration)
-
----
-Generated by \`/recce-doctor\`"
 ```
 
-Display:
-```
-✅ PR created!
+**After push succeeds, check for gh CLI and create PR:**
 
-PR URL: https://github.com/owner/repo/pull/123
+```bash
+# Check if gh is available
+if gh --version >/dev/null 2>&1; then
+  # gh available - create PR automatically
+  gh pr create \
+    --title "Add Recce Cloud CI/CD integration" \
+    --body "## Summary
+  This PR adds Recce Cloud integration to the CI/CD pipeline.
+
+  ### Changes
+  - Added \`recce-ci.yml\` - Downloads prod baseline, runs dbt, uploads PR artifacts
+  - Added \`recce-prod.yml\` - Uploads production baseline on merge to main
+
+  ### How it works
+  - **On PRs**: Downloads production baseline → runs dbt → uploads PR artifacts to Recce Cloud
+  - **On merge to main**: Runs dbt → uploads new production baseline
+
+  No additional secrets required - uses the built-in \`GITHUB_TOKEN\`.
+
+  ### Next Steps
+  1. Merge this PR
+  2. Trigger the production workflow manually to create initial baseline:
+     - Go to Actions → 'Recce Production Baseline' → Run workflow
+  3. Create a test PR with a dbt change to verify integration
+
+  ### Documentation
+  - [Recce Cloud CI/CD Guide](https://datarecce.io/docs/recce-cloud/ci-integration)
+
+  ---
+  Generated by \`/recce-dbt-doctor\`"
+fi
+```
+
+**Display based on result:**
+
+**If gh available and PR created:**
+```
+✅ Branch pushed and PR created!
+
+PR URL: https://github.com/{owner}/{repo}/pull/123
 
 Next steps:
+1. Review and merge the PR
+2. Trigger production workflow manually to create initial baseline
+3. Create a test PR with a dbt change to see Recce in action
+
+View your project: https://cloud.datarecce.io
+```
+
+**If gh NOT available:**
+```
+✅ Branch pushed: recce/setup-cloud-integration
+
+⚠️ gh CLI not found — create PR manually:
+   https://github.com/{owner}/{repo}/compare/recce/setup-cloud-integration
+
+To install gh CLI for automatic PR creation:
+   https://cli.github.com/
+
+Next steps after creating PR:
 1. Review and merge the PR
 2. Trigger production workflow manually to create initial baseline
 3. Create a test PR with a dbt change to see Recce in action
@@ -436,7 +503,7 @@ After adding these files:
 Okay, no changes made.
 
 When you're ready to set up Recce Cloud CI/CD, run:
-  /recce-doctor
+  /recce-dbt-doctor
 
 Key commands for manual setup:
 
@@ -471,21 +538,6 @@ Or run directly without installing (uv only):
   uvx recce-cloud login
   uvx recce-cloud init
 ```
-
-### gh CLI not found (for PR creation)
-
-If `gh pr create` fails:
-
-```
-⚠️ GitHub CLI (gh) not found
-
-To create the PR automatically, install gh:
-  https://cli.github.com/
-
-Or I can show you the changes to apply manually.
-```
-
-Then fall back to Option 2 (show changes).
 
 ### Network/API errors
 
@@ -606,7 +658,7 @@ This is a dbt configuration issue, not a Recce issue. Common causes:
 - profiles.yml not set up for CI environment
 - Wrong dbt adapter installed
 
-**Recommendation**: Fix dbt CI setup first, then re-run `/recce-doctor` to add Recce integration.
+**Recommendation**: Fix dbt CI setup first, then re-run `/recce-dbt-doctor` to add Recce integration.
 
 ### Issue: Download fails in CI but upload worked
 
