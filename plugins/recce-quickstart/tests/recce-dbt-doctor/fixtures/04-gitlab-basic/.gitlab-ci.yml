@@ -1,0 +1,30 @@
+stages:
+  - test
+  - deploy
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+
+test:
+  stage: test
+  image: python:3.12
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - pip install dbt-core dbt-snowflake
+    - dbt deps
+    - dbt build --target ci
+
+deploy:
+  stage: deploy
+  image: python:3.12
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - pip install dbt-core dbt-snowflake
+    - dbt deps
+    - dbt build --target prod

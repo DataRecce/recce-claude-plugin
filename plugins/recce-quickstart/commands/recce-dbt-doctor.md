@@ -48,6 +48,7 @@ git remote get-url origin 2>/dev/null
 Store:
 - `REPO_REMOTE`: Full URL or `none`
 - `REPO_OWNER_NAME`: `owner/repo` format (parsed from URL)
+- `REPO_PLATFORM`: `github` | `gitlab` | `bitbucket` | `azure` | `other` (parsed from URL)
 
 ### 1.2 dbt Project
 
@@ -62,72 +63,88 @@ Store:
 
 ### 1.3 Python Tooling
 
-**Check workflows first:**
-```bash
-grep -r "astral-sh/setup-uv" .github/workflows/ 2>/dev/null
-grep -r "pip install" .github/workflows/ 2>/dev/null
-grep -r "python-version" .github/workflows/ 2>/dev/null
-```
-
 **Check project files:**
 ```bash
 ls pyproject.toml uv.lock requirements.txt 2>/dev/null
+```
+
+- If `uv.lock` exists → `uv`
+- If `pyproject.toml` exists (without uv.lock) → likely `uv`
+- If only `requirements.txt` exists → `pip`
+
+**Check CI configs for tooling hints:**
+```bash
+grep -r "astral-sh/setup-uv" <ci_config_files> 2>/dev/null
+grep -r "pip install" <ci_config_files> 2>/dev/null
+grep -r "python-version" <ci_config_files> 2>/dev/null
 ```
 
 Store:
 - `DETECTED_PKG_MANAGER`: `uv` | `pip` | `unknown`
 - `DETECTED_PYTHON_VERSION`: e.g., `3.12` | `unknown`
 
-### 1.4 CI/CD Workflows & Patterns
+### 1.4 CI/CD Platform Detection
+
+Check for CI config files in order:
 
 ```bash
-ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null
-```
-
-**If no workflows found:**
-Store `WORKFLOWS_FOUND=false` and skip to Detection Report.
-
-**If workflows found, for each workflow file extract:**
-
-**Triggers:**
-```bash
-grep -A5 "^on:" <workflow_file>
-```
-Look for:
-- `pull_request:` → CI trigger
-- `push:` with `branches: [main]` → CD trigger
-- `workflow_dispatch:` → Manual trigger
-
-**Build strategy:**
-```bash
-grep -E "state:modified|--state" <workflow_file>
-```
-- If found → Slim CI (incremental)
-- If not found but has `dbt build` → Full build
-
-**State source:**
-```bash
-grep -E "recce-cloud download|target-base|--state" <workflow_file>
-```
-- If `recce-cloud download` → Recce Cloud baseline
-- If `--state` with local path → Local baseline
-- If neither → No state management
-
-**Recce integration:**
-```bash
-grep -E "recce-cloud|DataRecce/recce-cloud" <workflow_file>
+# Check all common CI platforms
+ls .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null  # GitHub Actions
+ls .gitlab-ci.yml 2>/dev/null                                     # GitLab CI
+ls .circleci/config.yml 2>/dev/null                               # CircleCI
+ls Jenkinsfile 2>/dev/null                                        # Jenkins
+ls azure-pipelines.yml 2>/dev/null                                # Azure Pipelines
+ls bitbucket-pipelines.yml 2>/dev/null                            # Bitbucket Pipelines
 ```
 
 Store:
-- `WORKFLOWS_FOUND`: `true` | `false`
-- `CI_TRIGGER`: `pull_request` | `none`
-- `CD_TRIGGER`: `push to main` | `none`
-- `BUILD_STRATEGY`: `slim` | `full` | `unknown`
-- `STATE_SOURCE`: `recce-cloud` | `local` | `none`
-- `RECCE_CONFIGURED`: `true` | `false`
-- `DBT_DOCS_GENERATE`: `true` | `false`
+- `CI_PLATFORM`: `github-actions` | `gitlab` | `circleci` | `jenkins` | `azure` | `bitbucket` | `none`
+- `CI_CONFIG_FILES`: List of detected config files
 
-### 1.5 Detection Report
+### 1.5 dbt Command Analysis
+
+**For each CI config file found, extract dbt commands with context:**
+
+```bash
+grep -n -E "dbt (build|run|test|seed|snapshot|deps)" <config_file>
+```
+
+**For each dbt command found, extract:**
+
+1. **Line number** - Where the command is
+2. **Full command** - e.g., `dbt build --target ci`
+3. **Target** - Extract `--target <value>` if present
+4. **Job/stage context** - Which job or stage contains this command
+
+**Determine job type (CI vs CD) by looking for triggers:**
+
+- GitHub Actions: Look for `on: pull_request` vs `on: push` in the workflow
+- GitLab CI: Look for `rules:` with `merge_request` vs `branches: [main]`
+- CircleCI: Look for workflow triggers
+- Others: Infer from job names (e.g., "test", "deploy", "prod")
+
+**Check for existing Recce and dbt docs:**
+
+```bash
+grep -n "dbt docs generate" <config_file>
+grep -n "recce-cloud" <config_file>
+```
+
+Store for each dbt command:
+```
+DBT_COMMANDS:
+  - file: <config_file>
+    line: <line_number>
+    command: <full_command>
+    target: <target_value or "default">
+    job_name: <job_or_stage_name>
+    job_type: "ci" | "cd" | "unknown"
+
+DBT_DOCS_GENERATE_EXISTS: true | false
+RECCE_CONFIGURED: true | false
+```
+
+### 1.6 Detection Report
 
 After ALL detection completes, display this fixed template:
 
@@ -137,384 +154,284 @@ After ALL detection completes, display this fixed template:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Repository
-  • Remote: {REPO_OWNER_NAME} | ⚠️ No git remote
+  • Remote: {REPO_OWNER_NAME}
+  • Platform: {REPO_PLATFORM}
 
 dbt Project
   • Name: {DBT_PROJECT_NAME} | ⚠️ No dbt_project.yml
 
-GitHub Actions Workflows
-  • Found: {count} workflow(s) | ⚠️ None found
-  • CI trigger: {CI_TRIGGER} | ⚠️ None
-  • CD trigger: {CD_TRIGGER} | ⚠️ None
+CI/CD Platform
+  • Detected: {CI_PLATFORM} | ⚠️ No CI config found
+  • Config files: {CI_CONFIG_FILES}
 
-Current CI Pattern
-  • Build strategy: {BUILD_STRATEGY}
-    - slim = uses state:modified+ (efficient)
-    - full = rebuilds everything
-  • State source: {STATE_SOURCE}
-    - recce-cloud = downloads prod baseline
-    - local = uses local state path
-    - none = no state comparison
-  • dbt docs generate: ✅ | ❌
+dbt Commands Found:
+┌──────────────────────┬──────┬─────────────────────────┬────────┬──────┐
+│ File                 │ Line │ Command                 │ Target │ Type │
+├──────────────────────┼──────┼─────────────────────────┼────────┼──────┤
+│ .github/workflows/ci │ 24   │ dbt build --target ci   │ ci     │ CI   │
+│ .github/workflows/cd │ 31   │ dbt build --target prod │ prod   │ CD   │
+└──────────────────────┴──────┴─────────────────────────┴────────┴──────┘
+
+dbt docs generate: ✅ Found | ❌ Not found
+Recce Cloud: ✅ Configured | ❌ Not configured
 
 Python Tooling
   • Package manager: {DETECTED_PKG_MANAGER}
   • Python version: {DETECTED_PYTHON_VERSION}
 
-Recce Cloud Integration
-  • Status: ✅ Configured | ❌ Not configured
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-**If `WORKFLOWS_FOUND=false`:**
-
-Add after the report:
-```
-⚠️ No GitHub Actions workflows detected.
-
-This command currently supports GitHub Actions.
-For dbt Cloud or other orchestration, see:
-  https://docs.datarecce.io/recce-cloud/ci-integration
 ```
 
 ---
 
-## Phase 2: Gap Analysis
+## Phase 2: Gap Analysis & Path Selection
 
-Based on detection results, identify what's needed:
+Based on detection results, determine which path to follow:
 
-### 2.1 Determine Recce Integration Status
+### 2.1 Check if Already Configured
 
-**Already configured if ANY of:**
-- Workflow contains `recce-cloud upload`
-- Workflow contains `recce-cloud download`
-- Workflow contains `DataRecce/recce-cloud-cicd-action`
-
-**If already configured:**
+**If `RECCE_CONFIGURED=true`:**
 ```
 ✅ Recce Cloud integration detected!
 
 Your CI/CD is already configured with Recce. To verify it's working:
 1. Create a PR with a dbt model change
 2. Check the PR for Recce Cloud comments
-3. Run `recce-cloud doctor` (CLI) for detailed diagnostics
 
 View your project: https://cloud.datarecce.io
 ```
-- End here (success state)
+→ End here (success state)
 
-### 2.2 Identify Gaps
+### 2.2 Determine Path
 
-**If NOT configured, show gaps:**
+**Path A: No CI/CD Found** (`CI_PLATFORM=none`)
+→ Go to **Phase 3A: Generate New CI/CD**
 
-```
-🔍 Gap Analysis
+**Path B: Existing CI/CD Found** (`CI_PLATFORM` is set, `DBT_COMMANDS` list is not empty)
+→ Go to **Phase 3B: Augment Existing CI/CD**
 
-To enable Recce Cloud on PRs, you need:
-
-[CI - Pull Request Workflow]
-  1. ❌ Add `dbt docs generate` step (required for artifacts)
-  2. ❌ Add `recce-cloud upload` step (uploads to Cloud)
-  3. ✅ GITHUB_TOKEN available (auto-provided by GitHub)
-
-[CD - Production Baseline Workflow]
-  4. ❌ Add workflow to upload prod artifacts on main branch
-     OR add conditional step to existing workflow
-```
+**Edge Case: CI exists but no dbt commands found**
+→ Show warning, suggest adding dbt to CI first or use Path A to create separate Recce workflows
 
 ---
 
-## Phase 3: Setup Assistance
+## Phase 3A: Generate New CI/CD (No existing CI)
 
-If gaps exist, offer to help:
+For users without CI/CD, generate standard GitHub Actions workflows.
 
-### 3.1 Resolve Unknown Preferences
+### 3A.1 Resolve Unknown Preferences
 
 **Only ask if detection was unclear.** Use AskUserQuestion for unknowns:
 
 **If `DETECTED_PKG_MANAGER` is `unknown`:**
-```
-Which package manager do you use for Python dependencies?
-```
-Options:
-1. **uv (Recommended)** - Fast, modern Python package manager
-2. **pip** - Traditional Python package manager
+- Options: uv (Recommended), pip
 
 **If `DETECTED_PYTHON_VERSION` is `unknown`:**
-```
-Which Python version should the CI use?
-```
-Options:
-1. **3.12 (Recommended)** - Latest stable
-2. **3.11** - Previous stable
-3. **3.10** - Older stable
+- Options: 3.12 (Recommended), 3.11, 3.10
 
-### 3.2 Ask User How to Proceed
+### 3A.2 Generate Workflows
+
+**CI Workflow** (`.github/workflows/recce-ci.yml`):
+- Trigger: `pull_request` to main
+- Steps: checkout → setup Python → install deps + recce-cloud → dbt build → dbt docs generate → recce-cloud upload
+- Uses slim CI with `state:modified+` for efficiency (advanced)
+
+**CD Workflow** (`.github/workflows/recce-prod.yml`):
+- Trigger: `push` to main + `workflow_dispatch`
+- Steps: checkout → setup Python → install deps + recce-cloud → dbt build → dbt docs generate → recce-cloud upload --type prod
+
+Use the `python-uv-ci`, `python-pip-ci`, and `dbt-ci` skills to generate proper workflow steps.
+
+### 3A.3 Apply Changes
+
+→ Go to **Phase 4: Commit and Push Workflow**
+
+---
+
+## Phase 3B: Augment Existing CI/CD (Has existing CI)
+
+For users with existing CI/CD, identify where to add Recce commands.
+
+### 3B.1 Analyze dbt Commands
+
+From `DBT_COMMANDS` list, identify:
+- **CI jobs**: Jobs triggered on PRs/merge requests
+- **CD jobs**: Jobs triggered on main branch push
+
+### 3B.2 Determine Required Changes
+
+For each dbt command found:
+
+**Check if `dbt docs generate` exists after it:**
+- If NO → Need to add `dbt docs generate --target {same_target}`
+
+**Check if `recce-cloud upload` exists after it:**
+- If NO and job_type=CI → Need to add `recce-cloud upload`
+- If NO and job_type=CD → Need to add `recce-cloud upload --type prod`
+
+**Check if `recce-cloud` is in dependencies:**
+- If NO → Need to add to install step
+
+### 3B.3 Show Proposed Changes
+
+Display changes in diff format:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 Proposed Changes
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{CI_CONFIG_FILE}:
+
+  [Install step - add recce-cloud to dependencies]
+    pip install dbt-core dbt-snowflake
++   pip install recce-cloud
+
+  [CI job "{job_name}" - after line {line} (dbt build --target {ci_target})]
++   dbt docs generate --target {ci_target}
++   recce-cloud upload
++   env:
++     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # or platform equivalent
+
+  [CD job "{job_name}" - after line {line} (dbt build --target {cd_target})]
++   dbt docs generate --target {cd_target}
++   recce-cloud upload --type prod
++   env:
++     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # or platform equivalent
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Platform-specific token notes:**
+- GitHub Actions: `${{ secrets.GITHUB_TOKEN }}` (auto-provided)
+- GitLab CI: `$CI_JOB_TOKEN` or project access token
+- CircleCI: `$GITHUB_TOKEN` from context
+- Others: User must configure authentication
+
+### 3B.4 Ask User to Confirm
 
 Use AskUserQuestion:
-
 ```
-How would you like to set up Recce Cloud CI/CD?
+Apply these changes?
 ```
-
 Options:
-1. **Create PR with changes (Recommended)** - I'll create a branch, add Recce to your workflows, and open a PR
-2. **Show me the changes** - I'll show the exact changes needed, you apply manually
-3. **Skip for now** - Exit without making changes
+1. **Yes, apply changes** - I'll modify the files and create a branch
+2. **Show me the full files** - Display complete modified files
+3. **Skip for now** - Exit without changes
 
-### 3.3 Option 1: Create PR with Changes
+### 3B.5 Apply Changes
 
-#### Determine which workflow to modify
+If user confirms, edit the CI config files to add the required lines.
 
-**If exactly one workflow has dbt commands:**
-- Use that workflow (no need to ask)
+→ Go to **Phase 4: Commit and Push Workflow**
 
-**If multiple workflows have dbt commands:**
-- Ask user which one to modify
+---
 
-**If no workflows have dbt commands:**
-- Create new standalone workflows
+## Phase 4: Commit and Push Workflow
 
-#### Generate CI Workflow
+After making changes (Path A or Path B):
 
-Create `.github/workflows/recce-ci.yml` with these components:
-
-**Workflow header:**
-```yaml
-name: Recce CI
-
-on:
-  pull_request:
-    branches: [main]
-```
-
-**Job steps - Python/Package Setup:**
-
-Generate based on `DETECTED_PKG_MANAGER` and `DETECTED_PYTHON_VERSION`:
-
-**If uv:** Use the `python-uv-ci` skill to generate the setup steps with:
-- `{PYTHON_VERSION}` = `DETECTED_PYTHON_VERSION`
-- `{DEPENDENCIES}` = user's existing dbt packages + `recce-cloud`
-- `{COMMAND}` = dbt and recce-cloud commands
-
-**If pip:** Use the `python-pip-ci` skill to generate the setup steps with:
-- `{PYTHON_VERSION}` = `DETECTED_PYTHON_VERSION`
-- `{DEPENDENCIES}` = user's existing dbt packages + `recce-cloud`
-- `{COMMAND}` = dbt and recce-cloud commands
-
-**Note:** If the user already has dbt installation steps in their workflows, just add `recce-cloud` to their existing install command.
-
-**Job steps - CI workflow order:**
-
-1. **Download baseline** (before dbt):
-   ```yaml
-   - name: Download production baseline from Recce Cloud
-     run: uv run recce-cloud download --prod --target-path target-base  # pip: source .venv/bin/activate && recce-cloud ...
-     env:
-       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-   ```
-
-2. **Run dbt** - Use the `dbt-ci` skill (Incremental Build) with:
-   - `{TARGET}` = user's CI target (e.g., `ci`, `dev`)
-   - `{STATE_PATH}` = `target-base`
-
-   This runs `dbt build --select state:modified+ --state target-base` to only rebuild changed models.
-
-3. **Upload artifacts** (after dbt):
-   ```yaml
-   - name: Upload PR artifacts to Recce Cloud
-     run: uv run recce-cloud upload  # pip: source .venv/bin/activate && recce-cloud ...
-     env:
-       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-   ```
-
-#### Generate CD Workflow
-
-Create `.github/workflows/recce-prod.yml` (or add to existing main branch workflow):
-
-**Workflow header:**
-```yaml
-name: Recce Production Baseline
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-```
-
-**Job steps - CD workflow order:**
-
-1. Python/package setup - Use `python-uv-ci` or `python-pip-ci` skill (same as CI)
-
-2. Run dbt - Use the `dbt-ci` skill (Full Build) with:
-   - `{TARGET}` = user's production target (e.g., `prod`)
-
-   This runs a full `dbt build` without `--state` flag.
-
-3. **Upload as production baseline**:
-   ```yaml
-   - name: Upload production baseline to Recce Cloud
-     run: uv run recce-cloud upload --type prod  # pip: source .venv/bin/activate && recce-cloud ...
-     env:
-       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-   ```
-
-#### Key Integration Points
-
-The only additions needed for Recce Cloud are:
-
-1. **Install recce-cloud** - Add to existing pip/uv install step
-2. **`dbt docs generate`** - Ensure this runs (generates required artifacts)
-3. **CI workflow**: Add `recce-cloud download` (before dbt) and `recce-cloud upload` (after dbt)
-4. **CD workflow**: Add `recce-cloud upload --type prod` (after dbt on main branch)
-
-`GITHUB_TOKEN` is automatically provided by GitHub Actions - no additional secrets needed for Recce Cloud.
-
-#### Create branch, push, and PR
-
-After generating the workflow files:
+### 4.1 Create Branch
 
 ```bash
-# Create branch
 git checkout -b recce/setup-cloud-integration
+git add <modified_files>
+```
 
-# Stage changes
-git add .github/workflows/
+### 4.2 Ask to Commit
 
-# Commit
+Use AskUserQuestion:
+```
+Commit these changes?
+```
+Options:
+1. **Yes** - Commit with standard message
+2. **Yes, with custom message** - Let me specify the message
+3. **No** - Keep changes staged but don't commit
+
+**If yes:**
+```bash
 git commit -s -m "ci: add Recce Cloud integration
 
-- Add recce-ci.yml for PR artifact uploads
-- Add recce-prod.yml for production baseline
+- Add dbt docs generate step
+- Add recce-cloud upload for PR artifacts
+- Add recce-cloud upload --type prod for production baseline
 
 Generated by /recce-dbt-doctor"
+```
 
-# Always push first (don't block on gh availability)
+### 4.3 Ask to Push
+
+Use AskUserQuestion:
+```
+Push to remote?
+```
+Options:
+1. **Yes** - Push branch to origin
+2. **No** - Keep local only
+
+**If yes:**
+```bash
 git push -u origin recce/setup-cloud-integration
 ```
 
-**After push succeeds, check for gh CLI and create PR:**
+### 4.4 Ask to Create PR/MR
 
+Use AskUserQuestion:
+```
+Create pull request?
+```
+Options:
+1. **Yes** - Create PR/MR
+2. **No** - Just push the branch
+
+**If yes, based on platform:**
+
+**GitHub:**
 ```bash
-# Check if gh is available
 if gh --version >/dev/null 2>&1; then
-  # gh available - create PR automatically
-  gh pr create \
-    --title "Add Recce Cloud CI/CD integration" \
-    --body "## Summary
-  This PR adds Recce Cloud integration to the CI/CD pipeline.
-
-  ### Changes
-  - Added \`recce-ci.yml\` - Downloads prod baseline, runs dbt, uploads PR artifacts
-  - Added \`recce-prod.yml\` - Uploads production baseline on merge to main
-
-  ### How it works
-  - **On PRs**: Downloads production baseline → runs dbt → uploads PR artifacts to Recce Cloud
-  - **On merge to main**: Runs dbt → uploads new production baseline
-
-  No additional secrets required - uses the built-in \`GITHUB_TOKEN\`.
-
-  ### Next Steps
-  1. Merge this PR
-  2. Trigger the production workflow manually to create initial baseline:
-     - Go to Actions → 'Recce Production Baseline' → Run workflow
-  3. Create a test PR with a dbt change to verify integration
-
-  ### Documentation
-  - [Recce Cloud CI/CD Guide](https://datarecce.io/docs/recce-cloud/ci-integration)
-
-  ---
-  Generated by \`/recce-dbt-doctor\`"
+  gh pr create --title "Add Recce Cloud CI/CD integration" --body "..."
+else
+  echo "Create PR at: https://github.com/{owner}/{repo}/compare/recce/setup-cloud-integration"
 fi
 ```
 
-**Display based on result:**
-
-**If gh available and PR created:**
+**GitLab:**
 ```
-✅ Branch pushed and PR created!
+Create MR at: https://gitlab.com/{owner}/{repo}/-/merge_requests/new?merge_request[source_branch]=recce/setup-cloud-integration
+```
 
-PR URL: https://github.com/{owner}/{repo}/pull/123
+**Bitbucket:**
+```
+Create PR at: https://bitbucket.org/{owner}/{repo}/pull-requests/new?source=recce/setup-cloud-integration
+```
+
+**Other platforms:**
+```
+Branch pushed. Create a pull request from: recce/setup-cloud-integration
+```
+
+### 4.5 Success Output
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Recce Cloud Integration Setup Complete
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Branch: recce/setup-cloud-integration
+Status: {committed/pushed/PR created}
 
 Next steps:
-1. Review and merge the PR
-2. Trigger production workflow manually to create initial baseline
-3. Create a test PR with a dbt change to see Recce in action
+1. Review and merge the changes
+2. Run CD workflow to create initial production baseline
+3. Create a test PR with a dbt change to verify
 
 View your project: https://cloud.datarecce.io
-```
 
-**If gh NOT available:**
-```
-✅ Branch pushed: recce/setup-cloud-integration
+💡 Advanced: For slim CI (only build changed models), see:
+   https://docs.datarecce.io/recce-cloud/slim-ci
 
-⚠️ gh CLI not found — create PR manually:
-   https://github.com/{owner}/{repo}/compare/recce/setup-cloud-integration
-
-To install gh CLI for automatic PR creation:
-   https://cli.github.com/
-
-Next steps after creating PR:
-1. Review and merge the PR
-2. Trigger production workflow manually to create initial baseline
-3. Create a test PR with a dbt change to see Recce in action
-
-View your project: https://cloud.datarecce.io
-```
-
-### 3.4 Option 2: Show Changes
-
-Generate and display the exact workflow files (using the dynamic generation rules above):
-
-```
-📝 Changes needed for Recce Cloud integration:
-
-Configuration detected:
-  • Package manager: {DETECTED_PKG_MANAGER}
-  • Python version: {DETECTED_PYTHON_VERSION}
-
-──────────────────────────────────────────────
-File: .github/workflows/recce-ci.yml (CREATE)
-──────────────────────────────────────────────
-
-{GENERATE_FULL_CI_WORKFLOW_YAML}
-
-──────────────────────────────────────────────
-File: .github/workflows/recce-prod.yml (CREATE)
-──────────────────────────────────────────────
-
-{GENERATE_FULL_PROD_WORKFLOW_YAML}
-
-──────────────────────────────────────────────
-
-No additional GitHub Secrets required - Recce Cloud uses the
-built-in GITHUB_TOKEN which is automatically available.
-
-After adding these files:
-1. Commit and push to main
-2. Trigger production workflow manually to create baseline
-3. Create a test PR to verify CI workflow
-```
-
-### 3.5 Option 3: Skip
-
-```
-Okay, no changes made.
-
-When you're ready to set up Recce Cloud CI/CD, run:
-  /recce-dbt-doctor
-
-Key commands for manual setup:
-
-  # In CI (PR workflow):
-  recce-cloud download --prod --target-path target-base  # Get production baseline
-  dbt build && dbt docs generate                          # Run dbt
-  recce-cloud upload                                      # Upload PR artifacts
-
-  # In CD (main branch workflow):
-  dbt build && dbt docs generate                          # Run dbt
-  recce-cloud upload --type prod                          # Upload as production baseline
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ---

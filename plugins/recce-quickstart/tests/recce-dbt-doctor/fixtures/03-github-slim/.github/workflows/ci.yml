@@ -1,0 +1,61 @@
+name: dbt CI (Slim)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install dbt-core dbt-snowflake
+
+      - name: Download production manifest
+        run: |
+          aws s3 cp s3://my-bucket/manifest.json target-base/manifest.json
+
+      - name: Run dbt (modified only)
+        run: |
+          dbt deps
+          dbt build --target ci --select state:modified+ --state target-base
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install dbt-core dbt-snowflake
+
+      - name: Run dbt production
+        run: |
+          dbt deps
+          dbt build --target prod
+          dbt docs generate --target prod
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+
+      - name: Upload manifest to S3
+        run: |
+          aws s3 cp target/manifest.json s3://my-bucket/manifest.json
