@@ -3,31 +3,27 @@
 ## Detection Report
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 Environment Detection Report
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **Environment Detection Report**
 
-Repository
-  • Remote: ⚠️ No git remote
+**Repository**
+- Remote: ⚠️ No git remote
 
-dbt Project
-  • Name: jaffle_shop
+**dbt Project**
+- Name: jaffle_shop
 
-CI/CD Platform
-  • Detected: ⚠️ No CI config found
-  • Config files: none
+**CI/CD Platform**
+- Detected: ⚠️ No CI config found
+- Config files: none
 
-dbt Commands Found:
-  (none)
+**dbt Commands Found:**
+(none)
 
-dbt docs generate: ❌ Not found
-Recce Cloud: ❌ Not configured
+**dbt docs generate:** ❌ Not found
+**Recce Cloud:** ❌ Not configured
 
-Python Tooling
-  • Package manager: unknown
-  • Python version: unknown
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Python Tooling**
+- Package manager: unknown
+- Python version: unknown
 ```
 
 ## Expected Path

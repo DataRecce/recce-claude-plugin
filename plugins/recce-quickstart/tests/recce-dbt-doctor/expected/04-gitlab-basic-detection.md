@@ -3,36 +3,31 @@
 ## Detection Report
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 Environment Detection Report
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **Environment Detection Report**
 
-Repository
-  • Remote: ⚠️ No git remote
+**Repository**
+- Remote: ⚠️ No git remote
 
-dbt Project
-  • Name: jaffle_shop
+**dbt Project**
+- Name: jaffle_shop
 
-CI/CD Platform
-  • Detected: gitlab
-  • Config files: .gitlab-ci.yml
+**CI/CD Platform**
+- Detected: gitlab
+- Config files: .gitlab-ci.yml
 
-dbt Commands Found:
-┌─────────────────┬──────┬─────────────────────────┬────────┬──────┐
-│ File            │ Line │ Command                 │ Target │ Type │
-├─────────────────┼──────┼─────────────────────────┼────────┼──────┤
-│ .gitlab-ci.yml  │ 18   │ dbt build --target ci   │ ci     │ CI   │
-│ .gitlab-ci.yml  │ 27   │ dbt build --target prod │ prod   │ CD   │
-└─────────────────┴──────┴─────────────────────────┴────────┴──────┘
+**dbt Commands Found:**
 
-dbt docs generate: ❌ Not found
-Recce Cloud: ❌ Not configured
+| File | Line | Command | Target | Type |
+|------|------|---------|--------|------|
+| .gitlab-ci.yml | 18 | `dbt build --target ci` | ci | CI |
+| .gitlab-ci.yml | 27 | `dbt build --target prod` | prod | CD |
 
-Python Tooling
-  • Package manager: pip
-  • Python version: 3.12
+**dbt docs generate:** ❌ Not found
+**Recce Cloud:** ❌ Not configured
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Python Tooling**
+- Package manager: pip
+- Python version: 3.12
 ```
 
 ## Expected Path

@@ -5,6 +5,14 @@ args:
   - name: issue
     description: Optional issue description (e.g., "workflow failing", "baseline not found")
     required: false
+allowed-tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
 ---
 
 # Recce dbt Doctor - Cloud CI/CD Configuration & Troubleshooting
@@ -105,14 +113,35 @@ Store:
 **For each CI config file found, extract dbt commands with context:**
 
 ```bash
-grep -n -E "dbt (build|run|test|seed|snapshot|deps)" <config_file>
+# Use -A 5 to capture multi-line commands (flags may be on following lines)
+grep -n -A 5 -E "dbt (build|run|test|seed|snapshot)" <config_file>
 ```
+
+**Handle multi-line dbt commands:**
+
+YAML commands may span multiple lines:
+```yaml
+# Pattern 1: Flags on continuation lines
+- run: |
+    dbt build \
+      --target ci \
+      --select state:modified+
+
+# Pattern 2: Block scalar
+- run: >
+    dbt build
+    --target ci
+```
+
+After finding a dbt command line, check the following 3-5 lines for:
+- Lines starting with `--` (flag continuation)
+- Lines with same or deeper indentation (same YAML block)
 
 **For each dbt command found, extract:**
 
-1. **Line number** - Where the command is
-2. **Full command** - e.g., `dbt build --target ci`
-3. **Target** - Extract `--target <value>` if present
+1. **Line number** - Where the command starts
+2. **Full command** - Combine base command + continuation lines (e.g., `dbt build --target ci --select state:modified+`)
+3. **Target** - Extract `--target <value>` from any line in the command block
 4. **Job/stage context** - Which job or stage contains this command
 
 **Determine job type (CI vs CD) by looking for triggers:**
@@ -145,40 +174,37 @@ RECCE_CONFIGURED: true | false
 
 ### 1.6 Detection Report
 
-After ALL detection completes, display this fixed template:
+After ALL detection completes, display using this template:
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 Environment Detection Report
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **Environment Detection Report**
 
-Repository
-  • Remote: {REPO_OWNER_NAME} | ⚠️ No git remote
+**Repository**
+- Remote: {REPO_OWNER_NAME} | ⚠️ No git remote
 
-dbt Project
-  • Name: {DBT_PROJECT_NAME} | ⚠️ No dbt_project.yml
+**dbt Project**
+- Name: {DBT_PROJECT_NAME} | ⚠️ No dbt_project.yml
 
-CI/CD Platform
-  • Detected: {CI_PLATFORM} | ⚠️ No CI config found
-  • Config files: {CI_CONFIG_FILES}
+**CI/CD Platform**
+- Detected: {CI_PLATFORM} | ⚠️ No CI config found
+- Config files: {CI_CONFIG_FILES}
 
-dbt Commands Found:
-┌──────────────────────┬──────┬─────────────────────────┬────────┬──────┐
-│ File                 │ Line │ Command                 │ Target │ Type │
-├──────────────────────┼──────┼─────────────────────────┼────────┼──────┤
-│ .github/workflows/ci │ 24   │ dbt build --target ci   │ ci     │ CI   │
-│ .github/workflows/cd │ 31   │ dbt build --target prod │ prod   │ CD   │
-└──────────────────────┴──────┴─────────────────────────┴────────┴──────┘
+**dbt Commands Found:**
 
-dbt docs generate: ✅ Found | ❌ Not found
-Recce Cloud: ✅ Configured | ❌ Not configured
+| File | Line | Command | Target | Type |
+|------|------|---------|--------|------|
+| .github/workflows/ci.yml | 24 | `dbt build --target ci` | ci | CI |
+| .github/workflows/ci.yml | 31 | `dbt build --target prod` | prod | CD |
 
-Python Tooling
-  • Package manager: {DETECTED_PKG_MANAGER}
-  • Python version: {DETECTED_PYTHON_VERSION}
+**dbt docs generate:** ✅ Found | ❌ Not found
+**Recce Cloud:** ✅ Configured | ❌ Not configured
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Python Tooling**
+- Package manager: {DETECTED_PKG_MANAGER}
+- Python version: {DETECTED_PYTHON_VERSION}
 ```
+
+Note: Use markdown tables - they handle variable-width content gracefully.
 
 ---
 

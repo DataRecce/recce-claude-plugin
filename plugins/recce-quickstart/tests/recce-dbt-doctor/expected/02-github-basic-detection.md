@@ -3,36 +3,31 @@
 ## Detection Report
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 Environment Detection Report
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **Environment Detection Report**
 
-Repository
-  • Remote: ⚠️ No git remote
+**Repository**
+- Remote: ⚠️ No git remote
 
-dbt Project
-  • Name: jaffle_shop
+**dbt Project**
+- Name: jaffle_shop
 
-CI/CD Platform
-  • Detected: github-actions
-  • Config files: .github/workflows/ci.yml
+**CI/CD Platform**
+- Detected: github-actions
+- Config files: .github/workflows/ci.yml
 
-dbt Commands Found:
-┌──────────────────────────┬──────┬─────────────────────────┬────────┬──────┐
-│ File                     │ Line │ Command                 │ Target │ Type │
-├──────────────────────────┼──────┼─────────────────────────┼────────┼──────┤
-│ .github/workflows/ci.yml │ 25   │ dbt build --target ci   │ ci     │ CI   │
-│ .github/workflows/ci.yml │ 47   │ dbt build --target prod │ prod   │ CD   │
-└──────────────────────────┴──────┴─────────────────────────┴────────┴──────┘
+**dbt Commands Found:**
 
-dbt docs generate: ❌ Not found
-Recce Cloud: ❌ Not configured
+| File | Line | Command | Target | Type |
+|------|------|---------|--------|------|
+| .github/workflows/ci.yml | 25 | `dbt build --target ci` | ci | CI |
+| .github/workflows/ci.yml | 47 | `dbt build --target prod` | prod | CD |
 
-Python Tooling
-  • Package manager: pip
-  • Python version: 3.12
+**dbt docs generate:** ❌ Not found
+**Recce Cloud:** ❌ Not configured
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Python Tooling**
+- Package manager: pip
+- Python version: 3.12
 ```
 
 ## Expected Path

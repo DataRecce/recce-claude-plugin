@@ -1,9 +1,9 @@
 ---
 name: dbt-ci
 description: >
-  GitHub Actions workflow steps for running dbt in CI.
-  Use this skill when generating CI workflows that need dbt build,
-  test, and docs generation with configurable targets and state-based selection.
+  Use when generating GitHub Actions workflows for dbt, adding dbt build/test/docs steps,
+  or configuring state-based selection with --select state:modified+.
+  Provides templates for both full builds (CD) and incremental builds (CI).
 ---
 
 # dbt CI
@@ -77,3 +77,9 @@ Requires `--state <path>` pointing to a directory with baseline `manifest.json`.
 - Always run `dbt docs generate` to create artifacts for comparison tools
 - Match `--target` to your profiles.yml environment (prod, ci, dev)
 - Ensure baseline manifest exists before using `--state` flag
+
+## Related Skills
+
+- Use `python-uv-ci` skill for Python/uv environment setup steps
+- Use `python-pip-ci` skill for Python/pip environment setup steps
+- Use `recce-cloud-ci` skill for Recce Cloud upload/download steps

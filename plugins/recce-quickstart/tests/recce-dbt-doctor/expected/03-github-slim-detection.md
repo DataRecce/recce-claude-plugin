@@ -3,37 +3,32 @@
 ## Detection Report
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 Environment Detection Report
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **Environment Detection Report**
 
-Repository
-  • Remote: ⚠️ No git remote
+**Repository**
+- Remote: ⚠️ No git remote
 
-dbt Project
-  • Name: jaffle_shop
+**dbt Project**
+- Name: jaffle_shop
 
-CI/CD Platform
-  • Detected: github-actions
-  • Config files: .github/workflows/ci.yml
+**CI/CD Platform**
+- Detected: github-actions
+- Config files: .github/workflows/ci.yml
 
-dbt Commands Found:
-┌──────────────────────────┬──────┬───────────────────────────────────────────────────┬────────┬──────┐
-│ File                     │ Line │ Command                                           │ Target │ Type │
-├──────────────────────────┼──────┼───────────────────────────────────────────────────┼────────┼──────┤
-│ .github/workflows/ci.yml │ 30   │ dbt build --target ci --select state:modified+   │ ci     │ CI   │
-│ .github/workflows/ci.yml │ 51   │ dbt build --target prod                           │ prod   │ CD   │
-│ .github/workflows/ci.yml │ 52   │ dbt docs generate --target prod                   │ prod   │ CD   │
-└──────────────────────────┴──────┴───────────────────────────────────────────────────┴────────┴──────┘
+**dbt Commands Found:**
 
-dbt docs generate: ✅ Found (CD only)
-Recce Cloud: ❌ Not configured
+| File | Line | Command | Target | Type |
+|------|------|---------|--------|------|
+| .github/workflows/ci.yml | 30 | `dbt build --target ci --select state:modified+` | ci | CI |
+| .github/workflows/ci.yml | 51 | `dbt build --target prod` | prod | CD |
+| .github/workflows/ci.yml | 52 | `dbt docs generate --target prod` | prod | CD |
 
-Python Tooling
-  • Package manager: pip
-  • Python version: 3.12
+**dbt docs generate:** ✅ Found (CD only)
+**Recce Cloud:** ❌ Not configured
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Python Tooling**
+- Package manager: pip
+- Python version: 3.12
 ```
 
 ## Expected Path
