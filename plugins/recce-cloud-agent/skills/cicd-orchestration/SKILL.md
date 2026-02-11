@@ -1,14 +1,19 @@
+---
+name: cicd-orchestration
+description: >
+  This skill should be used when the user asks to "set up CI/CD",
+  "configure Recce in pipeline", "troubleshoot CI failures",
+  "automate PR reviews", "diagnose CI configuration issues",
+  or "generate Recce workflow YAML".
+  Provides a structured 5-phase workflow for generating Recce CI/CD workflows
+  for the web agent.
+---
+
 # CI/CD Orchestration (Web Agent)
-
-## Trigger
-
-User asks about: setting up CI/CD, configuring Recce in pipeline,
-troubleshooting CI failures, automating PR reviews, or diagnosing
-dbt project / CI configuration issues.
 
 ## Scope Boundary
 
-This agent's ONLY job is generating **Recce CI/CD workflows** (recce-ci.yml + recce-cd.yml).
+This agent's ONLY job is generating **Recce CI/CD workflows** (e.g., `recce-ci.yml` + `recce-cd.yml` — actual filenames may vary based on Recce docs and user conventions).
 
 ### In Scope
 - Detecting project setup (adapter, package manager, Python version)
@@ -25,7 +30,7 @@ This agent's ONLY job is generating **Recce CI/CD workflows** (recce-ci.yml + re
 - Any tooling decision unrelated to Recce CI/CD workflow content
 
 When encountering out-of-scope topics, respond with:
-"這部分不在 Recce CI/CD 設定範圍內，你可以參考 [relevant docs link] 了解更多。"
+"This is outside the scope of Recce CI/CD setup. You can refer to [relevant docs link] for more information."
 Then redirect back to the CI/CD workflow setup.
 
 ## Phase 1: Knowledge Gathering (Doc MCP)
@@ -37,9 +42,9 @@ Then redirect back to the CI/CD workflow setup.
 5. **Broken link handling:**
    - If `get_doc_page` returns "Page not found": skip gracefully
    - Re-search for similar content with alternative query
-   - Inform user: "文件中的 [link] 目前無法存取，已跳過"
+   - Inform user: "The link [link] in the docs is currently inaccessible and has been skipped."
 
-**Exit criteria:** You have read at least one CI/CD guide page AND one getting-started page before continuing.
+**Exit criteria:** Have read at least one CI/CD guide page AND one getting-started page before continuing.
 
 ## Phase 2: Repository Exploration (GitHub Tools)
 
@@ -51,7 +56,8 @@ Then redirect back to the CI/CD workflow setup.
    - `dbt_project.yml` location (root or subdirectory → monorepo?)
    - Package manager: `requirements.txt`, `uv.lock`, `pyproject.toml`, `poetry.lock`
    - Python version: `.python-version`, `runtime.txt`, `pyproject.toml`
-   - Existing workflows: `.github/workflows/*.yml`
+   - CI platform: `.github/workflows/*.yml` → GitHub Actions, `.gitlab-ci.yml` → GitLab CI
+   - Existing workflows in detected CI platform directory
    - `profiles.yml` presence (should NOT be in repo for CI)
    - dbt execution mode: check if repo has dbt in requirements.txt/pyproject.toml
      - If YES → local dbt CLI project
@@ -61,7 +67,7 @@ Then redirect back to the CI/CD workflow setup.
    - Whether Recce is already configured
    - Existing CI configuration to augment vs replace
 
-**Exit criteria:** You have identified the adapter type, package manager, and existing CI status.
+**Exit criteria:** Have identified the adapter type, package manager, CI platform, and existing CI status.
 
 ### dbt Cloud Projects
 
@@ -72,7 +78,7 @@ requirements.txt / pyproject.toml / packages):
 2. If docs contain dbt Cloud–specific workflow templates → use them
 3. If docs have NO dbt Cloud guidance → **fallback to local dbt CLI approach**:
    - Generate standard workflows that install dbt + adapter via pip/uv
-   - In Detection Report, note: "目前偵測到您的專案使用 dbt Cloud，Recce CI/CD workflow 將以本地 dbt CLI 執行為基礎。"
+   - In Detection Report, note: "Your project appears to use dbt Cloud. The Recce CI/CD workflow will be generated based on local dbt CLI execution."
 4. **Never** present "local vs Cloud" as a choice to the user
 5. **Never** offer to help configure dbt Cloud integration, API tokens, or artifact downloads
 
@@ -88,16 +94,17 @@ Present findings using this **exact format**:
 | dbt adapter | {from dbt_project.yml/requirements.txt} |
 | Package manager | {requirements.txt / uv.lock / pyproject.toml} |
 | Python version | {detected or default 3.11} |
+| CI platform | {GitHub Actions / GitLab CI / other} |
 | Existing CI | {none / has CI but no Recce / has Recce} |
 
-Based on Recce docs, you need two GitHub Actions workflows:
-1. CD (`recce-cd.yml`): updates baseline after merge to main
-2. CI (`recce-ci.yml`): validates data changes on PRs
+Based on Recce docs, you need two CI/CD workflows:
+1. CD (e.g., `recce-cd.yml`): updates baseline after merge to main
+2. CI (e.g., `recce-ci.yml`): validates data changes on PRs
 
-要幫你設定 Recce CI/CD 嗎？
+Shall I set up Recce CI/CD for you?
 ```
 
-**⚠️ STOP HERE and wait for user response.** Do NOT continue to Phase 4 until user confirms.
+**STOP HERE and wait for user response.** Do NOT continue to Phase 4 until user confirms.
 
 - If anything was undetectable (e.g., adapter type ambiguous), ask about ONLY that specific item.
 - Everything else should be stated as detected facts, not questions.
@@ -112,56 +119,26 @@ Based on Recce docs, you need two GitHub Actions workflows:
    - All workflow files with file paths and complete YAML content
    - Explain what each workflow does
    - List required secrets and how to configure them
-   - End with: "確認送出 PR 嗎？"
+   - End with: "Ready to create the PR?"
 
-**⚠️ STOP HERE and wait for user response.** Do NOT call `create_cicd_pull_request` until user confirms.
+**STOP HERE and wait for user response.** Do NOT call `create_cicd_pull_request` until user confirms.
 
 3. After user approval:
    - `create_cicd_pull_request` with all files in a single PR
    - Report PR URL back to user
 
-## Phase 5: Debug Loop (Future — Placeholder)
+## Phase 5: Debug Loop
 
 If user reports CI failure after setup:
 
-- Read GitHub Actions run results (future: `get_pr_checks` tool)
 - Cross-reference error with docs: `search_docs("<error message>")`
 - Diagnose based on docs knowledge + error logs
-- Suggest fixes or offer to update the PR (future: `update_pr_files` tool)
+- Suggest fixes or offer to update the PR
 
 For now: guide user to check Actions tab and share error logs.
 
-## Anti-Patterns
+## Reference Files
 
-### Forbidden Questions (NEVER ask these)
-- "Which CI/CD platform do you prefer?" — the user is on GitHub, always use GitHub Actions
-- "What adapter are you using?" — detect from `requirements.txt` or `dbt_project.yml`
-- "What package manager do you use?" — detect from file listing
-- "What Python version?" — detect from `.python-version` or default to 3.11
-- "Do you want CI or CD?" — always set up both
-- "Which approach do you prefer for dbt execution?" — never present dbt strategy choices
-- "Do you want to use dbt Cloud or local CLI?" — detect and decide, don't ask
-- "Do you need help setting up your warehouse connection?" — out of scope
-
-### Workflow Rules
-- **Don't generate YAML without consulting docs first** — docs are the SSOT for templates
-- **Don't create PR without showing preview and getting confirmation**
-- **Don't mention unsupported platforms** — check docs for supported adapters first
-- **Don't hardcode YAML templates** — always derive from current documentation
-- **Don't assume single workflow file** — Recce typically needs both CI and CD workflows
-- **Don't skip the Detection Report** — always present structured findings before YAML
-- **Don't offer dbt configuration assistance** — only generate Recce CI/CD workflows
-- **Don't present dbt execution choices** — if docs have dbt Cloud templates use them, otherwise default to local dbt CLI
-- **Don't help with warehouse/infra setup** — provide docs links and redirect to CI/CD
-
-## Diagnosis Mode
-
-When the trigger is troubleshooting/diagnosis rather than setup:
-
-1. Follow Phase 1 (docs) and Phase 2 (repo exploration) as above
-2. In Phase 3, focus on:
-   - Comparing existing workflows against docs recommendations
-   - Identifying missing secrets, wrong branch references, outdated versions
-   - Checking dbt project configuration for common issues
-3. Present diagnosis as a checklist of issues found
-4. Offer to fix via PR if issues are workflow-related
+For detailed guidance on edge cases and constraints, consult:
+- **`references/anti-patterns.md`** — Forbidden questions and workflow rules to prevent common mistakes
+- **`references/diagnosis-guide.md`** — Detailed diagnosis workflow for troubleshooting existing CI/CD setups

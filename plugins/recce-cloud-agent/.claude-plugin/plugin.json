@@ -1,0 +1,13 @@
+{
+  "name": "recce-cloud-agent",
+  "version": "0.1.0",
+  "description": "Skills for Recce Cloud web agent - CI/CD orchestration and workflow generation",
+  "author": {
+    "name": "DataRecce",
+    "url": "https://datarecce.io"
+  },
+  "homepage": "https://github.com/DataRecce/recce-claude-plugin",
+  "repository": "https://github.com/DataRecce/recce-claude-plugin",
+  "license": "MIT",
+  "keywords": ["recce", "dbt", "ci-cd", "github-actions", "cloud-agent"]
+}
