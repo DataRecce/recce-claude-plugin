@@ -54,7 +54,7 @@ The plugin uses Recce's MCP server (HTTP/SSE transport) for data validation tool
 /plugin marketplace add /path/to/recce-claude-plugin
 
 # Install the plugin
-/plugin install recce-quickstart@recce-plugins
+/plugin install recce-quickstart@recce-claude-plugin
 
 # Verify installation
 /plugin  # Check Installed tab
