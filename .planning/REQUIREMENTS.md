@@ -37,11 +37,11 @@
 
 ### Review Sub-Agent
 
-- [ ] **REVW-01**: Progressive review agent follows lineage → row_count → schema → summary flow
-- [ ] **REVW-02**: Agent uses Recce MCP tools (lineage_diff, row_count_diff, schema_diff)
-- [ ] **REVW-03**: Agent produces actionable summary (changed models, row count impact, schema changes, risk level)
-- [ ] **REVW-04**: Agent handles edge cases (views with row_count, single-env _warning, permission errors)
-- [ ] **REVW-05**: Agent definition declares MCP servers explicitly in frontmatter
+- [x] **REVW-01**: Progressive review agent follows lineage → row_count → schema → summary flow
+- [x] **REVW-02**: Agent uses Recce MCP tools (lineage_diff, row_count_diff, schema_diff)
+- [x] **REVW-03**: Agent produces actionable summary (changed models, row count impact, schema changes, risk level)
+- [x] **REVW-04**: Agent handles edge cases (views with row_count, single-env _warning, permission errors)
+- [x] **REVW-05**: Agent definition declares MCP servers explicitly in frontmatter
 
 ### Review Command
 
@@ -111,11 +111,11 @@
 | TRIG-03 | Phase 3 | Complete |
 | TRIG-04 | Phase 3 | Complete |
 | TRIG-05 | Phase 3 | Complete |
-| REVW-01 | Phase 4 | Pending |
-| REVW-02 | Phase 4 | Pending |
-| REVW-03 | Phase 4 | Pending |
-| REVW-04 | Phase 4 | Pending |
-| REVW-05 | Phase 4 | Pending |
+| REVW-01 | Phase 4 | Complete |
+| REVW-02 | Phase 4 | Complete |
+| REVW-03 | Phase 4 | Complete |
+| REVW-04 | Phase 4 | Complete |
+| REVW-05 | Phase 4 | Complete |
 | CMD-01 | Phase 5 | Pending |
 | CMD-02 | Phase 5 | Pending |
 | CMD-03 | Phase 5 | Pending |

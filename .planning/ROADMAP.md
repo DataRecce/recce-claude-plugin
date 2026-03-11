@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Scaffold and MCP Lifecycle** - Plugin loads cleanly; MCP scripts manage server with project-scoped PIDs; settings system scaffolded; docs MCP configured (completed 2026-03-11)
 - [x] **Phase 2: SessionStart Hook** - Session-start script detects dbt environment, checks artifacts, and auto-starts MCP; Claude receives structured KEY=VALUE context at session open (completed 2026-03-11)
 - [x] **Phase 3: Two-Tier Trigger Hooks** - Tier 1 silently tracks edited model files; Tier 2 suggests data review after dbt run/build/test completes; pre-commit guard warns about unreviewed changes (completed 2026-03-11)
-- [ ] **Phase 4: Progressive Review Sub-Agent** - `agents/recce-reviewer.md` drives lineage → row_count → schema → summary workflow in isolated context using Recce MCP tools
+- [x] **Phase 4: Progressive Review Sub-Agent** - `agents/recce-reviewer.md` drives lineage → row_count → schema → summary workflow in isolated context using Recce MCP tools (completed 2026-03-11)
 - [ ] **Phase 5: /recce-review Command** - Skill dispatches review sub-agent; checks MCP health before launch; passes tracked model list when available; works as manual escape hatch
 - [ ] **Phase 6: Plugin-Forge Quality Validation** - `/kc-plugin-forge` audits plugin structure, conventions, and best practices; all issues resolved
 - [ ] **Phase 7: E2E Validation** - Full install-to-review flow validated; plugin installable via local marketplace
@@ -78,11 +78,10 @@ Plans:
   3. When a view model is encountered, the sub-agent skips `row_count_diff` for that model and notes the skip in the summary
   4. The sub-agent runs in an isolated context (no output visible in main conversation until summary is complete)
   5. When invoked in a single-environment setup, the sub-agent emits a clear warning and continues with available data
-**Plans**: TBD
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 04-01: `agents/recce-reviewer.md` with MCP server declarations in frontmatter and progressive review workflow
-- [ ] 04-02: Edge case handling (views, single-env, permission errors) and actionable summary format
+- [ ] 04-01-PLAN.md — Smoke test scaffold + complete agent definition (frontmatter, progressive workflow, edge cases, summary format)
 
 ### Phase 5: /recce-review Command
 **Goal**: The `/recce-review` skill dispatches the review sub-agent and works as a reliable manual escape hatch
@@ -135,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Scaffold and MCP Lifecycle | 2/2 | Complete   | 2026-03-11 |
 | 2. SessionStart Hook | 2/2 | Complete   | 2026-03-11 |
 | 3. Two-Tier Trigger Hooks | 2/2 | Complete   | 2026-03-11 |
-| 4. Progressive Review Sub-Agent | 0/2 | Not started | - |
+| 4. Progressive Review Sub-Agent | 1/1 | Complete   | 2026-03-11 |
 | 5. /recce-review Command | 0/1 | Not started | - |
 | 6. Plugin-Forge Quality Validation | 0/1 | Not started | - |
 | 7. E2E Validation | 0/1 | Not started | - |
