@@ -17,6 +17,16 @@
         "name": "DataRecce",
         "email": "support@datarecce.io"
       }
+    },
+    {
+      "name": "recce-dev",
+      "source": "./plugins/recce-dev",
+      "description": "Intelligent data review workflow for dbt developers",
+      "version": "0.1.0",
+      "author": {
+        "name": "DataRecce",
+        "email": "support@datarecce.io"
+      }
     }
   ]
 }
