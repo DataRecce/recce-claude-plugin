@@ -45,10 +45,10 @@
 
 ### Review Command
 
-- [ ] **CMD-01**: `/recce-review` skill invokes the review sub-agent
-- [ ] **CMD-02**: Skill checks MCP server is running before dispatching agent
-- [ ] **CMD-03**: Skill passes tracked changed models list if available
-- [ ] **CMD-04**: Skill works as manual escape hatch even without tracked changes
+- [x] **CMD-01**: `/recce-review` skill invokes the review sub-agent
+- [x] **CMD-02**: Skill checks MCP server is running before dispatching agent
+- [x] **CMD-03**: Skill passes tracked changed models list if available
+- [x] **CMD-04**: Skill works as manual escape hatch even without tracked changes
 
 ### Documentation MCP
 
@@ -116,10 +116,10 @@
 | REVW-03 | Phase 4 | Complete |
 | REVW-04 | Phase 4 | Complete |
 | REVW-05 | Phase 4 | Complete |
-| CMD-01 | Phase 5 | Pending |
-| CMD-02 | Phase 5 | Pending |
-| CMD-03 | Phase 5 | Pending |
-| CMD-04 | Phase 5 | Pending |
+| CMD-01 | Phase 5 | Complete |
+| CMD-02 | Phase 5 | Complete |
+| CMD-03 | Phase 5 | Complete |
+| CMD-04 | Phase 5 | Complete |
 | VALD-01 | Phase 6 | Pending |
 | VALD-02 | Phase 7 | Pending |
 | VALD-03 | Phase 7 | Pending |

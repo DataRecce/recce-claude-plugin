@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: SessionStart Hook** - Session-start script detects dbt environment, checks artifacts, and auto-starts MCP; Claude receives structured KEY=VALUE context at session open (completed 2026-03-11)
 - [x] **Phase 3: Two-Tier Trigger Hooks** - Tier 1 silently tracks edited model files; Tier 2 suggests data review after dbt run/build/test completes; pre-commit guard warns about unreviewed changes (completed 2026-03-11)
 - [x] **Phase 4: Progressive Review Sub-Agent** - `agents/recce-reviewer.md` drives lineage → row_count → schema → summary workflow in isolated context using Recce MCP tools (completed 2026-03-11)
-- [ ] **Phase 5: /recce-review Command** - Skill dispatches review sub-agent; checks MCP health before launch; passes tracked model list when available; works as manual escape hatch
+- [x] **Phase 5: /recce-review Command** - Skill dispatches review sub-agent; checks MCP health before launch; passes tracked model list when available; works as manual escape hatch (completed 2026-03-11)
 - [ ] **Phase 6: Plugin-Forge Quality Validation** - `/kc-plugin-forge` audits plugin structure, conventions, and best practices; all issues resolved
 - [ ] **Phase 7: E2E Validation** - Full install-to-review flow validated; plugin installable via local marketplace
 
@@ -92,10 +92,10 @@ Plans:
   2. Running `/recce-review` when the MCP server is not running surfaces a clear error ("MCP server not running — start with `start-mcp.sh`") instead of a silent failure
   3. Running `/recce-review` after editing model files passes those specific model names to the sub-agent for scoped review
   4. Running `/recce-review` in a fresh session with no tracked changes still launches a full review across all modified models (detected via `git diff --name-only`)
-**Plans**: TBD
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 05-01: `skills/recce-dev/SKILL.md` with MCP health check, tracked model injection, and sub-agent dispatch
+- [ ] 05-01-PLAN.md — Smoke test scaffold + SKILL.md with MCP health check, auto-start recovery, tracked model injection, sub-agent dispatch, cleanup, and risk-based next steps
 
 ### Phase 6: Plugin-Forge Quality Validation
 **Goal**: The complete plugin passes `/kc-plugin-forge` quality audit with all issues resolved
@@ -135,6 +135,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. SessionStart Hook | 2/2 | Complete   | 2026-03-11 |
 | 3. Two-Tier Trigger Hooks | 2/2 | Complete   | 2026-03-11 |
 | 4. Progressive Review Sub-Agent | 1/1 | Complete   | 2026-03-11 |
-| 5. /recce-review Command | 0/1 | Not started | - |
+| 5. /recce-review Command | 1/1 | Complete   | 2026-03-11 |
 | 6. Plugin-Forge Quality Validation | 0/1 | Not started | - |
 | 7. E2E Validation | 0/1 | Not started | - |
