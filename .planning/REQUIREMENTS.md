@@ -58,7 +58,7 @@
 
 ### Validation
 
-- [ ] **VALD-01**: Plugin passes `/kc-plugin-forge` quality audit (structure, conventions, best practices)
+- [x] **VALD-01**: Plugin passes `/kc-plugin-forge` quality audit (structure, conventions, best practices)
 - [ ] **VALD-02**: Full install → review → feedback E2E flow validated
 - [ ] **VALD-03**: Plugin installable via local marketplace (`/plugin marketplace add`)
 
@@ -120,7 +120,7 @@
 | CMD-02 | Phase 5 | Complete |
 | CMD-03 | Phase 5 | Complete |
 | CMD-04 | Phase 5 | Complete |
-| VALD-01 | Phase 6 | Pending |
+| VALD-01 | Phase 6 | Complete |
 | VALD-02 | Phase 7 | Pending |
 | VALD-03 | Phase 7 | Pending |
 

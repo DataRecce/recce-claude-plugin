@@ -105,10 +105,10 @@ Plans:
   1. Running `/kc-plugin-forge` on the `recce-dev` plugin produces a passing audit report with no critical or high-severity findings
   2. All plugin conventions are met: SKILL.md naming, `${CLAUDE_PLUGIN_ROOT}` paths, executable bits set in git, hooks.json structure, agent frontmatter completeness
   3. Any findings from the audit are fixed and the audit re-run confirms resolution
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 06-01: Run `/kc-plugin-forge` audit, triage findings, apply fixes, and re-validate
+- [ ] 06-01-PLAN.md — Fix known validator findings (agent frontmatter, README, LICENSE) and run /kc-plugin-forge audit to confirm PASS
 
 ### Phase 7: E2E Validation
 **Goal**: The full install-to-review workflow is validated end-to-end against `jaffle_shop_golden` (Snowflake) and the plugin is installable via local marketplace
