@@ -28,6 +28,14 @@ elif [ -f "$GLOBAL_SETTINGS" ] && grep -q '"mcp_port"' "$GLOBAL_SETTINGS" 2>/dev
     SETTINGS_SOURCE="global"
 fi
 
+# ========== Project .env Loading ==========
+# Load project .env if present (exports Snowflake/warehouse credentials to recce)
+if [ -f ".env" ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 # ========== Port Resolution ==========
 # Env var takes priority over settings-derived port
 

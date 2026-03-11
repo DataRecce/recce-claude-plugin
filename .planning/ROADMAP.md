@@ -119,10 +119,11 @@ Plans:
   1. A fresh Claude Code session in `jaffle_shop_golden/` with the plugin installed via `/plugin marketplace add` completes the full flow: session opens → dbt project detected → MCP starts → model edit tracked → `dbt run` triggers suggestion → `/recce-review` produces summary with real Snowflake row counts
   2. The plugin installs cleanly from the local marketplace with no path errors or missing files
   3. Uninstalling and reinstalling the plugin leaves no stale state (PID files, temp tracking files, stale `CLAUDE_PLUGIN_ROOT`)
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 07-01: E2E flow walkthrough in `jaffle_shop_golden` (Snowflake): install plugin → edit a model → dbt run → review → validate summary accuracy
+- [ ] 07-01-PLAN.md — Fix .env credential loading bug in start-mcp.sh + create standalone E2E scenario file
+- [ ] 07-02-PLAN.md — Pre-flight environment setup + human E2E walkthrough in Claude Code + validation report
 
 ## Progress
 
@@ -137,4 +138,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Progressive Review Sub-Agent | 1/1 | Complete   | 2026-03-11 |
 | 5. /recce-review Command | 1/1 | Complete   | 2026-03-11 |
 | 6. Plugin-Forge Quality Validation | 0/1 | Not started | - |
-| 7. E2E Validation | 0/1 | Not started | - |
+| 7. E2E Validation | 0/2 | Not started | - |
