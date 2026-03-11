@@ -20,11 +20,14 @@ recce-dev automatically tracks dbt model file changes and triggers progressive d
 
 ## Requirements
 
-- Recce installed in the active virtual environment (`pip install recce`)
+- **Recce >= 1.39.0** installed in the project's virtual environment (`pip install "recce>=1.39.0"`) — SSE transport (`--sse` flag) requires this version
+- The virtual environment must be activated before starting a Claude Code session so `recce` is on PATH
 - dbt project with two environments configured (base + target) for comparison diffs
-- Recce server running before dispatching the review agent (`recce server`)
+- Base artifacts generated: `dbt docs generate --target-path target-base` on the comparison branch
 
 ## Known Limitations
 
-- The `recce-docs` MCP server uses a local symlink path (`../../packages/recce-docs-mcp/dist/cli.js`). This path is relative to the plugin root and resolves correctly in development but will break after marketplace install. Resolving this is deferred to v2 (tracked as MKTD-02).
-- The `recce-dev` MCP server uses `http://localhost:8081/sse` (HTTP, not HTTPS). This is expected for a local SSE server and is intentional — no fix needed.
+- **Port hardcoded in `.mcp.json`**: The MCP server URL is `http://localhost:8081/sse`. If you override `mcp_port` in settings (e.g., `.claude/recce-dev/settings.json`), the actual server starts on the configured port but `.mcp.json` still points to 8081. Claude Code MCP config is static — dynamic port resolution requires a future Claude Code feature.
+- **Mid-session plugin install**: Installing the plugin mid-session does not activate hooks or MCP tools. Start a new Claude Code session after installation for full functionality.
+- **recce-docs MCP path**: Uses a local symlink path (`../../packages/recce-docs-mcp/dist/cli.js`) that breaks after marketplace install. Deferred to v2 (MKTD-02).
+- **HTTP-only MCP**: The `recce-dev` MCP server uses `http://localhost:8081/sse` (not HTTPS). This is expected for a local SSE server.
