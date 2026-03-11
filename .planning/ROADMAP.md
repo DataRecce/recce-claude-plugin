@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Progressive Review Sub-Agent** - `agents/recce-reviewer.md` drives lineage → row_count → schema → summary workflow in isolated context using Recce MCP tools (completed 2026-03-11)
 - [x] **Phase 5: /recce-review Command** - Skill dispatches review sub-agent; checks MCP health before launch; passes tracked model list when available; works as manual escape hatch (completed 2026-03-11)
 - [ ] **Phase 6: Plugin-Forge Quality Validation** - `/kc-plugin-forge` audits plugin structure, conventions, and best practices; all issues resolved
-- [ ] **Phase 7: E2E Validation** - Full install-to-review flow validated; plugin installable via local marketplace
+- [x] **Phase 7: E2E Validation** - Full install-to-review flow validated; plugin installable via local marketplace (completed 2026-03-11)
 
 ## Phase Details
 
@@ -119,7 +119,7 @@ Plans:
   1. A fresh Claude Code session in `jaffle_shop_golden/` with the plugin installed via `/plugin marketplace add` completes the full flow: session opens → dbt project detected → MCP starts → model edit tracked → `dbt run` triggers suggestion → `/recce-review` produces summary with real Snowflake row counts
   2. The plugin installs cleanly from the local marketplace with no path errors or missing files
   3. Uninstalling and reinstalling the plugin leaves no stale state (PID files, temp tracking files, stale `CLAUDE_PLUGIN_ROOT`)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 07-01-PLAN.md — Fix .env credential loading bug in start-mcp.sh + create standalone E2E scenario file
@@ -138,4 +138,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Progressive Review Sub-Agent | 1/1 | Complete   | 2026-03-11 |
 | 5. /recce-review Command | 1/1 | Complete   | 2026-03-11 |
 | 6. Plugin-Forge Quality Validation | 0/1 | Not started | - |
-| 7. E2E Validation | 1/2 | In Progress|  |
+| 7. E2E Validation | 2/2 | Complete   | 2026-03-11 |
