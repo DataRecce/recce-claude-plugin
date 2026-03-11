@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-03-11T12:56:09.726Z"
+stopped_at: Completed 07-e2e-validation-01-PLAN.md
+last_updated: "2026-03-11T14:25:34.057Z"
 last_activity: 2026-03-11 — Smoke test runner for session-start.sh created (21 assertions, 4 scenarios all pass)
 progress:
   total_phases: 7
   completed_phases: 6
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 11
+  completed_plans: 10
   percent: 57
 ---
 
@@ -59,6 +59,7 @@ Progress: [████████████░░░░░░░░] 4/7 pha
 | Phase 04-progressive-review-sub-agent P01 | 3 | 2 tasks | 2 files |
 | Phase 05-recce-review-command P01 | 6 | 2 tasks | 2 files |
 | Phase 06-plugin-forge-quality-validation P01 | 2 | 1 tasks | 3 files |
+| Phase 07-e2e-validation P01 | 1 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,9 @@ Recent decisions affecting current work:
 - [Phase 05-recce-review-command]: Cleanup conditional on '## Data Review Summary' header — preserves tracked file for retry on incomplete reviews
 - [Phase 06-plugin-forge-quality-validation]: color: blue selected for recce-reviewer (analysis/review agent convention)
 - [Phase 06-plugin-forge-quality-validation]: README documents HTTP localhost MCP as expected behavior (acceptable WARN, not a bug); recce-docs symlink fragility is MKTD-02 (deferred to v2)
+- [Phase 07-e2e-validation]: .env loading placed before port resolution in start-mcp.sh so RECCE_MCP_PORT in .env is honored
+- [Phase 07-e2e-validation]: Marketplace smoke test validates source tree artifacts, not a live install, enabling CI use without Claude Code
+- [Phase 07-e2e-validation]: servers/ excluded from broken symlink check for known MKTD-02 recce-docs PoC limitation
 
 ### Pending Todos
 
@@ -103,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11T12:33:27.662Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-03-11T14:25:34.054Z
+Stopped at: Completed 07-e2e-validation-01-PLAN.md
 Resume file: None

@@ -59,8 +59,8 @@
 ### Validation
 
 - [x] **VALD-01**: Plugin passes `/kc-plugin-forge` quality audit (structure, conventions, best practices)
-- [ ] **VALD-02**: Full install → review → feedback E2E flow validated
-- [ ] **VALD-03**: Plugin installable via local marketplace (`/plugin marketplace add`)
+- [x] **VALD-02**: Full install → review → feedback E2E flow validated
+- [x] **VALD-03**: Plugin installable via local marketplace (`/plugin marketplace add`)
 
 ## v2 Requirements
 
@@ -121,8 +121,8 @@
 | CMD-03 | Phase 5 | Complete |
 | CMD-04 | Phase 5 | Complete |
 | VALD-01 | Phase 6 | Complete |
-| VALD-02 | Phase 7 | Pending |
-| VALD-03 | Phase 7 | Pending |
+| VALD-02 | Phase 7 | Complete |
+| VALD-03 | Phase 7 | Complete |
 
 **Coverage:**
 - v1 requirements: 33 total
