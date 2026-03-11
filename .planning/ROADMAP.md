@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Scaffold and MCP Lifecycle** - Plugin loads cleanly; MCP scripts manage server with project-scoped PIDs; settings system scaffolded; docs MCP configured (completed 2026-03-11)
 - [x] **Phase 2: SessionStart Hook** - Session-start script detects dbt environment, checks artifacts, and auto-starts MCP; Claude receives structured KEY=VALUE context at session open (completed 2026-03-11)
-- [ ] **Phase 3: Two-Tier Trigger Hooks** - Tier 1 silently tracks edited model files; Tier 2 suggests data review after dbt run/build/test completes; pre-commit guard warns about unreviewed changes
+- [x] **Phase 3: Two-Tier Trigger Hooks** - Tier 1 silently tracks edited model files; Tier 2 suggests data review after dbt run/build/test completes; pre-commit guard warns about unreviewed changes (completed 2026-03-11)
 - [ ] **Phase 4: Progressive Review Sub-Agent** - `agents/recce-reviewer.md` drives lineage → row_count → schema → summary workflow in isolated context using Recce MCP tools
 - [ ] **Phase 5: /recce-review Command** - Skill dispatches review sub-agent; checks MCP health before launch; passes tracked model list when available; works as manual escape hatch
 - [ ] **Phase 6: Plugin-Forge Quality Validation** - `/kc-plugin-forge` audits plugin structure, conventions, and best practices; all issues resolved
@@ -134,7 +134,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Scaffold and MCP Lifecycle | 2/2 | Complete   | 2026-03-11 |
 | 2. SessionStart Hook | 2/2 | Complete   | 2026-03-11 |
-| 3. Two-Tier Trigger Hooks | 0/2 | Not started | - |
+| 3. Two-Tier Trigger Hooks | 2/2 | Complete   | 2026-03-11 |
 | 4. Progressive Review Sub-Agent | 0/2 | Not started | - |
 | 5. /recce-review Command | 0/1 | Not started | - |
 | 6. Plugin-Forge Quality Validation | 0/1 | Not started | - |
