@@ -50,12 +50,12 @@ if [ ! -f "dbt_project.yml" ]; then
     exit 1
 fi
 
-# 2. Check base artifacts
+# 2. Check base artifacts (optional — single-env mode if missing)
 if [ ! -f "target-base/manifest.json" ]; then
-    echo "ERROR=MISSING_BASE_ARTIFACTS"
-    echo "MESSAGE=Missing base artifacts (target-base/manifest.json)"
-    echo "FIX=Run: git checkout <base-branch> && dbt build --target-path target-base"
-    exit 1
+    echo "SINGLE_ENV_MODE=true"
+    echo "WARNING=No target-base artifacts, running in single-env mode"
+    echo "FIX=Run: git checkout main && dbt docs generate --target-path target-base"
+    # Continue — do not exit. Recce supports single-env mode.
 fi
 
 # 3. Check current artifacts

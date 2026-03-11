@@ -1,1 +1,17 @@
-{ "hooks": {} }
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.sh",
+            "timeout": 30,
+            "statusMessage": "Checking dbt environment..."
+          }
+        ]
+      }
+    ]
+  }
+}
