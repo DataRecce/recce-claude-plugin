@@ -1,16 +1,39 @@
 ---
 name: recce-reviewer
 description: >
-  Progressive data review specialist for dbt model changes. Runs lineage diff,
-  row count diff, and schema diff in sequence, then produces an actionable summary
-  with risk level. Use after dbt run/build or when asked to review data changes.
-tools:
-  - Read
-  - Bash
-  - mcp__recce-dev__lineage_diff
-  - mcp__recce-dev__row_count_diff
-  - mcp__recce-dev__schema_diff
+  Progressive data review specialist for dbt model changes. Dispatched by
+  /recce-review skill after dbt runs. Runs lineage diff, row count diff, and
+  schema diff in sequence, then produces an actionable summary with risk level.
+
+  <example>
+  Context: Developer ran `dbt run` and the /recce-review skill dispatched this agent
+  user: "Review the data changes from my recent dbt run"
+  assistant: "I'll dispatch the recce-reviewer agent to run progressive diff analysis."
+  <commentary>
+  Post-dbt-run data review is the primary trigger for this agent.
+  </commentary>
+  </example>
+
+  <example>
+  Context: Developer explicitly wants to check data impact before committing
+  user: "Check if my model changes have any data impact"
+  assistant: "I'll use the recce-reviewer agent to run lineage, row count, and schema diffs."
+  <commentary>
+  Manual data review request before commit — another common trigger.
+  </commentary>
+  </example>
+
+  <example>
+  Context: Multiple models were changed and need validation
+  user: "I changed stg_orders and fct_revenue, please review the data"
+  assistant: "I'll dispatch the recce-reviewer agent focused on those models."
+  <commentary>
+  Named model list review — agent handles via selector construction.
+  </commentary>
+  </example>
+color: blue
 model: inherit
+tools: Read, Bash, mcp__recce-dev__lineage_diff, mcp__recce-dev__row_count_diff, mcp__recce-dev__schema_diff
 mcpServers:
   - recce-dev
 ---
