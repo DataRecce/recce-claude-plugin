@@ -113,11 +113,13 @@ This clears tracked changes so the pre-commit guard no longer warns about alread
 
 **If NO** (agent error or incomplete review):
 
-Do **not** delete the file. Tell the user: "Review did not complete successfully. Tracked changes preserved for retry. Run /recce-review again."
+Do **not** delete the file. Tell the user: "Review did not complete successfully. Tracked changes preserved for retry. Run /recce-review again." Then **STOP** — do not proceed to Step 7.
 
 ---
 
 ## Step 7: Next Steps Based on Risk Level
+
+> Skip this step if the review did not complete successfully (no `## Data Review Summary` found in Step 6).
 
 Parse the risk level from the agent's summary output (look for `Risk level: HIGH`, `Risk level: MEDIUM`, or `Risk level: LOW`).
 
