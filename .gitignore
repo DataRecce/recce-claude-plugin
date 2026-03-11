@@ -1,6 +1,9 @@
 # Design documents (personal drafts, not for version control)
 docs/plans/
 
+# GSD planning (local-only)
+.planning/
+
 # Python
 __pycache__/
 *.py[cod]
