@@ -48,7 +48,7 @@ assert_not_contains() {
     local content="$2"
     local unexpected="$3"
     TOTAL=$((TOTAL + 1))
-    if echo "$content" | grep -qF "$unexpected"; then
+    if echo "$content" | grep -qF -- "$unexpected"; then
         echo "  FAIL: $test_name (unexpected '$unexpected' found)"
         FAIL=$((FAIL + 1))
     else
@@ -126,8 +126,8 @@ assert_contains "Frontmatter has mcpServers: field" "$FRONTMATTER" "mcpServers:"
 # 9. mcpServers references recce-dev (correct server name)
 assert_contains "mcpServers contains recce-dev" "$FRONTMATTER" "recce-dev"
 
-# 10. mcpServers does NOT reference bare 'recce' as a standalone server name
-assert_not_contains "mcpServers does not use bare 'recce' server name" "$FRONTMATTER" "- recce"
+# 10. MCP tools use recce-dev prefix (not bare 'recce__' prefix from recce-quickstart)
+assert_regex "MCP tools use mcp__recce-dev__ prefix not mcp__recce__" "$FRONTMATTER" "mcp__recce-dev__"
 
 # ========== Section 2: System prompt body validation (REVW-01, REVW-03, REVW-04) ==========
 echo "--- Section 2: System prompt body validation (REVW-01, REVW-03, REVW-04) ---"
