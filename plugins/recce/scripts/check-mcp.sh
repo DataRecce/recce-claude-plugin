@@ -1,12 +1,12 @@
 #!/bin/bash
-# Check Recce MCP Server status (recce-dev plugin) with KEY=VALUE output
+# Check Recce MCP Server status (recce plugin) with KEY=VALUE output
 
 # ========== Settings Loading ==========
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 DEFAULTS="$PLUGIN_ROOT/settings/defaults.json"
-GLOBAL_SETTINGS="$HOME/.claude/plugins/recce-dev/settings.json"
-PROJECT_SETTINGS=".claude/recce-dev/settings.json"
+GLOBAL_SETTINGS="$HOME/.claude/plugins/recce/settings.json"
+PROJECT_SETTINGS=".claude/recce/settings.json"
 
 # Layered merge: defaults -> global -> project (later wins)
 if command -v jq &>/dev/null; then

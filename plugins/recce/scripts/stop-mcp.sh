@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop Recce MCP Server (recce-dev plugin) using project-scoped PID file
+# Stop Recce MCP Server (recce plugin) using project-scoped PID file
 
 # ========== Project-scoped PID / Log Files ==========
 # Same derivation as start-mcp.sh — must be identical
