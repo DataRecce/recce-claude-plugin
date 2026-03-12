@@ -20,7 +20,7 @@ BUNDLE_DIR="$PKG/dist-bundle"
 mkdir -p "$BUNDLE_DIR"
 
 echo "Building bundle..."
-"$REPO_ROOT/node_modules/.bin/esbuild" "$PKG/src/cli.ts" \
+"$PKG/node_modules/.bin/esbuild" "$PKG/src/cli.ts" \
   --bundle \
   --platform=node \
   --format=cjs \
