@@ -1,0 +1,63 @@
+# Validates that committed bundles match what would be produced from current source.
+# Fails PRs where packages/recce-docs-mcp/src/** changed but dist/cli.js was not rebuilt.
+#
+# Pattern: check-dist (canonical from actions/typescript-action)
+# Ref: https://github.com/actions/typescript-action/blob/main/.github/workflows/check-dist.yml
+name: Check Bundle Freshness
+
+on:
+  push:
+    paths:
+      - 'packages/recce-docs-mcp/src/**'
+  pull_request:
+    paths:
+      - 'packages/recce-docs-mcp/src/**'
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-freshness:
+    name: bundle-freshness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --prefix packages/recce-docs-mcp
+
+      - name: Rebuild bundle
+        run: bash packages/recce-docs-mcp/scripts/build-bundle.sh
+
+      - name: Check bundle freshness
+        id: diff
+        run: |
+          DIFF_LINES=$(git diff --ignore-space-at-eol --text -- "plugins/*/servers/recce-docs-mcp/dist/cli.js" | wc -l)
+          if [ "$DIFF_LINES" -gt "0" ]; then
+            echo "ERROR: bundle is stale after rebuild. Did you forget to commit the updated bundle?"
+            echo ""
+            echo "Rebuild with:"
+            echo "  cd packages/recce-docs-mcp && npm run build:bundle"
+            echo "  git add plugins/recce/servers/recce-docs-mcp/dist/cli.js"
+            echo "  git add plugins/recce-quickstart/servers/recce-docs-mcp/dist/cli.js"
+            echo "  git commit -m 'chore: rebuild bundle'"
+            git diff --stat -- "plugins/*/servers/recce-docs-mcp/dist/cli.js"
+            exit 1
+          fi
+          echo "Bundle is fresh."
+
+      - name: Upload expected bundle on failure
+        if: failure() && steps.diff.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: expected-bundle
+          path: |
+            plugins/recce/servers/recce-docs-mcp/dist/cli.js
+            plugins/recce-quickstart/servers/recce-docs-mcp/dist/cli.js
