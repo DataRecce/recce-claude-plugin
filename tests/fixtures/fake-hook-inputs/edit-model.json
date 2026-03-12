@@ -1,0 +1,11 @@
+{
+  "session_id": "test-session",
+  "cwd": "{{CWD}}",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "{{CWD}}/models/staging/stg_orders.sql",
+    "old_string": "SELECT id FROM orders",
+    "new_string": "SELECT id, status FROM orders"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "session_id": "test-session",
+  "cwd": "{{CWD}}",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "{{CWD}}/README.md",
+    "content": "# My Project"
+  }
+}

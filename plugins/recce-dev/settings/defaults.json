@@ -1,0 +1,7 @@
+{
+  "on_dbt_execution": true,
+  "on_pre_commit": true,
+  "on_model_edit": false,
+  "mcp_port": 8081,
+  "review_depth": "standard"
+}

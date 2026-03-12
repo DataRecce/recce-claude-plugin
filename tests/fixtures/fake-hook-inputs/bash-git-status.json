@@ -1,0 +1,9 @@
+{
+  "session_id": "test-session",
+  "cwd": "{{CWD}}",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git status"
+  }
+}
