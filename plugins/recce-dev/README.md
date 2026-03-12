@@ -9,6 +9,7 @@ This plugin provides tools for Recce developers to validate the `recce` plugin's
 ## Components
 
 - **Skill:** `/mcp-e2e-validate` — runs a full E2E validation of the `recce` plugin's event chain (SessionStart → model tracking → dbt suggestion → /recce-review → cleanup) and produces a performance benchmark report
+- **Script:** `scripts/resolve-recce-root.sh` — locates the sibling `recce` plugin across monorepo and cache install layouts
 
 ## Requirements
 
