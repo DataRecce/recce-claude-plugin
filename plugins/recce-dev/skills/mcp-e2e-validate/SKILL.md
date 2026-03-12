@@ -1,12 +1,11 @@
 ---
 name: mcp-e2e-validate
 description: >
-  This skill should be used when the user asks to "validate MCP", "run E2E",
-  "benchmark MCP performance", "test the plugin flow", "compare MCP versions",
-  "驗證 MCP", "跑 E2E", or wants to verify the recce plugin's full event
-  chain (SessionStart → model tracking → dbt suggestion → /recce-review → cleanup)
-  works end-to-end and measure agent performance metrics.
-version: 0.1.0
+  Use when the user asks to "validate MCP", "run MCP E2E", "run E2E validation",
+  "benchmark MCP performance", "test the plugin flow", "test MCP integration",
+  "compare MCP versions", "驗證 MCP", "跑 E2E", or wants to verify the recce
+  plugin's full event chain works end-to-end and measure agent performance metrics.
+version: 0.2.0
 ---
 
 # /mcp-e2e-validate — MCP Integration E2E Validation & Benchmark
@@ -15,11 +14,16 @@ Validate the recce plugin's full event chain against a real dbt project and prod
 
 **Dependencies:** This skill relies on the sibling `recce` plugin's scripts (`start-mcp.sh`, `stop-mcp.sh`, `check-mcp.sh`) and hooks (`track-changes.sh`, `suggest-review.sh`). It also dispatches the `recce-reviewer` agent.
 
-**Cross-plugin path:** The `recce` plugin is a sibling under the same parent directory. Use `RECCE_PLUGIN_ROOT` (derived below) to reference its scripts:
+**Cross-plugin path:** The `recce` plugin is located via `resolve-recce-root.sh`, which auto-detects both monorepo and cache layouts:
 
 ```bash
-RECCE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}/../recce"
+eval "$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-recce-root.sh)"
+# Sets RECCE_PLUGIN_ROOT and LAYOUT (monorepo|cache)
 ```
+
+If the script is unavailable or fails, abort with an error — do not hardcode paths.
+
+**Shell variable note:** Each Bash tool invocation runs in a fresh shell. Steps that reference sibling plugin scripts must re-evaluate `resolve-recce-root.sh` to set `RECCE_PLUGIN_ROOT`.
 
 ---
 
@@ -57,10 +61,10 @@ Record `RECCE_VERSION` and `PORT` for the report.
 
 ## Step 2: Start MCP Server
 
-Derive the recce plugin root and run:
+Resolve the recce plugin root, then start:
 
 ```bash
-RECCE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}/../recce"
+eval "$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-recce-root.sh)"
 bash "${RECCE_PLUGIN_ROOT}/scripts/start-mcp.sh"
 ```
 
@@ -83,15 +87,25 @@ Confirm `RUNNING=true` before proceeding.
 2. Read the file and record its original content.
 3. Append the marker comment (`-- recce-e2e-validation`) on a new line at the end.
 4. Use the Edit tool (this triggers `track-changes.sh` PostToolUse hook).
-5. Verify tracking:
+5. Wait 2 seconds for async hook execution, then verify tracking:
 
 ```bash
 PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
 cat /tmp/recce-changed-${PROJECT_HASH}.txt
 ```
 
-- File exists and contains the edited model path → **Tier 1 PASS**
-- File missing → **Tier 1 FAIL** (record and continue)
+6. **Evaluate result:**
+   - File exists and contains the edited model path → **Tier 1 PASS**
+   - File missing → **Tier 1 FAIL (hook)** — apply fallback below, then continue
+
+**Tier 1 Fallback:** If the tracking file does not exist (common after mid-session plugin install — hooks require a fresh session to activate), manually create it so downstream steps can proceed:
+
+```bash
+PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
+echo "<ABSOLUTE_PATH_TO_EDITED_MODEL>" > /tmp/recce-changed-${PROJECT_HASH}.txt
+```
+
+Record in the report: "Tier 1 FAIL (hook not fired — manually simulated)".
 
 ---
 
@@ -112,7 +126,7 @@ dbt run -s {model_name}+
 
 ## Step 5: Dispatch Review Agent
 
-Dispatch the `recce-reviewer` agent with the tracked model context:
+Use the Agent tool to dispatch the `recce-reviewer` agent (subagent_type: `recce:recce-reviewer`) with the tracked model context:
 
 > "Changed models (from tracked file): {model_name}. Focus review on these models using selector: {model_name}+"
 
@@ -136,7 +150,7 @@ Execute in order:
 1. **Revert model edit** — restore the file to its original content (remove marker comment).
 2. **Stop MCP server**:
    ```bash
-   RECCE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}/../recce"
+   eval "$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/resolve-recce-root.sh)"
    bash "${RECCE_PLUGIN_ROOT}/scripts/stop-mcp.sh"
    ```
 3. **Clean tracked files**:
@@ -162,6 +176,17 @@ Output the full report to the user. If all pass criteria are met, end with **Ver
 
 ---
 
+## Common Mistakes
+
+- **Forgetting `eval`**: Running `bash resolve-recce-root.sh` without `eval "$(...)"` does not set `RECCE_PLUGIN_ROOT` in the current shell.
+- **Shell variables do not persist**: Each Bash tool invocation starts a fresh shell. Re-run `resolve-recce-root.sh` in every step that needs `RECCE_PLUGIN_ROOT`.
+- **Platform-specific `md5`**: macOS uses `md5`, Linux uses `md5sum`. The snippets in this skill handle both — do not simplify to one.
+- **Not waiting after Edit**: The PostToolUse hook fires asynchronously. Wait 2 seconds before checking the tracking file.
+- **Skipping cleanup on failure**: If any step fails, still execute Step 6 (cleanup). Never leave the MCP server running or model edits in place.
+- **Agent dispatch**: Use the Agent tool with `subagent_type: recce:recce-reviewer`. Do not attempt to `bash` an agent markdown file.
+
+---
+
 ## Additional Resources
 
 ### Reference Files
@@ -171,3 +196,4 @@ Output the full report to the user. If all pass criteria are met, end with **Ver
 ### Scripts
 
 - **`scripts/preflight.sh`** — Pre-flight environment checks (dbt project, recce version, SSE support, port availability, stale files). Outputs KEY=VALUE lines.
+- **`scripts/resolve-recce-root.sh`** (plugin-level) — Locates sibling `recce` plugin across monorepo and cache layouts. Outputs `RECCE_PLUGIN_ROOT` and `LAYOUT`.

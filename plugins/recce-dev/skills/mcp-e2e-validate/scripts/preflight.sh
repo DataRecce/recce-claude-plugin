@@ -3,7 +3,20 @@
 # Output: KEY=VALUE lines for each check. EXIT 0 always (informational).
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
-RECCE_PLUGIN_ROOT="${PLUGIN_ROOT}/../recce"
+RESOLVE_SCRIPT="${PLUGIN_ROOT}/scripts/resolve-recce-root.sh"
+
+# Resolve sibling recce plugin root (no hardcoded fallback)
+if [ -f "$RESOLVE_SCRIPT" ]; then
+    eval "$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$RESOLVE_SCRIPT")"
+else
+    echo "BLOCK=resolve-recce-root.sh not found at ${RESOLVE_SCRIPT}"
+    exit 0
+fi
+
+if [ -n "$ERROR" ]; then
+    echo "BLOCK=recce plugin not found (tried: ${TRIED})"
+    exit 0
+fi
 
 # ── dbt project ──
 if [ -f "dbt_project.yml" ]; then
