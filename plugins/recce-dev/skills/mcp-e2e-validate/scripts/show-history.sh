@@ -19,6 +19,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --limit)
             [[ $# -lt 2 ]] && { echo "ERROR=Missing value for --limit"; exit 1; }
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "ERROR=--limit must be a non-negative integer, got: $2"; exit 1
+            fi
             LIMIT="$2"; shift 2 ;;
         --flow-version)
             [[ $# -lt 2 ]] && { echo "ERROR=Missing value for --flow-version"; exit 1; }

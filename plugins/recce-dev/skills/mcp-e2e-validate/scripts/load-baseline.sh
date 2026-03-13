@@ -47,7 +47,7 @@ elif [ -n "$TARGET_FLOW_VERSION" ]; then
     # Find latest benchmark with matching flow_version
     if command -v jq &>/dev/null; then
         for f in $(find "${BENCHMARKS_DIR}" -maxdepth 1 -name '*.json' -not -name 'latest.json' 2>/dev/null | sort -r); do
-            FV=$(jq -r '.flow_version // ""' "$f" 2>/dev/null)
+            FV=$(jq -r '.flow_version // ""' "$f" 2>/dev/null) || continue
             if [ "$FV" = "$TARGET_FLOW_VERSION" ]; then
                 BASELINE_FILE="$f"
                 break

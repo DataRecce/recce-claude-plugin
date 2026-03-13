@@ -259,6 +259,7 @@ Output the full report to the user. If all pass criteria are met, end with **Ver
 - **Agent dispatch**: Use the Agent tool with `subagent_type: recce:recce-reviewer`. Do not attempt to `bash` an agent markdown file.
 - **Step 7 ordering**: Always load baseline BEFORE saving current. Reversing the order produces self-comparison (all-zero deltas) because save overwrites `latest.json`.
 - **Benchmark scripts use cwd**: `save-benchmark.sh`, `load-baseline.sh`, and `show-history.sh` write/read `.claude/recce/benchmarks/` relative to the current working directory (the dbt project root). They are not affected by `CLAUDE_PLUGIN_ROOT`.
+- **Benchmark artifacts are local-only**: `.claude/recce/benchmarks/` should be in the dbt project's `.gitignore` to avoid accidentally committing benchmark JSON files. The plugin's own `.gitignore` does not cover this — it must be added to the user's dbt project.
 
 ---
 

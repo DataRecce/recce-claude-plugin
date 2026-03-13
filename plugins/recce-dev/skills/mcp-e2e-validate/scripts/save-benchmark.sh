@@ -84,7 +84,7 @@ FILEPATH="${BENCHMARKS_DIR}/${FILENAME}"
 
 # ── Build JSON ──
 if command -v jq &>/dev/null; then
-    jq -n \
+    if ! jq -n \
         --arg ts "$TIMESTAMP_ISO" \
         --arg fv "$FLOW_VERSION" \
         --arg rv "$RECCE_VERSION" \
@@ -106,7 +106,10 @@ if command -v jq &>/dev/null; then
             performance: $perf,
             risk_level: $risk,
             verdict: $verdict
-        }' > "$FILEPATH"
+        }' > "$FILEPATH"; then
+        echo "ERROR=Failed to build benchmark JSON (invalid --results or --performance?)"
+        exit 1
+    fi
 else
     # Fallback: manual JSON (no jq)
     cat > "$FILEPATH" <<ENDJSON
@@ -126,7 +129,10 @@ ENDJSON
 fi
 
 # ── Update latest.json (copy, not symlink — more portable) ──
-cp "$FILEPATH" "${BENCHMARKS_DIR}/latest.json"
+if ! cp "$FILEPATH" "${BENCHMARKS_DIR}/latest.json"; then
+    echo "ERROR=Failed to update latest.json"
+    exit 1
+fi
 
 echo "SAVED=true"
 echo "BENCHMARK_FILE=${FILEPATH}"
