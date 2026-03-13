@@ -49,10 +49,10 @@ fi
 
 # ── dbt adapter type ──
 if [ -f "profiles.yml" ]; then
-    ADAPTER=$(grep -E "^\s+type:" profiles.yml | head -1 | sed 's/.*type:[[:space:]]*//' | tr -d "'" | tr -d '"')
+    ADAPTER=$(grep -E "^[[:space:]]+type:" profiles.yml | head -1 | sed 's/.*type:[[:space:]]*//' | tr -d "'" | tr -d '"')
     echo "DBT_ADAPTER=${ADAPTER:-unknown}"
 elif [ -f "$HOME/.dbt/profiles.yml" ]; then
-    ADAPTER=$(grep -E "^\s+type:" "$HOME/.dbt/profiles.yml" | head -1 | sed 's/.*type:[[:space:]]*//' | tr -d "'" | tr -d '"')
+    ADAPTER=$(grep -E "^[[:space:]]+type:" "$HOME/.dbt/profiles.yml" | head -1 | sed 's/.*type:[[:space:]]*//' | tr -d "'" | tr -d '"')
     echo "DBT_ADAPTER=${ADAPTER:-unknown}"
 else
     echo "DBT_ADAPTER=unknown"

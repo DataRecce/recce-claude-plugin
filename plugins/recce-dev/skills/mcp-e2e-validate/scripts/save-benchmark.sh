@@ -33,6 +33,9 @@ VERDICT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --flow-version|--recce-version|--adapter|--project|--model|--results|--performance|--risk-level|--verdict)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            ;;&
         --flow-version)   FLOW_VERSION="$2"; shift 2 ;;
         --recce-version)  RECCE_VERSION="$2"; shift 2 ;;
         --adapter)        ADAPTER="$2"; shift 2 ;;

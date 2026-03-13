@@ -16,8 +16,12 @@ FILTER_FV=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --limit)          LIMIT="$2"; shift 2 ;;
-        --flow-version)   FILTER_FV="$2"; shift 2 ;;
+        --limit)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for --limit"; exit 1; }
+            LIMIT="$2"; shift 2 ;;
+        --flow-version)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for --flow-version"; exit 1; }
+            FILTER_FV="$2"; shift 2 ;;
         *) echo "ERROR=Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -30,7 +34,7 @@ if [ ! -d "$BENCHMARKS_DIR" ]; then
 fi
 
 # ── Collect JSON files (newest first, exclude latest.json) ──
-FILES=$(ls -r "${BENCHMARKS_DIR}"/*.json 2>/dev/null | grep -v latest.json)
+FILES=$(find "${BENCHMARKS_DIR}" -maxdepth 1 -name '*.json' -not -name 'latest.json' 2>/dev/null | sort -r)
 if [ -z "$FILES" ]; then
     echo "NO_HISTORY=true"
     echo "MESSAGE=No benchmark files found"
@@ -44,12 +48,11 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # ── Build table ──
-echo "HAS_HISTORY=true"
-echo "---TABLE_START---"
-echo "| # | Date | Flow Ver | Recce Ver | Tools | Tokens | Time | Risk | Verdict |"
-echo "|---|------|----------|-----------|-------|--------|------|------|---------|"
+TABLE_HEADER="| # | Date | Flow Ver | Recce Ver | Tools | Tokens | Time | Risk | Verdict |
+|---|------|----------|-----------|-------|--------|------|------|---------|"
 
 COUNT=0
+ROWS=""
 while IFS= read -r f; do
     FV=$(jq -r '.flow_version // "?"' "$f")
 
@@ -92,15 +95,23 @@ while IFS= read -r f; do
         TK_FMT="$TK"
     fi
 
-    echo "| ${COUNT} | ${DATE} | ${FV} | ${RV} | ${TU} | ${TK_FMT} | ${DUR_FMT} | ${RISK} | ${VERD} |"
+    ROWS="${ROWS}| ${COUNT} | ${DATE} | ${FV} | ${RV} | ${TU} | ${TK_FMT} | ${DUR_FMT} | ${RISK} | ${VERD} |
+"
 done <<< "$FILES"
 
-# Handle empty result when filter was applied
-if [ "$COUNT" -eq 0 ] && [ -n "$FILTER_FV" ]; then
-    echo "---TABLE_END---"
+# Output results — only emit HAS_HISTORY when rows exist
+if [ "$COUNT" -eq 0 ]; then
     echo "NO_HISTORY=true"
-    echo "MESSAGE=No benchmarks found for flow version ${FILTER_FV}"
+    if [ -n "$FILTER_FV" ]; then
+        echo "MESSAGE=No benchmarks found for flow version ${FILTER_FV}"
+    else
+        echo "MESSAGE=No benchmark files found"
+    fi
 else
+    echo "HAS_HISTORY=true"
+    echo "---TABLE_START---"
+    echo "$TABLE_HEADER"
+    printf "%s" "$ROWS"
     echo "---TABLE_END---"
     echo "TOTAL_RUNS=${COUNT}"
 fi

@@ -59,7 +59,7 @@ The `recce` and `recce-quickstart` plugins use Recce's MCP server (HTTP/SSE tran
 
 ## Rebuilding the Bundled MCP Server
 
-Each plugin ships `servers/recce-docs-mcp/dist/cli.js` — a self-contained CJS bundle committed directly to the repo (not a symlink). This file must be present for marketplace install to work offline.
+The `recce` and `recce-quickstart` plugins ship `servers/recce-docs-mcp/dist/cli.js` — a self-contained CJS bundle committed directly to the repo (not a symlink). This file must be present for marketplace install to work offline.
 
 **Rebuild after source changes:**
 

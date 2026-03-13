@@ -24,8 +24,12 @@ TARGET_FLOW_VERSION=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --timestamp)      TARGET_TIMESTAMP="$2"; shift 2 ;;
-        --flow-version)   TARGET_FLOW_VERSION="$2"; shift 2 ;;
+        --timestamp)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for --timestamp"; exit 1; }
+            TARGET_TIMESTAMP="$2"; shift 2 ;;
+        --flow-version)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for --flow-version"; exit 1; }
+            TARGET_FLOW_VERSION="$2"; shift 2 ;;
         *) echo "ERROR=Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -42,7 +46,7 @@ if [ -n "$TARGET_TIMESTAMP" ]; then
 elif [ -n "$TARGET_FLOW_VERSION" ]; then
     # Find latest benchmark with matching flow_version
     if command -v jq &>/dev/null; then
-        for f in $(ls -r "${BENCHMARKS_DIR}"/*.json 2>/dev/null | grep -v latest.json); do
+        for f in $(find "${BENCHMARKS_DIR}" -maxdepth 1 -name '*.json' -not -name 'latest.json' 2>/dev/null | sort -r); do
             FV=$(jq -r '.flow_version // ""' "$f" 2>/dev/null)
             if [ "$FV" = "$TARGET_FLOW_VERSION" ]; then
                 BASELINE_FILE="$f"
