@@ -46,7 +46,7 @@ The `recce` and `recce-quickstart` plugins use Recce's MCP server (HTTP/SSE tran
 
 ### Hook Types
 
-- **SessionStart**: Runs `check-dbt-project.sh` to detect dbt environment
+- **SessionStart**: Runs environment detection script (`session-start.sh` in recce, `check-dbt-project.sh` in recce-quickstart)
 - **PostToolUse** (Bash matcher): Suggests `/recce-check` after dbt commands
 
 ### Plugin Component Conventions

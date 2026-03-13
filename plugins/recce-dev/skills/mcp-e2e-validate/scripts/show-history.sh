@@ -6,7 +6,8 @@
 #   bash show-history.sh --limit 5    # Show last 5 runs
 #   bash show-history.sh --flow-version 1.0.0  # Filter by flow version
 #
-# Output: Markdown table to stdout
+# Output: KEY=VALUE lines and markdown table between ---TABLE_START--- / ---TABLE_END--- sentinels.
+#   HAS_HISTORY=true + table, or NO_HISTORY=true + MESSAGE=..., or ERROR=...
 
 set -euo pipefail
 
@@ -54,7 +55,8 @@ TABLE_HEADER="| # | Date | Flow Ver | Recce Ver | Tools | Tokens | Time | Risk |
 COUNT=0
 ROWS=""
 while IFS= read -r f; do
-    FV=$(jq -r '.flow_version // "?"' "$f")
+    # Guard jq errors — corrupt file skips row instead of killing the loop
+    FV=$(jq -r '.flow_version // "?"' "$f" 2>/dev/null) || { continue; }
 
     # Apply flow version filter
     if [ -n "$FILTER_FV" ] && [ "$FV" != "$FILTER_FV" ]; then
@@ -68,13 +70,13 @@ while IFS= read -r f; do
         break
     fi
 
-    TS=$(jq -r '.timestamp // "?"' "$f")
-    RV=$(jq -r '.recce_version // "?"' "$f")
-    TU=$(jq -r '.performance.tool_uses // "?"' "$f")
-    TK=$(jq -r '.performance.total_tokens // "?"' "$f")
-    DUR=$(jq -r '.performance.duration_s // "?"' "$f")
-    RISK=$(jq -r '.risk_level // "?"' "$f")
-    VERD=$(jq -r '.verdict // "?"' "$f")
+    TS=$(jq -r '.timestamp // "?"' "$f" 2>/dev/null) || TS="?"
+    RV=$(jq -r '.recce_version // "?"' "$f" 2>/dev/null) || RV="?"
+    TU=$(jq -r '.performance.tool_uses // "?"' "$f" 2>/dev/null) || TU="?"
+    TK=$(jq -r '.performance.total_tokens // "?"' "$f" 2>/dev/null) || TK="?"
+    DUR=$(jq -r '.performance.duration_s // "?"' "$f" 2>/dev/null) || DUR="?"
+    RISK=$(jq -r '.risk_level // "?"' "$f" 2>/dev/null) || RISK="?"
+    VERD=$(jq -r '.verdict // "?"' "$f" 2>/dev/null) || VERD="?"
 
     # Format date (extract date part from ISO timestamp)
     DATE=$(echo "$TS" | cut -c1-10)

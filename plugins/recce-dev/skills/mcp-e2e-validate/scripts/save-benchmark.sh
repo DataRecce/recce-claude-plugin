@@ -33,18 +33,33 @@ VERDICT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --flow-version|--recce-version|--adapter|--project|--model|--results|--performance|--risk-level|--verdict)
+        --flow-version)
             [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
-            ;;&
-        --flow-version)   FLOW_VERSION="$2"; shift 2 ;;
-        --recce-version)  RECCE_VERSION="$2"; shift 2 ;;
-        --adapter)        ADAPTER="$2"; shift 2 ;;
-        --project)        PROJECT="$2"; shift 2 ;;
-        --model)          MODEL="$2"; shift 2 ;;
-        --results)        RESULTS="$2"; shift 2 ;;
-        --performance)    PERFORMANCE="$2"; shift 2 ;;
-        --risk-level)     RISK_LEVEL="$2"; shift 2 ;;
-        --verdict)        VERDICT="$2"; shift 2 ;;
+            FLOW_VERSION="$2"; shift 2 ;;
+        --recce-version)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            RECCE_VERSION="$2"; shift 2 ;;
+        --adapter)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            ADAPTER="$2"; shift 2 ;;
+        --project)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            PROJECT="$2"; shift 2 ;;
+        --model)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            MODEL="$2"; shift 2 ;;
+        --results)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            RESULTS="$2"; shift 2 ;;
+        --performance)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            PERFORMANCE="$2"; shift 2 ;;
+        --risk-level)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            RISK_LEVEL="$2"; shift 2 ;;
+        --verdict)
+            [[ $# -lt 2 ]] && { echo "ERROR=Missing value for $1"; exit 1; }
+            VERDICT="$2"; shift 2 ;;
         *) echo "ERROR=Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -59,7 +74,7 @@ done
 
 # ── Ensure benchmarks directory ──
 BENCHMARKS_DIR=".claude/recce/benchmarks"
-mkdir -p "$BENCHMARKS_DIR"
+mkdir -p "$BENCHMARKS_DIR" || { echo "ERROR=Cannot create benchmarks directory: ${BENCHMARKS_DIR}"; exit 1; }
 
 # ── Generate timestamp ──
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H%M%S")

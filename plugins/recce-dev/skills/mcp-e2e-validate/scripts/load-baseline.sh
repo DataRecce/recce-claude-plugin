@@ -82,12 +82,12 @@ if command -v jq &>/dev/null; then
     echo "VERDICT=$(jq -r '.verdict // "unknown"' "$BASELINE_FILE")"
     echo "TIMESTAMP=$(jq -r '.timestamp // "unknown"' "$BASELINE_FILE")"
 else
-    # Fallback: grep-based extraction
-    echo "FLOW_VERSION=$(grep -o '"flow_version"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"')"
-    echo "TOOL_USES=$(grep -o '"tool_uses"[[:space:]]*:[[:space:]]*[0-9]*' "$BASELINE_FILE" | head -1 | sed 's/.*: *//')"
-    echo "TOTAL_TOKENS=$(grep -o '"total_tokens"[[:space:]]*:[[:space:]]*[0-9]*' "$BASELINE_FILE" | head -1 | sed 's/.*: *//')"
-    echo "DURATION_S=$(grep -o '"duration_s"[[:space:]]*:[[:space:]]*[0-9]*' "$BASELINE_FILE" | head -1 | sed 's/.*: *//')"
-    echo "RECCE_VERSION=$(grep -o '"recce_version"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"')"
-    echo "VERDICT=$(grep -o '"verdict"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"')"
-    echo "TIMESTAMP=$(grep -o '"timestamp"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"')"
+    # Fallback: grep-based extraction (|| echo "" prevents set -e death on missing fields)
+    echo "FLOW_VERSION=$(grep -o '"flow_version"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"' || echo "")"
+    echo "TOOL_USES=$(grep -o '"tool_uses"[[:space:]]*:[[:space:]]*[0-9]*' "$BASELINE_FILE" | head -1 | sed 's/.*: *//' || echo "")"
+    echo "TOTAL_TOKENS=$(grep -o '"total_tokens"[[:space:]]*:[[:space:]]*[0-9]*' "$BASELINE_FILE" | head -1 | sed 's/.*: *//' || echo "")"
+    echo "DURATION_S=$(grep -o '"duration_s"[[:space:]]*:[[:space:]]*[0-9]*' "$BASELINE_FILE" | head -1 | sed 's/.*: *//' || echo "")"
+    echo "RECCE_VERSION=$(grep -o '"recce_version"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"' || echo "")"
+    echo "VERDICT=$(grep -o '"verdict"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"' || echo "")"
+    echo "TIMESTAMP=$(grep -o '"timestamp"[[:space:]]*:[[:space:]]*"[^"]*"' "$BASELINE_FILE" | head -1 | sed 's/.*: *"//' | tr -d '"' || echo "")"
 fi

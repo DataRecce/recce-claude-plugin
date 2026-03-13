@@ -19,7 +19,7 @@
 | Cleanup | Model reverted | Edited file restored to original |
 | Cleanup | MCP stopped | stop-mcp.sh returns `STATUS=STOPPED` |
 | Stale State | No leftovers | No `/tmp/recce-mcp-*.pid` or `/tmp/recce-changed-*.txt` remaining |
-| Benchmark Save | Result persisted | `save-benchmark.sh` returns `SAVED=true` |
+| Benchmark Save | Result persisted (informational) | `save-benchmark.sh` returns `SAVED=true` (does not affect overall verdict) |
 
 ## Performance Metrics to Capture
 
