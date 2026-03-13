@@ -86,10 +86,10 @@ Internal tools for Recce project developers:
 
 ## Requirements
 
-- **Python 3.8+**
+- **Python** (version compatible with your Recce installation)
 - **dbt** (any adapter: duckdb, postgres, bigquery, snowflake, etc.)
 - **Git**
-- **Recce >= 1.39.0** — `pip install "recce>=1.39.0"` (SSE transport requires this version)
+- **Recce with MCP server support** — `pip install 'recce[mcp]'` (requires a version that supports `recce mcp-server --sse`)
 
 ## MCP Server Tools
 
@@ -106,7 +106,7 @@ When the Recce MCP server is running, Claude has access to:
 ## Troubleshooting
 
 ### Plugin not loading?
-1. Verify Claude Code version is 1.0.33 or higher: `claude --version`
+1. Verify Claude Code is up to date: `claude --version`
 2. Check plugin is installed: `/plugin` → **Installed** tab
 3. Check for errors: `/plugin` → **Errors** tab
 
