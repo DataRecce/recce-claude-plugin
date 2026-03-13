@@ -19,6 +19,7 @@
 | Cleanup | Model reverted | Edited file restored to original |
 | Cleanup | MCP stopped | stop-mcp.sh returns `STATUS=STOPPED` |
 | Stale State | No leftovers | No `/tmp/recce-mcp-*.pid` or `/tmp/recce-changed-*.txt` remaining |
+| Benchmark Save | Result persisted | `save-benchmark.sh` returns `SAVED=true` |
 
 ## Performance Metrics to Capture
 
@@ -30,12 +31,23 @@ From the review agent dispatch result, extract:
 | `total_tokens` | Agent result `<usage>` block | Integer |
 | `duration_ms` | Agent result `<usage>` block | Integer (convert to seconds for display) |
 
+## Flow Version & Comparability
+
+The `flow_version` field in SKILL.md frontmatter tracks the test procedure version. Benchmark JSON records this value for historical comparability.
+
+| Comparison scenario | Rule |
+|---------------------|------|
+| Same MAJOR.MINOR flow version | Deltas are meaningful — report normally |
+| Different MAJOR or MINOR | Add warning: "⚠️ Flow version changed, delta may not be comparable" |
+| Different PATCH only | Deltas are meaningful — PATCH changes are cosmetic |
+
 ## Benchmark Report Template
 
 ```markdown
 ## MCP E2E Benchmark Report
 
 **Date:** {YYYY-MM-DD}
+**Flow version:** {flow_version}
 **recce version:** {version}
 **Project:** {dbt_project_name}
 **Environment:** {adapter_type} (dual-env | single-env)
@@ -60,7 +72,10 @@ From the review agent dispatch result, extract:
 | Tokens consumed | {N} |
 | Wall-clock time | {N}s |
 
-### Comparison (if baseline provided)
+### Comparison with Baseline
+
+{If no baseline: "First run — no baseline available."}
+{If baseline flow version differs: "⚠️ Flow version changed ({old} → {new}), delta may not be comparable."}
 
 | Metric | Baseline | Current | Delta |
 |--------|----------|---------|-------|
@@ -71,6 +86,11 @@ From the review agent dispatch result, extract:
 ### Data Review Summary
 
 {Paste the agent's ## Data Review Summary output here}
+
+### Persistence
+
+- Benchmark saved: {BENCHMARK_FILE}
+- Baseline used: {BASELINE_FILE | "none (first run)"}
 
 ### Verdict: {PASS / FAIL}
 {If FAIL: list which criteria failed}

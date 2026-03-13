@@ -3,14 +3,24 @@ name: mcp-e2e-validate
 description: >
   Use when the user asks to "validate MCP", "run MCP E2E", "run E2E validation",
   "benchmark MCP performance", "test the plugin flow", "test MCP integration",
-  "compare MCP versions", "驗證 MCP", "跑 E2E", or wants to verify the recce
-  plugin's full event chain works end-to-end and measure agent performance metrics.
-version: 0.2.0
+  "compare MCP versions", "show benchmark history", "驗證 MCP", "跑 E2E",
+  "看歷史紀錄", or wants to verify the recce plugin's full event chain works
+  end-to-end and measure agent performance metrics.
+version: 0.3.0
+flow_version: 1.0.0
 ---
 
 # /mcp-e2e-validate — MCP Integration E2E Validation & Benchmark
 
-Validate the recce plugin's full event chain against a real dbt project and produce a performance benchmark report. Optionally compare against a baseline to quantify improvements across recce versions or PR changes.
+Validate the recce plugin's full event chain against a real dbt project and produce a performance benchmark report. Automatically saves results for historical comparison and loads the previous run as baseline.
+
+**Flow version:** The `flow_version` field in frontmatter tracks the test flow structure. Only compare benchmarks with the same MAJOR.MINOR flow version — different flow versions produce incomparable metrics.
+
+| Flow version change | When |
+|---------------------|------|
+| MAJOR bump | Test steps added/removed, agent dispatch logic changed |
+| MINOR bump | Selector strategy, parameter defaults, or validation criteria changed |
+| PATCH bump | Report format, error messages, documentation only |
 
 **Dependencies:** This skill relies on the sibling `recce` plugin's scripts (`start-mcp.sh`, `stop-mcp.sh`, `check-mcp.sh`) and hooks (`track-changes.sh`, `suggest-review.sh`). It also dispatches the `recce-reviewer` agent.
 
@@ -31,12 +41,24 @@ If the script is unavailable or fails, abort with an error — do not hardcode p
 
 Parse user input for optional parameters:
 
-- **`--baseline`**: Previous benchmark metrics for comparison (e.g., `"tool_uses=35 tokens=30311 duration_s=483"`)
+- **`--baseline`**: Override auto-baseline. Accepts a timestamp (e.g., `2026-03-13T041957`) to compare against a specific historical run, or `none` to skip comparison entirely. Without this flag, the skill automatically loads `latest.json` as baseline.
 - **`--model`**: Model to edit for testing (default: first `.sql` file under `models/staging/`)
 - **`--marker`**: Comment marker to inject (default: `-- recce-e2e-validation`)
 - **`--skip-dbt`**: Skip the `dbt run` step if models were already built
+- **`--history`**: Show benchmark history table and exit (no E2E run). Accepts optional `--limit N` and `--flow-version X.Y.Z` filters.
 
 If no parameters provided, use defaults and run the full flow.
+
+**`--history` short-circuit:** If `--history` is present, skip Steps 1–6 entirely. Run:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/mcp-e2e-validate/scripts/show-history.sh [--limit N] [--flow-version X.Y.Z]
+```
+
+Parse the output:
+- If `ERROR=` → show the error verbatim (e.g., "jq is required"). **STOP.**
+- If `NO_HISTORY=true` → tell user "No benchmark history found. Run a full E2E validation first." **STOP here — do not proceed to Step 1.**
+- If `HAS_HISTORY=true` → display the markdown table between `---TABLE_START---` and `---TABLE_END---`, then show `TOTAL_RUNS` count. **STOP here — do not proceed to Step 1.**
 
 ---
 
@@ -55,7 +77,7 @@ Handle warnings:
 - `PORT_STATUS=occupied_by_other` → Suggest changing port in `.claude/recce/settings.json`
 - `STALE_FILES=found` → Auto-clean: `rm -f /tmp/recce-mcp-*.pid /tmp/recce-changed-*.txt`
 
-Record `RECCE_VERSION` and `PORT` for the report.
+Record `RECCE_VERSION`, `PORT`, and `DBT_ADAPTER` for the report.
 
 ---
 
@@ -162,15 +184,66 @@ Execute in order:
 
 ---
 
-## Step 7: Produce Benchmark Report
+## Step 7: Save & Report
+
+This step has three sub-phases: load baseline → save current → produce report.
+
+**Ordering matters:** Load baseline BEFORE saving current, because `save-benchmark.sh` overwrites `latest.json`. If you save first, `load-baseline.sh` would load the run you just saved — comparing against itself (all-zero deltas).
+
+### 7a: Load Baseline
+
+**If `--baseline none`**: Skip comparison entirely.
+
+**If `--baseline <timestamp>`**: Load a specific historical run:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/mcp-e2e-validate/scripts/load-baseline.sh --timestamp <timestamp>
+```
+
+**If no `--baseline` flag (default)**: Auto-load the most recent run:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/mcp-e2e-validate/scripts/load-baseline.sh
+```
+
+Parse the KEY=VALUE output. If `BASELINE_FOUND=true`, record the baseline metrics. If `BASELINE_FOUND=false`, this is the first run — no comparison available.
+
+**Comparability check:** Compare the baseline's `FLOW_VERSION` with the current skill's `flow_version` from frontmatter. If the MAJOR or MINOR version differs, add a warning to the report: "⚠️ Flow version changed ({baseline_fv} → {current_fv}), delta may not be comparable."
+
+### 7b: Save Current Benchmark
+
+Save the current run's results. Build the JSON arguments from data collected during Steps 1–6 (`RECCE_VERSION`, `DBT_ADAPTER`, `DBT_PROJECT_NAME` from Step 1 preflight; performance metrics from Step 5 agent dispatch):
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/mcp-e2e-validate/scripts/save-benchmark.sh \
+  --flow-version {flow_version_from_frontmatter} \
+  --recce-version {recce_version_from_step1} \
+  --adapter {DBT_ADAPTER_from_step1} \
+  --project {dbt_project_name} \
+  --model {test_model_name} \
+  --results '{"preflight":"{PASS|FAIL}","mcp_startup":"{PASS|FAIL}","tier1_tracking":"{PASS|FAIL}","tier2_suggestion":"{PASS|FAIL}","review_agent":"{PASS|FAIL}","cleanup":"{PASS|FAIL}"}' \
+  --performance '{"tool_uses":{N},"total_tokens":{N},"duration_s":{N}}' \
+  --risk-level {HIGH|MEDIUM|LOW} \
+  --verdict {PASS|FAIL}
+```
+
+Confirm `SAVED=true` in the output. Record `BENCHMARK_FILE` for the report.
+
+**If save fails** (non-zero exit, `ERROR=` in output, or `SAVED=true` absent): report the error in the benchmark report's Persistence section as "Benchmark save failed: {error}". Do NOT change the overall verdict — persistence failure is informational, not a test failure. The E2E validation results (Steps 1–6) are still valid.
+
+### 7c: Produce Report
 
 Generate the report using the template in `references/pass-criteria.md`.
 
-If `--baseline` was provided, compute deltas:
+If baseline was loaded (Step 7a), compute deltas:
 - `delta = current - baseline`
 - `delta_pct = (delta / baseline) * 100`
 
 Present negative deltas (improvements) with emphasis.
+
+Include at the bottom of the report:
+- `Benchmark saved: {BENCHMARK_FILE}` — so user knows where it was persisted
+- `Baseline: {BASELINE_FILE}` (or "first run — no baseline") — so user knows what was compared
 
 Output the full report to the user. If all pass criteria are met, end with **Verdict: PASS**. Otherwise list failures.
 
@@ -184,6 +257,8 @@ Output the full report to the user. If all pass criteria are met, end with **Ver
 - **Not waiting after Edit**: The PostToolUse hook fires asynchronously. Wait 2 seconds before checking the tracking file.
 - **Skipping cleanup on failure**: If any step fails, still execute Step 6 (cleanup). Never leave the MCP server running or model edits in place.
 - **Agent dispatch**: Use the Agent tool with `subagent_type: recce:recce-reviewer`. Do not attempt to `bash` an agent markdown file.
+- **Step 7 ordering**: Always load baseline BEFORE saving current. Reversing the order produces self-comparison (all-zero deltas) because save overwrites `latest.json`.
+- **Benchmark scripts use cwd**: `save-benchmark.sh`, `load-baseline.sh`, and `show-history.sh` write/read `.claude/recce/benchmarks/` relative to the current working directory (the dbt project root). They are not affected by `CLAUDE_PLUGIN_ROOT`.
 
 ---
 
@@ -196,4 +271,7 @@ Output the full report to the user. If all pass criteria are met, end with **Ver
 ### Scripts
 
 - **`scripts/preflight.sh`** — Pre-flight environment checks (dbt project, recce version, SSE support, port availability, stale files). Outputs KEY=VALUE lines.
+- **`scripts/save-benchmark.sh`** — Persists benchmark result as JSON to `.claude/recce/benchmarks/`. Updates `latest.json` for auto-baseline.
+- **`scripts/load-baseline.sh`** — Loads baseline from `latest.json`, a specific timestamp, or a flow-version filter. Outputs KEY=VALUE lines.
+- **`scripts/show-history.sh`** — Displays benchmark history as a markdown table with optional `--limit` and `--flow-version` filters.
 - **`scripts/resolve-recce-root.sh`** (plugin-level) — Locates sibling `recce` plugin across monorepo and cache layouts. Outputs `RECCE_PLUGIN_ROOT` and `LAYOUT`.

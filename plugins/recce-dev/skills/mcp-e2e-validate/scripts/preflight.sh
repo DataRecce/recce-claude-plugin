@@ -47,6 +47,17 @@ else
     exit 0
 fi
 
+# ── dbt adapter type ──
+if [ -f "profiles.yml" ]; then
+    ADAPTER=$(grep -E "^\s+type:" profiles.yml | head -1 | sed 's/.*type:[[:space:]]*//' | tr -d "'" | tr -d '"')
+    echo "DBT_ADAPTER=${ADAPTER:-unknown}"
+elif [ -f "$HOME/.dbt/profiles.yml" ]; then
+    ADAPTER=$(grep -E "^\s+type:" "$HOME/.dbt/profiles.yml" | head -1 | sed 's/.*type:[[:space:]]*//' | tr -d "'" | tr -d '"')
+    echo "DBT_ADAPTER=${ADAPTER:-unknown}"
+else
+    echo "DBT_ADAPTER=unknown"
+fi
+
 # ── Artifacts ──
 [ -f "target/manifest.json" ] && echo "TARGET_EXISTS=true" || echo "TARGET_EXISTS=false"
 [ -f "target-base/manifest.json" ] && echo "TARGET_BASE_EXISTS=true" || echo "TARGET_BASE_EXISTS=false"
