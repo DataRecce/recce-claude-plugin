@@ -4,7 +4,7 @@
 # Note: set -euo pipefail is intentionally omitted — this script must always
 # exit 0 even if individual checks fail (grep no-match, missing files, etc.).
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 RESOLVE_SCRIPT="${PLUGIN_ROOT}/scripts/resolve-recce-root.sh"
 
 # Resolve sibling recce plugin root (no hardcoded fallback)
