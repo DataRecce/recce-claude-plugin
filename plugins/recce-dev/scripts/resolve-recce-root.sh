@@ -10,7 +10,6 @@
 #   Failure: ERROR=<message>  TRIED=<paths>
 #
 # Usage:
-#   source this file (sets RECCE_PLUGIN_ROOT variable), or
 #   eval "$(bash resolve-recce-root.sh)"
 
 SELF_ROOT="${CLAUDE_PLUGIN_ROOT:-${1:-$(cd "$(dirname "$0")/.." && pwd)}}"
