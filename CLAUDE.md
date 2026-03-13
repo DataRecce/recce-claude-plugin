@@ -67,7 +67,7 @@ Each plugin ships `servers/recce-docs-mcp/dist/cli.js` — a self-contained CJS 
 cd packages/recce-docs-mcp && npm run build:bundle
 ```
 
-This outputs the bundle to both `plugins/recce/servers/recce-docs-mcp/dist/cli.js` and `plugins/recce-dev/servers/recce-docs-mcp/dist/cli.js`.
+This outputs the bundle to both `plugins/recce/servers/recce-docs-mcp/dist/cli.js` and `plugins/recce-quickstart/servers/recce-docs-mcp/dist/cli.js`.
 
 **Developer setup** (install pre-push staleness guard):
 
