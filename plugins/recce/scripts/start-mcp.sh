@@ -1,12 +1,12 @@
 #!/bin/bash
-# Start Recce MCP Server (recce-dev plugin) with settings loading and project-scoped PID
+# Start Recce MCP Server (recce plugin) with settings loading and project-scoped PID
 
 # ========== Settings Loading ==========
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 DEFAULTS="$PLUGIN_ROOT/settings/defaults.json"
-GLOBAL_SETTINGS="$HOME/.claude/plugins/recce-dev/settings.json"
-PROJECT_SETTINGS=".claude/recce-dev/settings.json"
+GLOBAL_SETTINGS="$HOME/.claude/plugins/recce/settings.json"
+PROJECT_SETTINGS=".claude/recce/settings.json"
 
 # Layered merge: defaults -> global -> project (later wins)
 if command -v jq &>/dev/null; then
@@ -103,7 +103,7 @@ fi
 if lsof -i :"$PORT" > /dev/null 2>&1; then
     echo "ERROR=PORT_IN_USE"
     echo "MESSAGE=Port $PORT is already in use"
-    echo "FIX=Set RECCE_MCP_PORT env var or update mcp_port in .claude/recce-dev/settings.json to use a different port"
+    echo "FIX=Set RECCE_MCP_PORT env var or update mcp_port in .claude/recce/settings.json to use a different port"
     exit 1
 fi
 

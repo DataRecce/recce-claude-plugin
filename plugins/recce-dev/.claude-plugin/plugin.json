@@ -1,7 +1,7 @@
 {
   "name": "recce-dev",
   "version": "0.1.0",
-  "description": "Intelligent data review workflow for dbt developers — tracks model changes and triggers progressive Recce validation",
+  "description": "Internal development and testing tools for the Recce project — MCP E2E validation, benchmarking, and plugin QA",
   "author": {
     "name": "DataRecce",
     "url": "https://datarecce.io"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/DataRecce/recce-claude-plugin",
   "repository": "https://github.com/DataRecce/recce-claude-plugin",
   "license": "MIT",
-  "keywords": ["recce", "dbt", "data-validation", "data-quality", "data-review"]
+  "keywords": ["recce", "testing", "e2e", "mcp-validation", "internal"]
 }

@@ -1,6 +1,9 @@
 # Design documents (personal drafts, not for version control)
 docs/plans/
 
+# Root node_modules (esbuild installed here is not tracked; use packages/recce-docs-mcp/node_modules)
+node_modules/
+
 # GSD planning (local-only)
 .planning/
 

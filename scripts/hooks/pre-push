@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# pre-push staleness guard — blocks push when dist/cli.js is older than src/
+# Install with: bash scripts/install-hooks.sh
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+SRC_TS=$(git -C "$REPO_ROOT" log -1 --format="%ct" -- packages/recce-docs-mcp/src/ 2>/dev/null || true)
+[ -z "$SRC_TS" ] && exit 0  # no src commits yet, skip check
+
+STALE_PLUGINS=""
+
+for plugin in recce recce-quickstart; do
+  DIST_TS=$(git -C "$REPO_ROOT" log -1 --format="%ct" -- \
+    "plugins/$plugin/servers/recce-docs-mcp/dist/cli.js" 2>/dev/null || true)
+  if [ -z "$DIST_TS" ] || [ "$SRC_TS" -gt "$DIST_TS" ]; then
+    STALE_PLUGINS="${STALE_PLUGINS:+$STALE_PLUGINS, }$plugin"
+  fi
+done
+
+if [ -n "$STALE_PLUGINS" ]; then
+  echo ""
+  echo "  ERROR: bundle is stale in: $STALE_PLUGINS"
+  echo "  packages/recce-docs-mcp/src/ has a newer commit than dist/cli.js"
+  echo ""
+  echo "  Fix:"
+  echo "    cd packages/recce-docs-mcp && npm run build:bundle"
+  echo "    git add plugins/recce/servers/recce-docs-mcp/dist/cli.js"
+  echo "    git add plugins/recce-quickstart/servers/recce-docs-mcp/dist/cli.js"
+  echo "    git commit -m 'chore: rebuild bundle'"
+  echo ""
+  echo "  Bypass (not recommended): git push --no-verify"
+  echo ""
+  exit 1
+fi
+
+exit 0

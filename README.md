@@ -1,59 +1,52 @@
-# Recce Quickstart Plugin for Claude Code
+# Recce Plugins for Claude Code
 
-A Claude Code plugin that helps dbt users quickly onboard to [Recce](https://datarecce.io) - the open-source data validation and diff tool for dbt.
+Official [Recce](https://datarecce.io) plugins for Claude Code — data validation and diff tools for dbt developers.
 
-## Features
+## Plugins
 
-- **Guided Setup** - `/recce-setup` walks you through environment configuration
-- **PR Analysis** - `/recce-pr` analyzes data impact of pull requests
-- **Data Checks** - `/recce-check` runs validation checks between environments
-- **CI/CD Setup** - `/recce-ci` generates GitHub Actions workflows for Recce Cloud
+| Plugin | Description | Audience |
+|--------|-------------|----------|
+| **recce-quickstart** | Guided onboarding — `/recce-setup`, `/recce-pr`, `/recce-check`, `/recce-ci` | New Recce users |
+| **recce** | Intelligent data review workflow — auto-tracks model changes, triggers progressive validation via MCP | dbt developers using Recce daily |
+| **recce-dev** | Internal MCP E2E validation and benchmarking (`/mcp-e2e-validate`) | Recce project developers |
 
 ## Installation
 
-### Method 1: From GitHub Marketplace (Recommended)
+### From GitHub Marketplace (Recommended)
 
 **Step 1: Add the Recce marketplace to Claude Code**
 
-In Claude Code, run:
 ```
 /plugin marketplace add DataRecce/recce-claude-plugin
 ```
 
-**Step 2: Install the plugin**
+**Step 2: Install a plugin**
+
 ```
 /plugin install recce-quickstart@recce-claude-plugin
+/plugin install recce@recce-claude-plugin
 ```
 
 Or use the interactive installer:
 ```
 /plugin
 ```
-Then navigate to **Discover** tab, find `recce-quickstart`, and press Enter to install.
+Then navigate to **Discover** tab and select the plugin to install.
 
-### Method 2: Local Installation (For Development)
+### Local Installation (For Development)
 
-**Step 1: Clone the repository**
 ```bash
 git clone https://github.com/DataRecce/recce-claude-plugin.git
 cd recce-claude-plugin
 ```
 
-**Step 2: Add as local marketplace**
-
-In Claude Code, run:
+In Claude Code:
 ```
 /plugin marketplace add /path/to/recce-claude-plugin
-```
-
-**Step 3: Install the plugin**
-```
-/plugin install recce-quickstart@recce-claude-plugin
+/plugin install recce@recce-claude-plugin
 ```
 
 ### Installation Scopes
-
-You can install the plugin at different scopes:
 
 | Scope | Command | Description |
 |-------|---------|-------------|
@@ -61,50 +54,46 @@ You can install the plugin at different scopes:
 | Project | `/plugin install ... --scope project` | Shared with team via `.claude/settings.json` |
 | Local | `/plugin install ... --scope local` | Only for current repository, not shared |
 
-### Verify Installation
+## Plugin Details
 
-After installation, verify the plugin is working:
-```
-/plugin
-```
-Navigate to the **Installed** tab to see `recce-quickstart`.
+### recce-quickstart
 
-## Quick Start
-
-1. Navigate to your dbt project directory
-2. Run `/recce-setup` to configure your environment
-3. Use `/recce-pr` or `/recce-check` to analyze data changes
-
-## Commands
+Guided setup for new Recce users:
 
 | Command | Description |
 |---------|-------------|
-| `/recce-setup` | Guided environment setup (installs dependencies, generates artifacts, starts MCP server) |
+| `/recce-setup` | Environment setup (installs dependencies, generates artifacts, starts MCP server) |
 | `/recce-pr [url]` | Analyze PR data changes (auto-detects PR from current branch) |
 | `/recce-check [type] [selector]` | Run data validation checks (row-count, schema, profile, query-diff) |
-| `/recce-ci` | Set up Recce Cloud CI/CD for GitHub Actions (PR review + main branch workflows) |
+| `/recce-ci` | Set up Recce Cloud CI/CD for GitHub Actions |
+
+### recce
+
+Automated data review workflow for daily dbt development:
+
+- **Skill:** `/recce-review` — dispatches the recce-reviewer agent with tracked model context
+- **Agent:** `recce-reviewer` — runs progressive diff analysis (lineage, row count, schema) and produces a risk-assessed summary
+- **Hooks:** auto-tracks model file changes, suggests review after `dbt run`, warns before unreviewed commits
+- **MCP Servers:** `recce` (SSE, localhost:8081), `recce-docs` (stdio)
+
+### recce-dev
+
+Internal tools for Recce project developers:
+
+- **Skill:** `/mcp-e2e-validate` — full event chain validation + benchmark report
+- **Script:** `resolve-recce-root.sh` — cross-plugin path resolution (monorepo + cache layouts)
+- **Requires:** the `recce` plugin installed alongside
 
 ## Requirements
 
 - **Python 3.8+**
 - **dbt** (any adapter: duckdb, postgres, bigquery, snowflake, etc.)
 - **Git**
+- **Recce >= 1.39.0** — `pip install "recce>=1.39.0"` (SSE transport requires this version)
 
-The plugin will guide you to install these if missing:
-- `pip install recce` - Recce CLI
-- `pip install 'recce[mcp]'` - Recce MCP Server (for AI-powered analysis)
+## MCP Server Tools
 
-## How It Works
-
-This plugin:
-1. **Detects** when you're in a dbt project (via `dbt_project.yml`)
-2. **Guides** you to set up base and current dbt artifacts
-3. **Starts** a Recce MCP server for AI-powered analysis
-4. **Provides** Claude with tools to analyze data changes
-
-### MCP Server Tools
-
-When the Recce MCP server is running, Claude has access to these tools:
+When the Recce MCP server is running, Claude has access to:
 
 | Tool | Description |
 |------|-------------|
@@ -113,36 +102,6 @@ When the Recce MCP server is running, Claude has access to these tools:
 | `row_count_diff` | Compare row counts between environments |
 | `profile_diff` | Statistical profiling comparison |
 | `query_diff` | Run custom SQL queries for comparison |
-
-## Managing the Plugin
-
-**Disable the plugin:**
-```
-/plugin disable recce-quickstart@recce-claude-plugin
-```
-
-**Re-enable the plugin:**
-```
-/plugin enable recce-quickstart@recce-claude-plugin
-```
-
-**Uninstall the plugin:**
-```
-/plugin uninstall recce-quickstart@recce-claude-plugin
-```
-
-**Update marketplace:**
-```
-/plugin marketplace update recce-claude-plugin
-```
-
-## Recce Cloud
-
-Want to automate data validation in CI/CD? [Recce Cloud](https://cloud.datarecce.io) offers:
-- Automatic PR analysis
-- Data quality gates
-- Team collaboration
-- Historical tracking
 
 ## Troubleshooting
 
@@ -155,11 +114,9 @@ Want to automate data validation in CI/CD? [Recce Cloud](https://cloud.datarecce
 1. Ensure you're in a dbt project directory (has `dbt_project.yml`)
 2. Verify Recce is installed: `pip install 'recce[mcp]'`
 3. Check if port 8081 is available (or set `RECCE_MCP_PORT=8085`)
-4. Run the setup command: `/recce-setup`
 
-### Commands not recognized?
-1. Ensure plugin is enabled: `/plugin` → **Installed** tab → check status
-2. Restart Claude Code to reload plugins
+### Mid-session plugin install?
+Hooks and MCP tools require a fresh session to activate. Restart Claude Code after installing plugins.
 
 ## Links
 

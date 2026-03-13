@@ -1,7 +1,7 @@
 #!/bin/bash
 # Smoke test: marketplace install artifact validation (VALD-03)
 # Validates that all plugin filesystem artifacts required for a successful
-# /plugin install recce-dev@recce-claude-plugin are present and correct.
+# /plugin install recce@recce-claude-plugin are present and correct.
 #
 # This test does NOT require Claude Code or a live install — it validates
 # the source tree has everything needed for a successful install.
@@ -10,7 +10,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PLUGIN_ROOT="$REPO_ROOT/plugins/recce-dev"
+PLUGIN_ROOT="$REPO_ROOT/plugins/recce"
 
 PASS=0
 FAIL=0
@@ -94,7 +94,7 @@ PLUGIN_JSON="$PLUGIN_ROOT/.claude-plugin/plugin.json"
 assert_file_exists "plugin.json exists" "$PLUGIN_JSON"
 assert_valid_json "plugin.json is valid JSON" "$PLUGIN_JSON"
 assert_file_contains "plugin.json has name field" "$PLUGIN_JSON" '"name"'
-assert_file_contains "plugin.json name is recce-dev" "$PLUGIN_JSON" '"recce-dev"'
+assert_file_contains "plugin.json name is recce" "$PLUGIN_JSON" '"recce"'
 
 # ========== Test 2: hooks.json exists and is valid JSON ==========
 echo "--- Test 2: hooks.json ---"
@@ -140,25 +140,26 @@ echo "--- Test 6: marketplace.json ---"
 MARKETPLACE_JSON="$REPO_ROOT/.claude-plugin/marketplace.json"
 assert_file_exists "marketplace.json exists" "$MARKETPLACE_JSON"
 assert_valid_json "marketplace.json is valid JSON" "$MARKETPLACE_JSON"
-assert_file_contains "marketplace.json references recce-dev" "$MARKETPLACE_JSON" '"recce-dev"'
-assert_file_contains "marketplace.json has correct source path" "$MARKETPLACE_JSON" '"./plugins/recce-dev"'
+assert_file_contains "marketplace.json references recce" "$MARKETPLACE_JSON" '"recce"'
+assert_file_contains "marketplace.json has correct source path" "$MARKETPLACE_JSON" '"./plugins/recce"'
 assert_file_contains "marketplace.json has plugins array" "$MARKETPLACE_JSON" '"plugins"'
 
 # ========== Test 7: No broken symlinks in plugin tree ==========
-echo "--- Test 7: No broken symlinks (excluding servers/) ---"
+echo "--- Test 7: No broken symlinks ---"
 
 TOTAL=$((TOTAL + 1))
 BROKEN_SYMLINKS=""
 
-# Walk the plugin tree, skip servers/ (known MKTD-02 recce-docs symlink issue)
+# Walk the full plugin tree — symlinks replaced by real bundles (MKTD-02)
+# (removed -not -path "*/servers/*" exclusion — symlinks replaced by real bundles)
 while IFS= read -r -d '' symlink; do
     if ! [ -e "$symlink" ]; then
         BROKEN_SYMLINKS="${BROKEN_SYMLINKS}${symlink}\n"
     fi
-done < <(find "$PLUGIN_ROOT" -not -path "*/servers/*" -type l -print0 2>/dev/null)
+done < <(find "$PLUGIN_ROOT" -type l -print0 2>/dev/null)
 
 if [ -z "$BROKEN_SYMLINKS" ]; then
-    echo "  PASS: no broken symlinks outside servers/"
+    echo "  PASS: no broken symlinks in plugin tree"
     PASS=$((PASS + 1))
 else
     echo "  FAIL: broken symlinks found:"
@@ -167,19 +168,42 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# Informational: note the known servers/ symlink
+# ========== Test 8: Bundle distribution (MKTD-02, MKTD-03) ==========
+echo "--- Test 8: Bundle distribution ---"
+
+# dist/cli.js exists and is a real file (not symlink)
+assert_file_exists "dist/cli.js exists" "$PLUGIN_ROOT/servers/recce-docs-mcp/dist/cli.js"
+
 TOTAL=$((TOTAL + 1))
-SERVERS_SYMLINK="$PLUGIN_ROOT/servers/recce-docs-mcp"
-if [ -L "$SERVERS_SYMLINK" ]; then
-    if [ -e "$SERVERS_SYMLINK" ]; then
-        echo "  PASS: servers/recce-docs-mcp symlink valid in current environment"
-    else
-        echo "  PASS: servers/recce-docs-mcp symlink present but dangling (expected MKTD-02 PoC limitation)"
-    fi
+if [ -L "$PLUGIN_ROOT/servers/recce-docs-mcp" ]; then
+    echo "  FAIL: servers/recce-docs-mcp is a symlink (should be real directory)"
+    FAIL=$((FAIL + 1))
+else
+    echo "  PASS: servers/recce-docs-mcp is a real directory"
+    PASS=$((PASS + 1))
+fi
+
+# dist/cli.js is non-empty
+TOTAL=$((TOTAL + 1))
+if [ -s "$PLUGIN_ROOT/servers/recce-docs-mcp/dist/cli.js" ]; then
+    echo "  PASS: dist/cli.js is non-empty"
     PASS=$((PASS + 1))
 else
-    echo "  PASS: servers/ symlink not present (no MKTD-02 concern)"
+    echo "  FAIL: dist/cli.js is empty or missing"
+    FAIL=$((FAIL + 1))
+fi
+
+# MCP handshake returns valid JSON-RPC
+TOTAL=$((TOTAL + 1))
+MCP_RESPONSE=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}' \
+  | node "$PLUGIN_ROOT/servers/recce-docs-mcp/dist/cli.js" 2>/dev/null \
+  | head -1)
+if [ "${MCP_RESPONSE:0:1}" = "{" ] && echo "$MCP_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'result' in d" 2>/dev/null; then
+    echo "  PASS: MCP handshake returns valid JSON-RPC"
     PASS=$((PASS + 1))
+else
+    echo "  FAIL: MCP handshake did not return valid JSON-RPC"
+    FAIL=$((FAIL + 1))
 fi
 
 # ========== Summary ==========

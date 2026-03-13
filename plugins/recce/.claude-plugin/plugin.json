@@ -1,0 +1,13 @@
+{
+  "name": "recce",
+  "version": "0.2.0",
+  "description": "Intelligent data review workflow for dbt developers — tracks model changes and triggers progressive Recce validation",
+  "author": {
+    "name": "DataRecce",
+    "url": "https://datarecce.io"
+  },
+  "homepage": "https://github.com/DataRecce/recce-claude-plugin",
+  "repository": "https://github.com/DataRecce/recce-claude-plugin",
+  "license": "MIT",
+  "keywords": ["recce", "dbt", "data-validation", "data-quality", "data-review"]
+}
