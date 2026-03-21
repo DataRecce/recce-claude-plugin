@@ -15,6 +15,15 @@ description: >
   Post-scoring quality assessment is the primary trigger for this agent.
   </commentary>
   </example>
+
+  <example>
+  Context: Re-scoring existing runs after updating the scoring rubric
+  user: "Re-judge the runs in .claude/recce-eval/runs/20260321-2334/ch1-null-amounts/"
+  assistant: "I'll dispatch the eval-judge agent to re-score these runs with the updated rubric."
+  <commentary>
+  Re-scoring is triggered by the score subcommand flow, not just initial runs.
+  </commentary>
+  </example>
 tools:
   - Read
 ---
