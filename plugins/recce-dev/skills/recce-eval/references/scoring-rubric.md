@@ -29,7 +29,7 @@
 
 ## LLM Judge Scoring
 
-See `agents/eval-judge.md` for the 5 scoring dimensions and calibration anchors.
+See `${CLAUDE_PLUGIN_ROOT}/agents/eval-judge.md` for the 5 scoring dimensions and calibration anchors.
 
 The judge scores **reasoning quality**, not answer correctness. A run can have perfect deterministic scores but mediocre judge scores (right answer, sloppy process) or vice versa (wrong answer, excellent reasoning that was undermined by one wrong assumption).
 

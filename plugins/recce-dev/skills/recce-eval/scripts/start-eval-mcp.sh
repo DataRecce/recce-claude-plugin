@@ -20,16 +20,15 @@ PID_FILE="/tmp/recce-mcp-${EVAL_HASH}.pid"
 LOG_FILE="/tmp/recce-mcp-${EVAL_HASH}.log"
 
 # ========== Venv Auto-Detection ==========
-# If recce is not on PATH, try activating a local venv
-if ! command -v recce &>/dev/null; then
-    for VENV_DIR in venv .venv; do
-        if [ -f "$VENV_DIR/bin/activate" ]; then
-            # shellcheck disable=SC1091
-            source "$VENV_DIR/bin/activate"
-            break
-        fi
-    done
-fi
+# Always prefer local venv over global tools — global dbt/recce may be
+# dbt Cloud CLI or a different version, incompatible with dbt-core projects.
+for VENV_DIR in venv .venv; do
+    if [ -f "$VENV_DIR/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/bin/activate"
+        break
+    fi
+done
 
 # ========== Prerequisite Checks ==========
 if [ ! -f "dbt_project.yml" ]; then
