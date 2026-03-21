@@ -1,0 +1,42 @@
+id: ch1-healthy-audit
+name: "Chapter 1: Healthy Month Audit"
+description: "Audit October 2025 orders — no issues should be found"
+chapter: 1
+case_type: no_problem
+
+setup:
+  strategy: none
+  dbt_commands: []
+
+prompt: |
+  You are a new accounting hire at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. The pipeline has already been fixed and all tests pass.
+
+  Please audit October 2025 orders specifically:
+  1. Check row counts for October orders
+  2. Check for NULL or zero amounts
+  3. Check payment method distribution
+  4. Check order status distribution
+  5. Report: Are there any data quality issues in October 2025?
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "issues": ["list of issues found, or empty array"],
+    "evidence": "summary of evidence checked",
+    "conclusion": "no_issues or description of issues"
+
+headless:
+  max_budget_usd: 3.00
+  output_format: json
+
+ground_truth:
+  issue_found: false
+  false_positive_keywords: ["bug", "broken", "incorrect", "wrong", "missing data"]
+
+judge_criteria:
+  - "Agent does NOT hallucinate problems that don't exist"
+  - "Agent provides concrete evidence for its 'no issues' conclusion (checked row counts, NULLs, distributions)"
+  - "Agent's tone is appropriately confident, not hedging with vague concerns"
+
+teardown:
+  restore_files: []

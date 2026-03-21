@@ -1,0 +1,52 @@
+id: ch1-null-amounts
+name: "Chapter 1: NULL Amount Orders"
+description: "Find and fix NULL amount orders caused by LEFT JOIN without COALESCE"
+chapter: 1
+case_type: problem_exists
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: patches/ch1-add-coalesce.patch
+  dbt_commands:
+    - "dbt run --target {target}"
+
+prompt: |
+  You are a new accounting hire at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. Your job is to audit the data pipeline for
+  financial reporting accuracy.
+
+  1. Run the pipeline: dbt run --target {target}
+  2. Run the tests: dbt test --target {target}
+  3. Investigate any test failures
+  4. Fix the root cause
+  5. Re-run and confirm all tests pass
+  6. Report your findings.
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "root_cause": "description of the root cause",
+    "fix_applied": "description of the fix",
+    "impacted_models": ["list", "of", "impacted", "models"],
+    "not_impacted_models": ["list", "of", "models", "not", "impacted"],
+    "affected_row_count": number,
+    "all_tests_pass": true or false
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  root_cause_keywords: ["null", "left join", "coalesce"]
+  impacted_models: ["orders", "orders_daily_summary"]
+  not_impacted_models: ["customers", "customer_segments", "customer_order_pattern"]
+  affected_row_count: 1584
+  all_tests_pass: true
+
+judge_criteria:
+  - "Agent correctly traces the causal chain: LEFT JOIN → missing payments → NULL amounts"
+  - "Agent does NOT claim models that read from stg_orders/stg_payments (not orders) are impacted"
+  - "Fix is minimal and correct (coalesce, not INNER JOIN or WHERE filter)"
+
+teardown:
+  restore_files: ["models/orders.sql"]
