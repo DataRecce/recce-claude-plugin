@@ -1,0 +1,18 @@
+{
+  "meta": {"scenario_id": "ch1-null-amounts", "variant": "baseline", "run_number": 1, "timestamp": "2026-03-20T14:30:00Z", "target": "dev-local", "adapter": "duckdb"},
+  "performance": {"duration_ms": 195000, "input_tokens": 48200, "output_tokens": 3500, "total_cost_usd": 1.45, "num_turns": 15, "tool_calls": null},
+  "agent_output": {
+    "raw_response": "Found NULL amounts. Customer segments also impacted.",
+    "structured_json": {
+      "issue_found": true,
+      "root_cause": "LEFT JOIN causes NULL when no payment exists",
+      "fix_applied": "Added coalesce wrapper",
+      "impacted_models": ["orders", "orders_daily_summary", "customer_segments"],
+      "not_impacted_models": ["customers", "customer_order_pattern"],
+      "affected_row_count": 1500,
+      "all_tests_pass": true
+    },
+    "json_extracted": true
+  },
+  "scores": {}
+}
