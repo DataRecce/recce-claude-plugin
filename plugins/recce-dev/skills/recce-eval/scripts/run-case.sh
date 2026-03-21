@@ -140,7 +140,6 @@ PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 CMD="claude -p"
 CMD="$CMD --dangerously-skip-permissions"
 CMD="$CMD --output-format json"
-CMD="$CMD --max-turns 30"
 CMD="$CMD --max-budget-usd $MAX_BUDGET_USD"
 
 if [ "$VARIANT" = "with-plugin" ]; then
@@ -169,125 +168,120 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 # ========== Invoke Claude ==========
-START_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+CLAUDE_RAW_FILE="$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_claude_raw.json"
+CLAUDE_ERR_FILE="$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_claude_stderr.log"
 
-CLAUDE_JSON=$(echo "$PROMPT_CONTENT" | eval "$CMD" 2>/dev/null) || {
-    CLAUDE_JSON='{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}'
+START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+
+# Write output directly to file — avoids SIGPIPE from $() capture on large JSON
+eval "$CMD" '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
+    echo '{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}' > "$CLAUDE_RAW_FILE"
 }
 
-END_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 ELAPSED_MS=$(( END_MS - START_MS ))
 
 # ========== Extract Fields from claude -p JSON Output ==========
-RAW_RESPONSE=$(echo "$CLAUDE_JSON" | jq -r '.result // ""')
-INPUT_TOKENS=$(echo "$CLAUDE_JSON" | jq -r '.usage.input_tokens // 0')
-OUTPUT_TOKENS=$(echo "$CLAUDE_JSON" | jq -r '.usage.output_tokens // 0')
-NUM_TURNS=$(echo "$CLAUDE_JSON" | jq -r '.num_turns // 0')
-TOTAL_COST=$(echo "$CLAUDE_JSON" | jq -r '.total_cost_usd // 0')
-DURATION_MS=$(echo "$CLAUDE_JSON" | jq -r '.duration_ms // '"$ELAPSED_MS")
+# All reads from file, not shell variable
+INPUT_TOKENS=$(jq -r '.usage.input_tokens // 0' "$CLAUDE_RAW_FILE")
+OUTPUT_TOKENS=$(jq -r '.usage.output_tokens // 0' "$CLAUDE_RAW_FILE")
+NUM_TURNS=$(jq -r '.num_turns // 0' "$CLAUDE_RAW_FILE")
+TOTAL_COST=$(jq -r '.total_cost_usd // 0' "$CLAUDE_RAW_FILE")
+DURATION_MS=$(jq -r ".duration_ms // $ELAPSED_MS" "$CLAUDE_RAW_FILE")
 
 # ========== Extract Structured JSON from Fenced Block ==========
-# Looks for ```json ... ``` in the raw response
-STRUCTURED_JSON=$(echo "$RAW_RESPONSE" | sed -n '/^```json$/,/^```$/p' | sed '1d;$d' | head -1 | tr -d '\n')
-# If single-line extraction got nothing, try multi-line extraction
-if [ -z "$STRUCTURED_JSON" ]; then
-    STRUCTURED_JSON=$(echo "$RAW_RESPONSE" | python3 - <<'PYEOF'
+# Use Python for reliable multi-line extraction from .result field
+python3 - "$CLAUDE_RAW_FILE" "$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_structured.json" <<'PYEOF'
 import sys, re, json
-text = sys.stdin.read()
-match = re.search(r'```json\s*\n([\s\S]*?)\n```', text)
-if match:
-    try:
+
+raw_file, out_file = sys.argv[1], sys.argv[2]
+try:
+    with open(raw_file) as f:
+        data = json.load(f)
+    result_text = data.get("result") or ""
+    match = re.search(r'```json\s*\n([\s\S]*?)\n```', result_text)
+    if match:
         obj = json.loads(match.group(1))
-        print(json.dumps(obj))
-    except Exception:
-        pass
+        with open(out_file, "w") as f:
+            json.dump(obj, f)
+        sys.exit(0)
+except Exception:
+    pass
+# Write null marker if extraction failed
+with open(out_file, "w") as f:
+    f.write("null")
+sys.exit(1)
 PYEOF
-)
-fi
 
 JSON_EXTRACTED="false"
-STRUCTURED_JSON_FIELD="null"
-if [ -n "$STRUCTURED_JSON" ]; then
-    # Validate it's actually parseable JSON
-    if echo "$STRUCTURED_JSON" | jq empty 2>/dev/null; then
+STRUCTURED_JSON_FILE="$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_structured.json"
+if [ -f "$STRUCTURED_JSON_FILE" ] && [ "$(cat "$STRUCTURED_JSON_FILE")" != "null" ]; then
+    if jq empty "$STRUCTURED_JSON_FILE" 2>/dev/null; then
         JSON_EXTRACTED="true"
-        STRUCTURED_JSON_FIELD="$STRUCTURED_JSON"
     fi
 fi
+
+# Extract raw_response text for the per-run JSON
+RAW_RESPONSE=$(jq -r '.result // ""' "$CLAUDE_RAW_FILE")
 
 # ========== Write Per-Run JSON ==========
 OUTPUT_FILE="$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}.json"
 
-if [ "$JSON_EXTRACTED" = "true" ]; then
-    jq -n \
-        --arg scenario_id "$SCENARIO_ID" \
-        --arg case_type "$CASE_TYPE" \
-        --arg variant "$VARIANT" \
-        --arg target "$TARGET" \
-        --argjson run_number "$RUN_NUMBER" \
-        --arg raw_response "$RAW_RESPONSE" \
-        --argjson structured_json "$STRUCTURED_JSON_FIELD" \
-        --arg json_extracted "$JSON_EXTRACTED" \
-        --argjson input_tokens "$INPUT_TOKENS" \
-        --argjson output_tokens "$OUTPUT_TOKENS" \
-        --argjson num_turns "$NUM_TURNS" \
-        --argjson total_cost_usd "$TOTAL_COST" \
-        --argjson duration_ms "$DURATION_MS" \
-        '{
-            scenario_id: $scenario_id,
-            case_type: $case_type,
-            variant: $variant,
-            target: $target,
-            run_number: $run_number,
-            agent_output: {
-                raw_response: $raw_response,
-                structured_json: $structured_json,
-                json_extracted: ($json_extracted == "true")
-            },
-            performance: {
-                input_tokens: $input_tokens,
-                output_tokens: $output_tokens,
-                num_turns: $num_turns,
-                total_cost_usd: $total_cost_usd,
-                duration_ms: $duration_ms
-            },
-            scores: {}
-        }' > "$OUTPUT_FILE"
-else
-    jq -n \
-        --arg scenario_id "$SCENARIO_ID" \
-        --arg case_type "$CASE_TYPE" \
-        --arg variant "$VARIANT" \
-        --arg target "$TARGET" \
-        --argjson run_number "$RUN_NUMBER" \
-        --arg raw_response "$RAW_RESPONSE" \
-        --arg json_extracted "$JSON_EXTRACTED" \
-        --argjson input_tokens "$INPUT_TOKENS" \
-        --argjson output_tokens "$OUTPUT_TOKENS" \
-        --argjson num_turns "$NUM_TURNS" \
-        --argjson total_cost_usd "$TOTAL_COST" \
-        --argjson duration_ms "$DURATION_MS" \
-        '{
-            scenario_id: $scenario_id,
-            case_type: $case_type,
-            variant: $variant,
-            target: $target,
-            run_number: $run_number,
-            agent_output: {
-                raw_response: $raw_response,
-                structured_json: null,
-                json_extracted: ($json_extracted == "true")
-            },
-            performance: {
-                input_tokens: $input_tokens,
-                output_tokens: $output_tokens,
-                num_turns: $num_turns,
-                total_cost_usd: $total_cost_usd,
-                duration_ms: $duration_ms
-            },
-            scores: {}
-        }' > "$OUTPUT_FILE"
-fi
+# Use Python to assemble per-run JSON from files — avoids shell variable size limits
+python3 - "$CLAUDE_RAW_FILE" "$STRUCTURED_JSON_FILE" "$OUTPUT_FILE" \
+    "$SCENARIO_ID" "$VARIANT" "$RUN_NUMBER" "$TARGET" "$JSON_EXTRACTED" <<'PYEOF'
+import sys, json
+
+claude_raw_file, structured_file, output_file = sys.argv[1], sys.argv[2], sys.argv[3]
+scenario_id, variant, run_number, target, json_extracted = sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7], sys.argv[8]
+
+# Read claude raw output
+try:
+    with open(claude_raw_file) as f:
+        claude_data = json.load(f)
+except Exception:
+    claude_data = {}
+
+# Read structured JSON
+structured_json = None
+if json_extracted == "true":
+    try:
+        with open(structured_file) as f:
+            structured_json = json.load(f)
+    except Exception:
+        json_extracted = "false"
+
+raw_response = claude_data.get("result") or ""
+usage = claude_data.get("usage", {})
+
+per_run = {
+    "meta": {
+        "scenario_id": scenario_id,
+        "variant": variant,
+        "run_number": int(run_number),
+        "timestamp": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "target": target,
+        "adapter": "unknown"
+    },
+    "performance": {
+        "duration_ms": claude_data.get("duration_ms", 0),
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+        "total_cost_usd": claude_data.get("total_cost_usd", 0),
+        "num_turns": claude_data.get("num_turns", 0),
+        "tool_calls": None
+    },
+    "agent_output": {
+        "raw_response": raw_response,
+        "structured_json": structured_json,
+        "json_extracted": json_extracted == "true"
+    },
+    "scores": {}
+}
+
+with open(output_file, "w") as f:
+    json.dump(per_run, f, indent=2)
+PYEOF
 
 echo "OUTPUT_FILE=$OUTPUT_FILE"
 echo "JSON_EXTRACTED=$JSON_EXTRACTED"
