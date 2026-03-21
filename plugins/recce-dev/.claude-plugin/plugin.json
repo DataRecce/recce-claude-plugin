@@ -1,6 +1,6 @@
 {
   "name": "recce-dev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Internal development and testing tools for the Recce project — MCP E2E validation, benchmarking, and plugin QA",
   "author": {
     "name": "DataRecce",
