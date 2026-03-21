@@ -10,7 +10,7 @@ FAIL=0
 
 assert_contains() {
     local test_name="$1" expected="$2" actual="$3"
-    if echo "$actual" | grep -q "$expected"; then
+    if echo "$actual" | grep -qF -- "$expected"; then
         echo "  PASS: $test_name"
         PASS=$((PASS + 1))
     else
@@ -56,7 +56,9 @@ OUTPUT=$(bash "$RUNNER" \
     --dry-run 2>&1 || true)
 
 assert_contains "has --plugin-dir" "plugin-dir" "$OUTPUT"
+assert_contains "has --strict-mcp-config" "strict-mcp-config" "$OUTPUT"
 assert_contains "has --mcp-config" "mcp-config" "$OUTPUT"
+assert_contains "has -- separator" "-- <prompt>" "$OUTPUT"
 
 # Cleanup
 rm -f /tmp/test-eval-prompt.txt

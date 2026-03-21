@@ -18,6 +18,14 @@ Measure the Recce Review Agent's impact by running headless Claude Code sessions
 
 ---
 
+## Setup
+
+Read learned patterns before starting:
+
+```
+Read → ${CLAUDE_PLUGIN_ROOT}/reference/learned-patterns.md
+```
+
 ## Prerequisites
 
 Before running eval, confirm:
@@ -187,7 +195,7 @@ The prompt text comes from the scenario YAML's `prompt` field, with `{target}` a
 
 ### Step 6: Generate Eval MCP Config
 
-Create a temporary MCP config JSON that points to the eval MCP server port. This is passed via `--mcp-config` to the `with-plugin` variant so the headless session connects to the eval-specific port (not the plugin's default):
+Create a temporary MCP config JSON that includes **both** the eval MCP server (on the eval port) and the recce-docs server. This is passed via `--strict-mcp-config` to the `with-plugin` variant so the headless session uses **only** this config, ignoring the plugin's `.mcp.json`:
 
 ```bash
 EVAL_PORT="${RECCE_EVAL_MCP_PORT:-8085}"
@@ -197,6 +205,11 @@ cat > /tmp/recce-eval-mcp-config.json << EOF
     "recce": {
       "type": "sse",
       "url": "http://localhost:${EVAL_PORT}/sse"
+    },
+    "recce-docs": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${RECCE_PLUGIN_ROOT}/servers/recce-docs-mcp/dist/cli.js"]
     }
   }
 }
@@ -205,7 +218,7 @@ echo "MCP_CONFIG=/tmp/recce-eval-mcp-config.json"
 echo "EVAL_PORT=$EVAL_PORT"
 ```
 
-**Assumption**: `--mcp-config` takes precedence over the plugin's `.mcp.json` for the same server key. If this does not hold, use `--strict-mcp-config` and add `recce-docs` to the eval config explicitly.
+**Why `--strict-mcp-config`**: The `--mcp-config` flag is additive and its merge behavior with plugin `.mcp.json` for same-name keys is undocumented. Using `--strict-mcp-config` guarantees the eval config is the sole MCP source, with the eval port for `recce` and the docs server preserved.
 
 ### Step 7: Start Eval MCP Server
 
@@ -494,7 +507,9 @@ If empty, tell user "No eval runs found." and **STOP**.
 
 - **Platform-specific `md5`**: macOS uses `md5`, Linux uses `md5sum`. The eval scripts handle both — do not simplify to one.
 
-- **MCP config precedence**: If `--mcp-config` does not override the plugin's `.mcp.json` for the `"recce"` key, use `--strict-mcp-config` and add `recce-docs` to the eval config explicitly.
+- **MCP config uses `--strict-mcp-config`**: The eval config must be the sole MCP source. `run-case.sh` passes `--strict-mcp-config --mcp-config` so the eval port is guaranteed. The eval config in Step 6 must include both `recce` (eval port) and `recce-docs` (from `$RECCE_PLUGIN_ROOT`).
+
+- **`--mcp-config` is variadic**: `--mcp-config <configs...>` consumes subsequent positional arguments. The `--` separator before the prompt in `run-case.sh` prevents the prompt from being parsed as a config argument. Do not remove it.
 
 - **Interleaved order matters**: Run baseline then with-plugin for the same run number before moving to the next run number. Do not group all baselines then all with-plugins — this introduces systematic bias.
 
@@ -537,3 +552,14 @@ If empty, tell user "No eval runs found." and **STOP**.
 ### Patches
 
 - **`patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
+
+---
+
+## Learning
+
+After completing the main workflow:
+
+1. **Detection**: Any unexpected failure, workaround, or pattern not in learned-patterns.md?
+   - Yes → check `${CLAUDE_PLUGIN_ROOT}/reference/learned-patterns.md`, if not covered → append D1 entry
+   - No → one question: "What was most unexpected?" → three-question test → capture or done
+2. "Nothing novel" is a valid and encouraged outcome.

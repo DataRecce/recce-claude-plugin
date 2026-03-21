@@ -60,6 +60,18 @@ if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
     exit 1
 fi
 
+# ========== Venv Auto-Detection ==========
+# If dbt/recce not on PATH, try activating a local venv (needed for dbt run in setup)
+if ! command -v dbt &>/dev/null; then
+    for VENV_DIR in venv .venv; do
+        if [ -f "$VENV_DIR/bin/activate" ]; then
+            # shellcheck disable=SC1091
+            source "$VENV_DIR/bin/activate"
+            break
+        fi
+    done
+fi
+
 # ========== Teardown Trap ==========
 cleanup() {
     if [ -n "$RESTORE_FILES" ]; then
@@ -147,7 +159,7 @@ if [ "$VARIANT" = "with-plugin" ]; then
         CMD="$CMD --plugin-dir \"$PLUGIN_DIR\""
     fi
     if [ -n "$MCP_CONFIG" ]; then
-        CMD="$CMD --mcp-config \"$MCP_CONFIG\""
+        CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
 fi
 
@@ -160,7 +172,7 @@ if [ "$DRY_RUN" = "true" ]; then
     fi
     echo "ADAPTER_TYPE=$ADAPTER_TYPE"
     echo "ADAPTER_DESC=$ADAPTER_DESC"
-    echo "CMD: $CMD <prompt>"
+    echo "CMD: $CMD -- <prompt>"
     exit 0
 fi
 
@@ -174,7 +186,9 @@ CLAUDE_ERR_FILE="$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_claude_stderr.log"
 START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 
 # Write output directly to file — avoids SIGPIPE from $() capture on large JSON
-eval "$CMD" '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
+# Use -- to separate flags from prompt: --mcp-config is variadic and consumes
+# subsequent positional arguments without the separator
+eval "$CMD" -- '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
     echo '{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}' > "$CLAUDE_RAW_FILE"
 }
 

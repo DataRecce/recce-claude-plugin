@@ -22,6 +22,12 @@ Validate the recce plugin's full event chain against a real dbt project and prod
 | MINOR bump | Selector strategy, parameter defaults, or validation criteria changed |
 | PATCH bump | Report format, error messages, documentation only |
 
+**Setup:** Read learned patterns before starting:
+
+```
+Read → ${CLAUDE_PLUGIN_ROOT}/reference/learned-patterns.md
+```
+
 **Dependencies:** This skill relies on the sibling `recce` plugin's scripts (`start-mcp.sh`, `stop-mcp.sh`, `check-mcp.sh`) and hooks (`track-changes.sh`, `suggest-review.sh`). It also dispatches the `recce-reviewer` agent.
 
 **Cross-plugin path:** The `recce` plugin is located via `resolve-recce-root.sh`, which auto-detects both monorepo and cache layouts:
@@ -276,3 +282,14 @@ Output the full report to the user. If all pass criteria are met, end with **Ver
 - **`scripts/load-baseline.sh`** — Loads baseline from `latest.json`, a specific timestamp, or a flow-version filter. Outputs KEY=VALUE lines.
 - **`scripts/show-history.sh`** — Displays benchmark history as a markdown table with optional `--limit` and `--flow-version` filters.
 - **`scripts/resolve-recce-root.sh`** (plugin-level) — Locates sibling `recce` plugin across monorepo and cache layouts. Outputs `RECCE_PLUGIN_ROOT` and `LAYOUT`.
+
+---
+
+## Learning
+
+After completing the main workflow:
+
+1. **Detection**: Any unexpected failure, workaround, or pattern not in learned-patterns.md?
+   - Yes → check `${CLAUDE_PLUGIN_ROOT}/reference/learned-patterns.md`, if not covered → append D1 entry
+   - No → one question: "What was most unexpected?" → three-question test → capture or done
+2. "Nothing novel" is a valid and encouraged outcome.

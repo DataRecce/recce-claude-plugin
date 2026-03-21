@@ -1,5 +1,7 @@
 ---
 name: eval-judge
+model: sonnet
+color: yellow
 description: >
   LLM judge for recce eval — scores agent response quality, reasoning chain,
   and false positive detection. Dispatched by recce-eval skill after

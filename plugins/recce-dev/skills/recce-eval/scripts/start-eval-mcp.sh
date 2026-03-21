@@ -19,6 +19,18 @@ EVAL_HASH=$(printf '%s-eval' "$PWD" | md5 2>/dev/null | cut -c1-8 \
 PID_FILE="/tmp/recce-mcp-${EVAL_HASH}.pid"
 LOG_FILE="/tmp/recce-mcp-${EVAL_HASH}.log"
 
+# ========== Venv Auto-Detection ==========
+# If recce is not on PATH, try activating a local venv
+if ! command -v recce &>/dev/null; then
+    for VENV_DIR in venv .venv; do
+        if [ -f "$VENV_DIR/bin/activate" ]; then
+            # shellcheck disable=SC1091
+            source "$VENV_DIR/bin/activate"
+            break
+        fi
+    done
+fi
+
 # ========== Prerequisite Checks ==========
 if [ ! -f "dbt_project.yml" ]; then
     echo "ERROR=NOT_DBT_PROJECT"
