@@ -7,6 +7,9 @@ node_modules/
 # GSD planning (local-only)
 .planning/
 
+# Private journal (local-only)
+.private-journal/
+
 # Python
 __pycache__/
 *.py[cod]
