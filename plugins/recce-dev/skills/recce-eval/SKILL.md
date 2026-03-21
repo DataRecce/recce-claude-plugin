@@ -537,7 +537,7 @@ If empty, tell user "No eval runs found." and **STOP**.
 
 ### Agents
 
-- **`agents/eval-judge.md`** — LLM-as-judge subagent. Scores reasoning quality, evidence quality, fix quality, false positive discipline, and completeness. Dispatched via `recce-dev:eval-judge`.
+- **`${CLAUDE_PLUGIN_ROOT}/agents/eval-judge.md`** — LLM-as-judge subagent. Scores reasoning quality, evidence quality, fix quality, false positive discipline, and completeness. Dispatched via `recce-dev:eval-judge`.
 
 ### References
 

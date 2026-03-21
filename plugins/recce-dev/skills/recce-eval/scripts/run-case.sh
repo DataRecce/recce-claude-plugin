@@ -61,16 +61,26 @@ if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
 fi
 
 # ========== Venv Auto-Detection ==========
-# If dbt/recce not on PATH, try activating a local venv (needed for dbt run in setup)
-if ! command -v dbt &>/dev/null; then
-    for VENV_DIR in venv .venv; do
-        if [ -f "$VENV_DIR/bin/activate" ]; then
-            # shellcheck disable=SC1091
-            source "$VENV_DIR/bin/activate"
-            break
-        fi
-    done
-fi
+# Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
+# which requires dbt_cloud.yml and is incompatible with dbt-core projects.
+for VENV_DIR in venv .venv; do
+    if [ -f "$VENV_DIR/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/bin/activate"
+        break
+    fi
+done
+
+# ========== Claude CLI Resolution ==========
+# Prefer ~/.local/bin/claude (standard install) over stale system-wide versions.
+# Old versions (0.x) lack --output-format, --max-budget-usd, --mcp-config.
+CLAUDE_BIN="claude"
+for CLAUDE_PATH in "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude"; do
+    if [ -x "$CLAUDE_PATH" ]; then
+        CLAUDE_BIN="$CLAUDE_PATH"
+        break
+    fi
+done
 
 # ========== Teardown Trap ==========
 cleanup() {
@@ -149,7 +159,7 @@ esac
 # ========== Assemble claude -p Command ==========
 PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
-CMD="claude -p"
+CMD="$CLAUDE_BIN -p"
 CMD="$CMD --dangerously-skip-permissions"
 CMD="$CMD --output-format json"
 CMD="$CMD --max-budget-usd $MAX_BUDGET_USD"
