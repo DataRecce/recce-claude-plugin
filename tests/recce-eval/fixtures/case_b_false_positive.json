@@ -1,0 +1,15 @@
+{
+  "meta": {"scenario_id": "ch1-healthy-audit", "variant": "baseline", "run_number": 1, "timestamp": "2026-03-20T15:00:00Z", "target": "dev-local", "adapter": "duckdb"},
+  "performance": {"duration_ms": 135000, "input_tokens": 33000, "output_tokens": 2800, "total_cost_usd": 0.95, "num_turns": 10, "tool_calls": null},
+  "agent_output": {
+    "raw_response": "Found a potential bug in the coupon handling. The data looks incorrect for some orders.",
+    "structured_json": {
+      "issue_found": true,
+      "issues": ["Potential coupon calculation bug"],
+      "evidence": "Reviewed payment distributions",
+      "conclusion": "Found potential data quality issues with coupon amounts"
+    },
+    "json_extracted": true
+  },
+  "scores": {}
+}

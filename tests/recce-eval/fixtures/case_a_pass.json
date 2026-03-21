@@ -1,0 +1,18 @@
+{
+  "meta": {"scenario_id": "ch1-null-amounts", "variant": "with-plugin", "run_number": 1, "timestamp": "2026-03-20T14:30:00Z", "target": "dev-local", "adapter": "duckdb"},
+  "performance": {"duration_ms": 180000, "input_tokens": 45000, "output_tokens": 3200, "total_cost_usd": 1.23, "num_turns": 12, "tool_calls": null},
+  "agent_output": {
+    "raw_response": "Found NULL amounts in orders due to LEFT JOIN without coalesce.",
+    "structured_json": {
+      "issue_found": true,
+      "root_cause": "LEFT JOIN without coalesce causes NULL amounts for orders without payments",
+      "fix_applied": "Added coalesce(..., 0) to amount columns in orders.sql",
+      "impacted_models": ["orders", "orders_daily_summary"],
+      "not_impacted_models": ["customers", "customer_segments", "customer_order_pattern"],
+      "affected_row_count": 1584,
+      "all_tests_pass": true
+    },
+    "json_extracted": true
+  },
+  "scores": {}
+}

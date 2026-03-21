@@ -1,0 +1,15 @@
+{
+  "meta": {"scenario_id": "ch1-healthy-audit", "variant": "with-plugin", "run_number": 1, "timestamp": "2026-03-20T15:00:00Z", "target": "dev-local", "adapter": "duckdb"},
+  "performance": {"duration_ms": 120000, "input_tokens": 31000, "output_tokens": 2100, "total_cost_usd": 0.85, "num_turns": 8, "tool_calls": null},
+  "agent_output": {
+    "raw_response": "Checked October 2025 orders. All metrics look healthy.",
+    "structured_json": {
+      "issue_found": false,
+      "issues": [],
+      "evidence": "Checked row counts, NULL amounts, payment distribution, status distribution",
+      "conclusion": "no_issues"
+    },
+    "json_extracted": true
+  },
+  "scores": {}
+}
