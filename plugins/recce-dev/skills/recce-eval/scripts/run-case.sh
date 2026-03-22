@@ -12,7 +12,7 @@ SCENARIO_ID="" CASE_TYPE="" VARIANT="" PROMPT_FILE=""
 SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
-DRY_RUN="false" BARE_MODE="false"
+DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -31,6 +31,7 @@ while [[ $# -gt 0 ]]; do
         --run-number)       RUN_NUMBER="$2";        shift 2 ;;
         --dry-run)          DRY_RUN="true";         shift 1 ;;
         --bare)             BARE_MODE="true";       shift 1 ;;
+        --clean-profile)    CLEAN_PROFILE="true";   shift 1 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -83,13 +84,16 @@ for CLAUDE_PATH in "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude"; do
     fi
 done
 
-# ========== Bare Mode Auth ==========
-# --bare requires ANTHROPIC_API_KEY (skips OAuth/keychain).
-# If not set, try loading from known .env locations.
-if [ "$BARE_MODE" = "true" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+# ========== API Key Resolution ==========
+# --bare and --clean-profile both need ANTHROPIC_API_KEY (no OAuth/keychain).
+# Resolve from env, then known .env locations, using the REAL home dir.
+# Save ORIG_HOME before any HOME override (used by --clean-profile later).
+ORIG_HOME="$HOME"
+REAL_HOME="$HOME"
+if { [ "$BARE_MODE" = "true" ] || [ "$CLEAN_PROFILE" = "true" ]; } && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
     for ENV_FILE in \
-        "$HOME/Project/recce/recce-cloud-infra/recce_instance_launcher/recce_agent/.env" \
-        "$HOME/.env"; do
+        "$REAL_HOME/Project/recce/recce-cloud-infra/recce_instance_launcher/recce_agent/.env" \
+        "$REAL_HOME/.env"; do
         if [ -f "$ENV_FILE" ]; then
             KEY=$(grep "^ANTHROPIC_API_KEY=" "$ENV_FILE" | cut -d= -f2)
             if [ -n "$KEY" ]; then
@@ -99,7 +103,7 @@ if [ "$BARE_MODE" = "true" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         fi
     done
     if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-        echo "ERROR: --bare requires ANTHROPIC_API_KEY but none found" >&2
+        echo "ERROR: --bare/--clean-profile requires ANTHROPIC_API_KEY but none found" >&2
         exit 1
     fi
 fi
@@ -223,9 +227,20 @@ START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 # Write output directly to file — avoids SIGPIPE from $() capture on large JSON
 # Use -- to separate flags from prompt: --mcp-config is variadic and consumes
 # subsequent positional arguments without the separator
-eval "$CMD" -- '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
-    echo '{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}' > "$CLAUDE_RAW_FILE"
-}
+if [ "$CLEAN_PROFILE" = "true" ]; then
+    # Simulate a fresh user: temp HOME with no memory, no CLAUDE.md, no history.
+    # Plugin hooks still fire (unlike --bare). Auth via ANTHROPIC_API_KEY.
+    EVAL_CLEAN_HOME=$(mktemp -d)
+    mkdir -p "$EVAL_CLEAN_HOME/.claude"
+    ORIG_HOME="$HOME" HOME="$EVAL_CLEAN_HOME" eval "$CMD" -- '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
+        echo '{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}' > "$CLAUDE_RAW_FILE"
+    }
+    rm -rf "$EVAL_CLEAN_HOME"
+else
+    eval "$CMD" -- '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
+        echo '{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}' > "$CLAUDE_RAW_FILE"
+    }
+fi
 
 END_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 ELAPSED_MS=$(( END_MS - START_MS ))
