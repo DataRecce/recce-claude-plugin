@@ -12,7 +12,7 @@ SCENARIO_ID="" CASE_TYPE="" VARIANT="" PROMPT_FILE=""
 SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
-DRY_RUN="false"
+DRY_RUN="false" BARE_MODE="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -30,6 +30,7 @@ while [[ $# -gt 0 ]]; do
         --mcp-config)       MCP_CONFIG="$2";        shift 2 ;;
         --run-number)       RUN_NUMBER="$2";        shift 2 ;;
         --dry-run)          DRY_RUN="true";         shift 1 ;;
+        --bare)             BARE_MODE="true";       shift 1 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -81,6 +82,27 @@ for CLAUDE_PATH in "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude"; do
         break
     fi
 done
+
+# ========== Bare Mode Auth ==========
+# --bare requires ANTHROPIC_API_KEY (skips OAuth/keychain).
+# If not set, try loading from known .env locations.
+if [ "$BARE_MODE" = "true" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    for ENV_FILE in \
+        "$HOME/Project/recce/recce-cloud-infra/recce_instance_launcher/recce_agent/.env" \
+        "$HOME/.env"; do
+        if [ -f "$ENV_FILE" ]; then
+            KEY=$(grep "^ANTHROPIC_API_KEY=" "$ENV_FILE" | cut -d= -f2)
+            if [ -n "$KEY" ]; then
+                export ANTHROPIC_API_KEY="$KEY"
+                break
+            fi
+        fi
+    done
+    if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+        echo "ERROR: --bare requires ANTHROPIC_API_KEY but none found" >&2
+        exit 1
+    fi
+fi
 
 # ========== Teardown Trap ==========
 cleanup() {
@@ -160,6 +182,9 @@ esac
 PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
 CMD="$CLAUDE_BIN -p"
+if [ "$BARE_MODE" = "true" ]; then
+    CMD="$CMD --bare"
+fi
 CMD="$CMD --dangerously-skip-permissions"
 CMD="$CMD --output-format json"
 CMD="$CMD --max-budget-usd $MAX_BUDGET_USD"
