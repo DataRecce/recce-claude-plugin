@@ -499,6 +499,34 @@ If empty, tell user "No eval runs found." and **STOP**.
 
 ---
 
+## Isolation Modes
+
+`run-case.sh` supports two isolation modes for simulating users without accumulated context:
+
+| Flag | Memory | CLAUDE.md | Plugin Hooks | Auth | Use Case |
+|------|--------|-----------|-------------|------|----------|
+| _(none)_ | ✅ | ✅ | ✅ | OAuth | Internal dev testing |
+| `--bare` | ❌ | ❌ | ❌ | API key | Absolute minimum baseline |
+| `--clean-profile` | ❌ | ❌ | ✅ | API key | **Recommended: simulates a real new user** |
+
+### `--clean-profile` (recommended for external-facing claims)
+
+Creates a temporary `HOME` directory so `claude -p` sees an empty `~/.claude/` — no auto-memory, no CLAUDE.md, no conversation history. Plugin hooks still fire because `--bare` is NOT used.
+
+```bash
+bash run-case.sh --id ch3-phantom-filter --variant baseline \
+    --clean-profile ...  # ← adds temp HOME override
+```
+
+**Mechanism**: `HOME=/tmp/xxx claude -p ...` — Claude CLI resolves `~/.claude/` to the temp dir (empty). Auth requires `ANTHROPIC_API_KEY` env var (keychain is in the real HOME). The script auto-resolves the key from known `.env` locations.
+
+**Why not `--bare`**: `--bare` also skips plugin hooks (SessionStart, PostToolUse). This means the plugin's onboarding flow (auto-detect dbt project, inject model overview) doesn't run, understating the plugin's value.
+
+**Empirical impact** (ch3-phantom-filter baseline):
+- With memory: 12/12
+- `--bare`: 7/12
+- `--clean-profile`: 10/12
+
 ## Common Mistakes
 
 - **Shell variables do not persist**: Each Bash tool invocation starts a fresh shell. Re-derive `EVAL_ID`, `BATCH_DIR`, `TARGET`, `ADAPTER`, `RECCE_PLUGIN_ROOT`, and other state in every Bash block that needs them. Do not assume a previous Bash call's variables are available.
