@@ -84,11 +84,20 @@ if [ "$CASE_TYPE" = "problem_exists" ]; then
         else add_check "not_impacted: $model" "absent" "present (false positive)" "FAIL"; fi
     done
 
-    # affected_row_count
+    # affected_row_count (±20% tolerance — agents interpret "affected rows" differently)
     EXPECTED_COUNT=$(echo "$GROUND_TRUTH" | jq -r '.affected_row_count')
     ACTUAL_COUNT=$(echo "$AGENT_JSON" | jq -r '.affected_row_count // "null"')
-    if [ "$ACTUAL_COUNT" = "$EXPECTED_COUNT" ]; then add_check "affected_row_count" "$EXPECTED_COUNT" "$ACTUAL_COUNT" "PASS"
-    else add_check "affected_row_count" "$EXPECTED_COUNT" "$ACTUAL_COUNT" "FAIL"; fi
+    if [ "$ACTUAL_COUNT" = "null" ] || [ "$ACTUAL_COUNT" = "0" ]; then
+        add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "FAIL"
+    else
+        WITHIN_TOLERANCE=$(jq -n --argjson e "$EXPECTED_COUNT" --argjson a "$ACTUAL_COUNT" \
+            '(($a - $e) | fabs) / $e < 0.2')
+        if [ "$WITHIN_TOLERANCE" = "true" ]; then
+            add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "PASS"
+        else
+            add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "FAIL"
+        fi
+    fi
 
     # all_tests_pass
     EXPECTED_PASS=$(echo "$GROUND_TRUTH" | jq -r '.all_tests_pass | tostring')
