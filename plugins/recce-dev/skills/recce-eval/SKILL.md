@@ -58,6 +58,7 @@ Shared flags (apply to all flows that accept them):
 | `--adapter` | Override adapter detection | Auto-detect from profiles.yml |
 | `--plugin-dir` | Recce plugin path | Auto-resolve via `resolve-recce-root.sh` |
 | `--model` | Claude model for headless runs | Inherits from current session |
+| `--no-clean-profile` | Disable clean-profile isolation | `--clean-profile` is ON by default |
 
 ### List Flow (short-circuit)
 
@@ -243,6 +244,8 @@ For each run number (1 to N), for each variant (`baseline` first, then `with-plu
 mkdir -p "$BATCH_DIR/$SCENARIO_ID"
 
 # ---- Baseline variant ----
+# --clean-profile is default: simulates a real new user (no memory, no CLAUDE.md)
+# Pass --no-clean-profile to disable (for internal dev testing only)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -254,7 +257,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --target "$TARGET" \
     --max-budget-usd "$MAX_BUDGET" \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
-    --run-number "$RUN_NUM"
+    --run-number "$RUN_NUM" \
+    --clean-profile
 ```
 
 Parse the KEY=VALUE output from `run-case.sh`. Record `OUTPUT_FILE`, `JSON_EXTRACTED`, `TOTAL_COST_USD`, `DURATION_MS`.
@@ -285,7 +289,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
     --plugin-dir "$RECCE_PLUGIN_ROOT" \
     --mcp-config /tmp/recce-eval-mcp-config.json \
-    --run-number "$RUN_NUM"
+    --run-number "$RUN_NUM" \
+    --clean-profile
 ```
 
 Score the with-plugin run:
