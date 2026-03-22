@@ -1,0 +1,51 @@
+id: ch2-silent-filter
+name: "Chapter 2: Silent Order Filter"
+description: "Detect a WHERE clause in stg_orders that silently drops return_pending orders — all dbt tests pass"
+chapter: 2
+case_type: problem_exists
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: patches/ch2-remove-status-filter.patch
+  dbt_commands:
+    - "dbt run --target {target}"
+
+prompt: |
+  You are a senior data engineer at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. A junior team member modified the staging layer
+  and claims "all tests pass, ready to merge."
+
+  Your job is to review the pipeline for data quality issues:
+  1. Run the pipeline: dbt run --target {target}
+  2. Run the tests: dbt test --target {target}
+  3. Even if tests pass, investigate whether the data looks correct
+  4. Check row counts, distributions, and compare with expectations
+  5. Report your findings — are there any silent data quality issues?
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "root_cause": "description of the root cause",
+    "impacted_models": ["list", "of", "impacted", "models"],
+    "not_impacted_models": ["list", "of", "models", "not", "impacted"],
+    "affected_row_count": number,
+    "all_tests_pass": true or false
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  root_cause_keywords: ["filter", "where", "return_pending", "status"]
+  impacted_models: ["stg_orders", "orders", "customers", "orders_daily_summary", "customer_segments", "customer_order_pattern"]
+  not_impacted_models: ["stg_customers", "stg_payments"]
+  affected_row_count: 2560
+  all_tests_pass: true
+
+judge_criteria:
+  - "Agent detects the silent row count drop despite all tests passing"
+  - "Agent traces the WHERE clause in stg_orders as the root cause"
+  - "Agent correctly identifies that customers is ALSO impacted (reads stg_orders via customer_orders CTE), not just orders"
+
+teardown:
+  restore_files: ["models/staging/stg_orders.sql"]
