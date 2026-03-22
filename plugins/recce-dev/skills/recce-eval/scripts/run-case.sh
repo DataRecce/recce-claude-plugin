@@ -32,6 +32,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run)          DRY_RUN="true";         shift 1 ;;
         --bare)             BARE_MODE="true";       shift 1 ;;
         --clean-profile)    CLEAN_PROFILE="true";   shift 1 ;;
+        --no-clean-profile) CLEAN_PROFILE="false";  shift 1 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
