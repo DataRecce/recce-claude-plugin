@@ -1,0 +1,68 @@
+id: ch3-phantom-filter
+name: "Chapter 3: Phantom Data Filter"
+description: "A seemingly reasonable WHERE amount > 0 filter in stg_payments silently drops 2,326 valid zero-dollar transactions"
+chapter: 3
+case_type: problem_exists
+
+story: |
+  A junior engineer submits a PR adding `WHERE amount > 0` to stg_payments.sql.
+  The PR description reads: "Filter out zero-value noise transactions for cleaner
+  analytics." Code review approves it — filtering zero-value records sounds like
+  sensible data hygiene.
+
+  But 2,326 of those $0 transactions are legitimate: gift card full redemptions,
+  promotional credits, and refund offsets. Removing them causes orders to lose
+  payment records, understating revenue across the entire pipeline. All dbt tests
+  pass because not_null and accepted_values checks don't verify row counts or
+  value correctness.
+
+  This scenario tests whether the agent can distinguish an intentional data quality
+  filter from an accidental data loss — something that requires comparing current
+  row counts against the base state, not just reading the code.
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: patches/ch3-phantom-filter.patch
+  dbt_commands:
+    - "dbt run --target {target}"
+
+prompt: |
+  You are a senior data engineer at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. A colleague submitted a PR that modifies the staging
+  layer. They say "just a small cleanup, all tests pass."
+
+  Your job is to thoroughly review the pipeline:
+  1. Run the pipeline: dbt run --target {target}
+  2. Run the tests: dbt test --target {target}
+  3. Even if tests pass, check whether data looks correct
+  4. Compare row counts and value distributions with expectations
+  5. Examine any recent code changes in the staging models
+  6. Report your findings
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "root_cause": "description of the root cause",
+    "impacted_models": ["list", "of", "impacted", "models"],
+    "not_impacted_models": ["list", "of", "models", "not", "impacted"],
+    "affected_row_count": number,
+    "all_tests_pass": true or false
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  root_cause_keywords: ["amount", "filter", "where", "zero", "> 0"]
+  impacted_models: ["stg_payments", "orders", "customers", "orders_daily_summary", "customer_segments", "customer_order_pattern"]
+  not_impacted_models: ["stg_orders", "stg_customers"]
+  affected_row_count: 2326
+  all_tests_pass: true
+
+judge_criteria:
+  - "Agent identifies the WHERE amount > 0 filter as the root cause of data loss"
+  - "Agent recognizes that $0 transactions are legitimate (not noise) and should not be filtered"
+  - "Agent traces the multi-path impact: stg_payments → orders AND stg_payments → customers"
+
+teardown:
+  restore_files: ["models/staging/stg_payments.sql"]

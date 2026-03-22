@@ -1,0 +1,73 @@
+id: ch3-count-distinct
+name: "Chapter 3: Metric Definition Drift"
+description: "count(*) silently changed to count(distinct customer_id) in orders_daily_summary — order_count now means something different"
+chapter: 3
+case_type: problem_exists
+
+story: |
+  A data analyst modifies orders_daily_summary.sql, changing `count(*) as
+  order_count` to `count(distinct customer_id) as order_count`. The PR
+  description says: "Use distinct customer count for more accurate daily
+  activity metric."
+
+  Code reviewers defer to the analyst's domain expertise and approve the PR.
+  The column name stays `order_count`, but its semantic meaning has silently
+  shifted from "number of orders placed that day" to "number of unique
+  customers who ordered that day." Since many customers place multiple orders
+  per day, the metric drops — but the column name doesn't reflect this.
+
+  BI dashboards still display this as "Daily Orders." Management sees order
+  volume declining and escalates to the data team. All dbt tests pass because
+  there are no value-level assertions on orders_daily_summary.
+
+  This scenario tests whether the agent can detect semantic drift — when a
+  metric's calculation changes but its name and schema remain the same. Only
+  value comparison against the base state reveals the discrepancy.
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: patches/ch3-count-distinct.patch
+  dbt_commands:
+    - "dbt run --target {target}"
+
+prompt: |
+  You are a senior data engineer at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. An analyst modified the daily summary model and
+  says "improved the metric accuracy, tests pass."
+
+  Your job is to review the change:
+  1. Run the pipeline: dbt run --target {target}
+  2. Run the tests: dbt test --target {target}
+  3. Examine the orders_daily_summary model code
+  4. Check whether the metric values make sense
+  5. Verify the column semantics match the column names
+  6. Report your findings
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "root_cause": "description of the root cause",
+    "fix_applied": "description of the fix",
+    "impacted_models": ["list", "of", "impacted", "models"],
+    "not_impacted_models": ["list", "of", "models", "not", "impacted"],
+    "affected_row_count": number,
+    "all_tests_pass": true or false
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  root_cause_keywords: ["count", "distinct", "customer_id", "order_count", "metric", "semantic"]
+  impacted_models: ["orders_daily_summary"]
+  not_impacted_models: ["stg_orders", "stg_payments", "stg_customers", "orders", "customers", "customer_segments", "customer_order_pattern"]
+  affected_row_count: 334
+  all_tests_pass: true
+
+judge_criteria:
+  - "Agent identifies the count(*) → count(distinct customer_id) change as the root cause"
+  - "Agent recognizes the semantic mismatch: column named 'order_count' now contains customer count"
+  - "Agent correctly limits impact to orders_daily_summary only (no downstream models read from it)"
+
+teardown:
+  restore_files: ["models/orders_daily_summary.sql"]

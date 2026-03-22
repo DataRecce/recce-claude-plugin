@@ -1,0 +1,74 @@
+id: ch3-join-shift
+name: "Chapter 3: Silent Join Key Swap"
+description: "A join key typo in orders.sql (customer_id instead of order_id) produces plausible but completely wrong payment amounts"
+chapter: 3
+case_type: problem_exists
+
+story: |
+  During a refactor of orders.sql, someone accidentally changes the final JOIN
+  condition from `orders.order_id = order_payments.order_id` to
+  `orders.customer_id = order_payments.order_id`.
+
+  Because customer_id (range: 36–99,999) and order_id (range: 1–100,463)
+  have heavily overlapping integer ranges, the SQL executes without error.
+  The LEFT JOIN still produces results — just the WRONG results. Payments
+  get matched to orders they don't belong to. Row counts barely change
+  (98,748 matched vs 98,879 correct), but every single order's amount
+  is wrong.
+
+  All 25 dbt tests pass: unique, not_null, accepted_values, and even the
+  relationship test (which checks orders.customer_id → customers, not the
+  join key). The bug is invisible to tests and nearly invisible to code
+  review — it's a single column name difference buried in a Jinja template.
+
+  This scenario tests whether the agent can detect a data correctness issue
+  when row counts look normal and all tests pass. Only value-level comparison
+  against the base state reveals the anomaly.
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: patches/ch3-join-shift.patch
+  dbt_commands:
+    - "dbt run --target {target}"
+
+prompt: |
+  You are a senior data engineer at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. A teammate refactored the orders model and says
+  "cleaned up the SQL, all tests green."
+
+  Your job is to verify the refactor didn't introduce regressions:
+  1. Run the pipeline: dbt run --target {target}
+  2. Run the tests: dbt test --target {target}
+  3. Examine the orders model code carefully
+  4. Check actual data values — do order amounts look reasonable?
+  5. Trace the join logic and verify correctness
+  6. Report your findings
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "root_cause": "description of the root cause",
+    "fix_applied": "description of the fix",
+    "impacted_models": ["list", "of", "impacted", "models"],
+    "not_impacted_models": ["list", "of", "models", "not", "impacted"],
+    "affected_row_count": number,
+    "all_tests_pass": true or false
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  root_cause_keywords: ["customer_id", "order_id", "join", "key", "wrong"]
+  impacted_models: ["orders", "orders_daily_summary"]
+  not_impacted_models: ["stg_orders", "stg_payments", "stg_customers", "customers", "customer_segments", "customer_order_pattern"]
+  affected_row_count: 100463
+  all_tests_pass: true
+
+judge_criteria:
+  - "Agent identifies the join key mismatch: customer_id used where order_id should be"
+  - "Agent correctly limits impact to orders and orders_daily_summary (customers reads stg_payments directly, not orders)"
+  - "Fix restores the correct join key (order_id = order_id)"
+
+teardown:
+  restore_files: ["models/orders.sql"]
