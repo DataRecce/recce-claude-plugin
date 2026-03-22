@@ -1,0 +1,54 @@
+id: ch2-amount-misscale
+name: "Chapter 2: Amount Scale Error"
+description: "Detect cents-to-dollars conversion error in stg_payments (amount/1000 instead of /100) — all tests pass, values 10x too small"
+chapter: 2
+case_type: problem_exists
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: patches/ch2-fix-amount-scale.patch
+  dbt_commands:
+    - "dbt run --target {target}"
+
+prompt: |
+  You are a senior data engineer at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. A team member refactored the staging layer and
+  says "all tests pass, LGTM."
+
+  Your job is to thoroughly review the pipeline for correctness:
+  1. Run the pipeline: dbt run --target {target}
+  2. Run the tests: dbt test --target {target}
+  3. Examine the staging model code for correctness
+  4. Check actual data values — do they make sense?
+  5. Trace how values flow through downstream models
+  6. Report your findings
+
+  At the end of your response, output a fenced JSON block with exactly these keys:
+    "issue_found": true or false,
+    "root_cause": "description of the root cause",
+    "fix_applied": "description of the fix",
+    "impacted_models": ["list", "of", "impacted", "models"],
+    "not_impacted_models": ["list", "of", "models", "not", "impacted"],
+    "affected_row_count": number,
+    "all_tests_pass": true or false
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  root_cause_keywords: ["1000", "100", "cents", "dollars", "scale", "division"]
+  impacted_models: ["stg_payments", "orders", "customers", "orders_daily_summary", "customer_segments"]
+  not_impacted_models: ["stg_orders", "stg_customers", "customer_order_pattern"]
+  affected_row_count: 115397
+  all_tests_pass: true
+
+judge_criteria:
+  - "Agent identifies the /1000 vs /100 division error in stg_payments"
+  - "Agent traces the cascading impact: stg_payments → orders amounts AND customers CLV"
+  - "Agent recognizes that customer_order_pattern is NOT impacted (no amount columns)"
+  - "Fix is minimal and correct (change 1000 to 100)"
+
+teardown:
+  restore_files: ["models/staging/stg_payments.sql"]
