@@ -64,6 +64,11 @@ Execute the following steps in order. Each step's output informs the next.
 - If the result shows NO changed nodes: output the "No impact detected" summary (see Section 4) and STOP immediately.
 - If the result shows changed nodes: record the list of affected model names and their materializations (table, view, incremental) for use in Step 2.
 
+**Impact Scoping — use the `impacted` column:**
+The `lineage_diff` output includes an `impacted` boolean column for each node. This field is authoritative: `impacted=true` means the model is modified or downstream of a modified model; `impacted=false` means it is NOT in the impact path. Use this column — do NOT override it with your own reasoning about shared sources or similar column names.
+
+Models that share the same upstream sources (siblings in the DAG) but do NOT depend on the changed model will have `impacted=false`. For example, if `orders` and `customers` both read from `stg_orders`, but `customers` does not `ref('orders')`, then `customers` will correctly show `impacted=false` — it is a sibling, not a downstream dependency.
+
 ### Step 2 — Row Count Diff (tables only)
 
 For each changed model identified in Step 1:

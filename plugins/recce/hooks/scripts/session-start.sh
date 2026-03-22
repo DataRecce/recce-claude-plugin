@@ -55,6 +55,10 @@ else
     echo "TARGET_BASE_EXISTS=false"
 fi
 
+# ========== Lineage Best Practice ==========
+# Injected into context so the agent interprets lineage_diff correctly
+echo "LINEAGE_RULE=Before reporting which models are impacted by a change, ALWAYS call lineage_diff to check the DAG. Each node has an 'impacted' boolean column: true=modified or downstream, false=not affected. Trust this column over code-based assumptions about dependencies. Do NOT guess model dependencies from column names or shared sources."
+
 # ========== MCP Auto-Start Decision ==========
 # Only attempt if: recce installed AND target/manifest.json exists
 
