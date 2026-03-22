@@ -548,10 +548,14 @@ If empty, tell user "No eval runs found." and **STOP**.
 
 - **`scenarios/ch1-null-amounts.yaml`** — Case A (problem_exists): broken pipeline with NULL amounts from missing COALESCE.
 - **`scenarios/ch1-healthy-audit.yaml`** — Case B (no_problem): healthy pipeline audit that should find no issues.
+- **`scenarios/ch2-silent-filter.yaml`** — Case C (problem_exists): WHERE clause silently drops return_pending orders, all tests pass.
+- **`scenarios/ch2-amount-misscale.yaml`** — Case D (problem_exists): amount/1000 instead of /100 makes payments 10x too small, all tests pass.
 
 ### Patches
 
 - **`patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
+- **`patches/ch2-remove-status-filter.patch`** — Removes the return_pending filter from stg_orders.
+- **`patches/ch2-fix-amount-scale.patch`** — Fixes amount/1000 → amount/100 in stg_payments.
 
 ---
 
