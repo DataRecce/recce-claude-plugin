@@ -1,0 +1,13 @@
+diff --git b/models/orders.sql a/models/orders.sql
+index 85d3f04..6117c1d 100644
+--- b/models/orders.sql
++++ a/models/orders.sql
+@@ -49,7 +49,7 @@ final as (
+ 
+ 
+     left join order_payments
+-        on orders.customer_id = order_payments.order_id
++        on orders.order_id = order_payments.order_id
+ 
+ )
+ 

@@ -1,0 +1,9 @@
+diff --git b/models/staging/stg_payments.sql a/models/staging/stg_payments.sql
+index 7a92025..28b8e8b 100644
+--- b/models/staging/stg_payments.sql
++++ a/models/staging/stg_payments.sql
+@@ -19,4 +19,3 @@ renamed as (
+ )
+ 
+ select * from renamed
+-where amount > 0

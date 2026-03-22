@@ -1,0 +1,13 @@
+diff --git b/models/orders_daily_summary.sql a/models/orders_daily_summary.sql
+index aa8aaec..abef25c 100644
+--- b/models/orders_daily_summary.sql
++++ a/models/orders_daily_summary.sql
+@@ -4,7 +4,7 @@ with daily_orders as (
+ 
+     select
+         order_date,
+-        count(distinct customer_id) as order_count,
++        count(*) as order_count,
+         sum(amount) as total_amount,
+         avg(amount) as avg_order_amount
+ 

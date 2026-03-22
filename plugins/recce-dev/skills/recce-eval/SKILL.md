@@ -550,12 +550,18 @@ If empty, tell user "No eval runs found." and **STOP**.
 - **`scenarios/ch1-healthy-audit.yaml`** — Case B (no_problem): healthy pipeline audit that should find no issues.
 - **`scenarios/ch2-silent-filter.yaml`** — Case C (problem_exists): WHERE clause silently drops return_pending orders, all tests pass.
 - **`scenarios/ch2-amount-misscale.yaml`** — Case D (problem_exists): amount/1000 instead of /100 makes payments 10x too small, all tests pass.
+- **`scenarios/ch3-phantom-filter.yaml`** — Case E (problem_exists): WHERE amount > 0 silently drops 2,326 valid $0 transactions, looks like intentional cleanup.
+- **`scenarios/ch3-join-shift.yaml`** — Case F (problem_exists): join key typo (customer_id vs order_id) produces plausible but wrong amounts, all tests pass.
+- **`scenarios/ch3-count-distinct.yaml`** — Case G (problem_exists): count(*) → count(distinct customer_id) changes metric semantics without changing column name.
 
 ### Patches
 
 - **`patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
 - **`patches/ch2-remove-status-filter.patch`** — Removes the return_pending filter from stg_orders.
 - **`patches/ch2-fix-amount-scale.patch`** — Fixes amount/1000 → amount/100 in stg_payments.
+- **`patches/ch3-phantom-filter.patch`** — Removes the WHERE amount > 0 filter from stg_payments.
+- **`patches/ch3-join-shift.patch`** — Restores correct join key (order_id) in orders.sql.
+- **`patches/ch3-count-distinct.patch`** — Restores count(*) in orders_daily_summary.
 
 ---
 
