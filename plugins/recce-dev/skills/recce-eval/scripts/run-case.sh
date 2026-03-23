@@ -12,7 +12,7 @@ SCENARIO_ID="" CASE_TYPE="" VARIANT="" PROMPT_FILE=""
 SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
-DRY_RUN="false" BARE_MODE="true" CLEAN_PROFILE="false"
+DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -65,10 +65,10 @@ if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
 fi
 
 # ========== Isolation Note ==========
-# Default: --bare for both variants (no keychain reads, no memory, no CLAUDE.md).
-# --bare skips hooks, so with-plugin uses --append-system-prompt to inject
-# the IMPACT_RULE that SessionStart hook would have provided.
-# Use --clean-profile explicitly only if hooks beyond IMPACT_RULE are needed.
+# Default: --clean-profile (no memory, no CLAUDE.md, plugin hooks fire organically).
+# Seed settings.json in temp HOME provides apiKeyHelper (no keychain prompts),
+# skipDangerousModePermissionPrompt, and effortLevel=high.
+# Use --bare explicitly for tools-only testing (hooks skipped).
 
 # ========== Venv Auto-Detection ==========
 # Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
@@ -240,11 +240,8 @@ if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$MCP_CONFIG" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
-    # --bare skips hooks, so inject IMPACT_RULE directly into the prompt.
-    # User message has higher priority than system prompt for agent compliance.
-    PROMPT_CONTENT="[MCP Tools Available] You have access to Recce MCP tools. MANDATORY: Call the impact_analysis tool BEFORE reporting impacted_models. Do NOT determine impact by reading code or ref() calls — use the DAG-based tool instead. Copy impacted_models and not_impacted_models from the tool response directly into your output. Use value_diff.rows_changed as your affected_row_count — it is the exact count of rows whose values differ between base and current.
-
-$PROMPT_CONTENT"
+    # No manual IMPACT_RULE injection needed — plugin's SessionStart hook
+    # fires organically under --clean-profile and injects it automatically.
 fi
 
 # ========== Dry Run Mode ==========
