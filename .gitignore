@@ -1,5 +1,7 @@
 # Design documents (personal drafts, not for version control)
 docs/plans/
+docs/specs/
+docs/superpowers/
 
 # Root node_modules (esbuild installed here is not tracked; use packages/recce-docs-mcp/node_modules)
 node_modules/
