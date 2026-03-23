@@ -1,56 +1,17 @@
 #!/bin/bash
-# Sync .mcp.json port with the user's configured mcp_port setting.
+# Sync .mcp.json port with the resolved MCP port.
 # Runs on SessionStart so Claude Code connects to the correct port.
 #
-# If the configured port is occupied, scans upward (up to 10 attempts)
-# to find a free port and writes it to both .mcp.json and a state file
+# Uses default port 8081 (or RECCE_MCP_PORT env var override).
+# If the port is occupied, scans upward (up to 10 attempts) to find
+# a free port and writes it to both .mcp.json and a state file
 # so that start-mcp.sh can use the same port later.
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 MCP_JSON="$PLUGIN_ROOT/.mcp.json"
 
-# Resolve sibling recce plugin root for settings paths
-# Only extract RECCE_PLUGIN_ROOT — do not eval arbitrary output
-RESOLVE_SCRIPT="$PLUGIN_ROOT/scripts/resolve-recce-root.sh"
-if [ -f "$RESOLVE_SCRIPT" ]; then
-    RESOLVE_OUTPUT=$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$RESOLVE_SCRIPT" 2>/dev/null || true)
-    while IFS= read -r line; do
-        case "$line" in
-            RECCE_PLUGIN_ROOT=*)
-                RECCE_PLUGIN_ROOT="${line#RECCE_PLUGIN_ROOT=}"
-                break
-                ;;
-        esac
-    done <<PARSE_EOF
-$RESOLVE_OUTPUT
-PARSE_EOF
-fi
-
-# Layered settings: recce plugin defaults -> global -> project
-DEFAULTS="${RECCE_PLUGIN_ROOT:+$RECCE_PLUGIN_ROOT/settings/defaults.json}"
-GLOBAL_SETTINGS="$HOME/.claude/plugins/recce/settings.json"
-PROJECT_SETTINGS=".claude/recce/settings.json"
-
-if command -v jq &>/dev/null; then
-    MERGED=$(cat "$DEFAULTS" 2>/dev/null || echo '{}')
-    if [ -f "$GLOBAL_SETTINGS" ]; then
-        MERGED=$(printf '%s\n%s' "$MERGED" "$(cat "$GLOBAL_SETTINGS")" | jq -s '.[0] * .[1]' 2>/dev/null) || MERGED='{}'
-    fi
-    if [ -f "$PROJECT_SETTINGS" ]; then
-        MERGED=$(printf '%s\n%s' "$MERGED" "$(cat "$PROJECT_SETTINGS")" | jq -s '.[0] * .[1]' 2>/dev/null) || MERGED='{}'
-    fi
-    BASE_PORT=$(echo "$MERGED" | jq -r '.mcp_port // 8081' 2>/dev/null)
-else
-    BASE_PORT=$(grep '"mcp_port"' "$PROJECT_SETTINGS" "$GLOBAL_SETTINGS" "$DEFAULTS" 2>/dev/null | head -1 | sed 's/.*: *\([0-9]*\).*/\1/')
-fi
-
-# Validate port is numeric; default to 8081 if not
-case "$BASE_PORT" in
-    ''|*[!0-9]*) BASE_PORT=8081 ;;
-esac
-
-# Env var override (same precedence as start-mcp.sh)
-BASE_PORT="${RECCE_MCP_PORT:-$BASE_PORT}"
+# Default port; env var override takes precedence
+BASE_PORT="${RECCE_MCP_PORT:-8081}"
 
 # Project-scoped state file
 PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
