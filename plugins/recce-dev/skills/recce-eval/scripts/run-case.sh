@@ -64,6 +64,16 @@ if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
     exit 1
 fi
 
+# ========== Isolation Mode Auto-Selection ==========
+# baseline: --bare (no hooks, no memory, pure prompt-driven)
+# with-plugin: --clean-profile (hooks fire, MCP available, no memory/CLAUDE.md)
+# --bare skips hooks, which kills the plugin's MANDATORY impact_analysis enforcement.
+# --clean-profile preserves hooks while removing user context contamination.
+if [ "$VARIANT" = "with-plugin" ] && [ "$BARE_MODE" = "true" ]; then
+    BARE_MODE="false"
+    CLEAN_PROFILE="true"
+fi
+
 # ========== Venv Auto-Detection ==========
 # Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
 # which requires dbt_cloud.yml and is incompatible with dbt-core projects.
