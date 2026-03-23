@@ -57,7 +57,7 @@ fi
 
 # ========== Impact Analysis Rule (mandatory) ==========
 # Injected into context so the agent uses impact_analysis for all impact determination
-echo "IMPACT_RULE=MANDATORY: When determining which dbt models are impacted by a code change, you MUST call the impact_analysis MCP tool BEFORE reporting impacted_models. Do NOT determine impact by reading code, inferring from ref() calls, or guessing from model names — these approaches confuse upstream dependencies with downstream impact and produce false positives. impact_analysis uses the lineage DAG to deterministically classify models as impacted (modified + downstream) or not-impacted. Its impacted_models and not_impacted_models lists are authoritative — copy them directly into your output."
+echo "IMPACT_RULE=MANDATORY: When determining which dbt models are impacted by a code change, you MUST call the impact_analysis MCP tool BEFORE reporting impacted_models. Do NOT determine impact by reading code, inferring from ref() calls, or guessing from model names — these approaches confuse upstream dependencies with downstream impact and produce false positives. impact_analysis uses the lineage DAG to deterministically classify models as impacted (modified + downstream) or not-impacted. Its impacted_models and not_impacted_models lists are authoritative — copy them directly into your output. When the response includes value_diff.rows_changed for a model, use that number as the affected row count — it is the exact count of rows whose values differ between base and current."
 
 # ========== MCP Auto-Start Decision ==========
 # Only attempt if: recce installed AND target/manifest.json exists
