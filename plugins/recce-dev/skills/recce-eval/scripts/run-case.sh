@@ -147,9 +147,12 @@ if [ "$DRY_RUN" = "false" ]; then
             # This ensures base artifacts match current code exactly (no stale diffs).
             # Without this, orders.sql may show as "modified" due to old target-base/.
             dbt docs generate --target-path target-base --target "$TARGET" --quiet 2>/dev/null || true
-            # Now apply patch (introduces the bug) and rebuild current state
+            # Now apply patch (introduces the bug) and rebuild current state.
+            # Use --full-refresh so incremental models reprocess ALL rows with
+            # the buggy code — otherwise value_diff sees 0 changed rows because
+            # the stored data was computed before the patch was applied.
             git apply --reverse "$PATCH_FILE"
-            dbt run --target "$TARGET" --quiet
+            dbt run --target "$TARGET" --full-refresh --quiet
             dbt docs generate --target "$TARGET" --quiet 2>/dev/null || true
             # Run dbt test BEFORE MCP starts (avoids DuckDB lock conflict).
             # Capture result for prompt injection — agent can't run tests itself
@@ -237,11 +240,11 @@ if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$MCP_CONFIG" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
-    # --bare skips hooks, so manually inject what SessionStart would provide.
-    # This is the IMPACT_RULE from session-start.sh — tells the agent to use
-    # impact_analysis MCP tool and map value_diff.rows_changed to affected_row_count.
-    IMPACT_RULE="MANDATORY: When determining which dbt models are impacted by a code change, you MUST call the impact_analysis MCP tool BEFORE reporting impacted_models. Do NOT determine impact by reading code, inferring from ref() calls, or guessing from model names — these approaches confuse upstream dependencies with downstream impact and produce false positives. impact_analysis uses the lineage DAG to deterministically classify models as impacted (modified + downstream) or not-impacted. Its impacted_models and not_impacted_models lists are authoritative — copy them directly into your output. When the response includes value_diff.rows_changed for a model, use that number as the affected row count — it is the exact count of rows whose values differ between base and current."
-    CMD="$CMD --append-system-prompt \"$IMPACT_RULE\""
+    # --bare skips hooks, so inject IMPACT_RULE directly into the prompt.
+    # User message has higher priority than system prompt for agent compliance.
+    PROMPT_CONTENT="[MCP Tools Available] You have access to Recce MCP tools. MANDATORY: Call the impact_analysis tool BEFORE reporting impacted_models. Do NOT determine impact by reading code or ref() calls — use the DAG-based tool instead. Copy impacted_models and not_impacted_models from the tool response directly into your output. Use value_diff.rows_changed as your affected_row_count — it is the exact count of rows whose values differ between base and current.
+
+$PROMPT_CONTENT"
 fi
 
 # ========== Dry Run Mode ==========
