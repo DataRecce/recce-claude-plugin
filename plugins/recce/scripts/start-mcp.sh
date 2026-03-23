@@ -47,6 +47,16 @@ PORT=${RECCE_MCP_PORT:-$SETTINGS_PORT}
 PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
 PID_FILE="/tmp/recce-mcp-${PROJECT_HASH}.pid"
 LOG_FILE="/tmp/recce-mcp-${PROJECT_HASH}.log"
+PORT_STATE_FILE="/tmp/recce-mcp-resolved-port-${PROJECT_HASH}.txt"
+
+# If a SessionStart hook already resolved a free port, prefer it
+if [ -f "$PORT_STATE_FILE" ]; then
+    HOOK_PORT=$(cat "$PORT_STATE_FILE")
+    if [ -n "$HOOK_PORT" ]; then
+        PORT="$HOOK_PORT"
+        SETTINGS_SOURCE="hook-resolved"
+    fi
+fi
 
 # ========== Prerequisite Checks ==========
 
@@ -98,13 +108,29 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
-# ========== Check Port Availability ==========
+# ========== Check Port Availability (with auto-fallback) ==========
 
+BASE_PORT="$PORT"
 if lsof -i :"$PORT" > /dev/null 2>&1; then
-    echo "ERROR=PORT_IN_USE"
-    echo "MESSAGE=Port $PORT is already in use"
-    echo "FIX=Set RECCE_MCP_PORT env var or update mcp_port in .claude/recce/settings.json to use a different port"
-    exit 1
+    # Configured port is busy — scan upward for a free port
+    FOUND_FREE=false
+    for i in $(seq 1 10); do
+        CANDIDATE=$((BASE_PORT + i))
+        if ! lsof -i :"$CANDIDATE" > /dev/null 2>&1; then
+            PORT="$CANDIDATE"
+            FOUND_FREE=true
+            echo "PORT_FALLBACK=true"
+            echo "PORT_CONFIGURED=$BASE_PORT"
+            echo "PORT_RESOLVED=$PORT"
+            break
+        fi
+    done
+    if [ "$FOUND_FREE" = false ]; then
+        echo "ERROR=PORT_IN_USE"
+        echo "MESSAGE=Port $BASE_PORT (and $BASE_PORT-$((BASE_PORT + 10))) are all in use"
+        echo "FIX=Set RECCE_MCP_PORT env var or update mcp_port in .claude/recce/settings.json to use a different port"
+        exit 1
+    fi
 fi
 
 # ========== Start MCP Server ==========
@@ -137,6 +163,8 @@ for i in {1..15}; do
     if [ "$HTTP_CODE" = "200" ]; then
         echo "STATUS=STARTED"
         echo "URL=http://localhost:$PORT/sse"
+        # Persist resolved port so SessionStart hook can sync .mcp.json
+        echo "$PORT" > "$PORT_STATE_FILE"
         exit 0
     fi
 done
