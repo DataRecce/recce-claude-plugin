@@ -54,7 +54,12 @@ EOF
 if [ -f "$PID_FILE" ]; then
     OLD_PID=$(cat "$PID_FILE")
     if ps -p "$OLD_PID" > /dev/null 2>&1 && [ -f "$PORT_STATE_FILE" ]; then
-        PORT=$(cat "$PORT_STATE_FILE")
+        PORT=$(cat "$PORT_STATE_FILE" 2>/dev/null | tr -d '[:space:]')
+        # Validate port is numeric and in range
+        if [ -z "$PORT" ] || ! [ "$PORT" -ge 1 ] 2>/dev/null || ! [ "$PORT" -le 65535 ] 2>/dev/null; then
+            rm -f "$PORT_STATE_FILE"
+            PORT="$BASE_PORT"
+        fi
         echo "MCP_PORT_ALREADY_RUNNING=$PORT"
         # Ensure .mcp.json matches the running server
         CURRENT_PORT=$(read_mcp_json_port)

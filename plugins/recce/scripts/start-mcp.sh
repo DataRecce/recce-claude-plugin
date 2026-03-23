@@ -51,10 +51,13 @@ PORT_STATE_FILE="/tmp/recce-mcp-resolved-port-${PROJECT_HASH}.txt"
 
 # If a SessionStart hook already resolved a free port, prefer it
 if [ -f "$PORT_STATE_FILE" ]; then
-    HOOK_PORT=$(cat "$PORT_STATE_FILE")
-    if [ -n "$HOOK_PORT" ]; then
+    HOOK_PORT=$(cat "$PORT_STATE_FILE" 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$HOOK_PORT" ] && [ "$HOOK_PORT" -ge 1 ] 2>/dev/null && [ "$HOOK_PORT" -le 65535 ] 2>/dev/null; then
         PORT="$HOOK_PORT"
         SETTINGS_SOURCE="hook-resolved"
+    else
+        # Invalid state file — remove it to avoid repeated issues
+        rm -f "$PORT_STATE_FILE"
     fi
 fi
 
