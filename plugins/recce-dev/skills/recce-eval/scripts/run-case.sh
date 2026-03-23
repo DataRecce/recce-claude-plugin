@@ -150,6 +150,22 @@ if [ "$DRY_RUN" = "false" ]; then
             git apply --reverse "$PATCH_FILE"
             dbt run --target "$TARGET" --quiet
             dbt docs generate --target "$TARGET" --quiet 2>/dev/null || true
+            # Run dbt test BEFORE MCP starts (avoids DuckDB lock conflict).
+            # Capture result for prompt injection — agent can't run tests itself
+            # because stdio MCP holds a DuckDB connection during the session.
+            DBT_TEST_OUTPUT=$(dbt test --target "$TARGET" 2>&1 || true)
+            DBT_TEST_PASS_COUNT=$(echo "$DBT_TEST_OUTPUT" | sed -n 's/.*PASS=\([0-9]*\).*/\1/p' | tail -1)
+            DBT_TEST_WARN_COUNT=$(echo "$DBT_TEST_OUTPUT" | sed -n 's/.*WARN=\([0-9]*\).*/\1/p' | tail -1)
+            DBT_TEST_ERROR_COUNT=$(echo "$DBT_TEST_OUTPUT" | sed -n 's/.*ERROR=\([0-9]*\).*/\1/p' | tail -1)
+            DBT_TEST_PASS_COUNT="${DBT_TEST_PASS_COUNT:-0}"
+            DBT_TEST_WARN_COUNT="${DBT_TEST_WARN_COUNT:-0}"
+            DBT_TEST_ERROR_COUNT="${DBT_TEST_ERROR_COUNT:-0}"
+            DBT_TEST_TOTAL=$((DBT_TEST_PASS_COUNT + DBT_TEST_WARN_COUNT + DBT_TEST_ERROR_COUNT))
+            if [ "$DBT_TEST_ERROR_COUNT" = "0" ]; then
+                DBT_TEST_RESULT="ALL TESTS PASSED (PASS=$DBT_TEST_PASS_COUNT WARN=$DBT_TEST_WARN_COUNT ERROR=0 TOTAL=$DBT_TEST_TOTAL)"
+            else
+                DBT_TEST_RESULT="TESTS FAILED (PASS=$DBT_TEST_PASS_COUNT WARN=$DBT_TEST_WARN_COUNT ERROR=$DBT_TEST_ERROR_COUNT TOTAL=$DBT_TEST_TOTAL)"
+            fi
             ;;
         none)
             # No setup needed
@@ -200,7 +216,7 @@ PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
 # Prepend setup context so the agent knows dbt was already run
 if [ "$SETUP_STRATEGY" = "git_patch" ]; then
-    PROMPT_CONTENT="[Setup context: The code change has already been applied and 'dbt run --target $TARGET' has already completed successfully. You do NOT need to run dbt run again — the data is ready for review. Focus on reviewing the data impact.]
+    PROMPT_CONTENT="[Setup context: The code change has already been applied. 'dbt run --target $TARGET' completed successfully. 'dbt test --target $TARGET' result: ${DBT_TEST_RESULT:-not run}. You do NOT need to run dbt run or dbt test again — the data and test results are ready. Focus on reviewing the data impact.]
 
 $PROMPT_CONTENT"
 fi
