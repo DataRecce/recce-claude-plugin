@@ -12,7 +12,7 @@ SCENARIO_ID="" CASE_TYPE="" VARIANT="" PROMPT_FILE=""
 SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
-DRY_RUN="false" BARE_MODE="true" CLEAN_PROFILE="false"
+DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -64,15 +64,10 @@ if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
     exit 1
 fi
 
-# ========== Isolation Mode Auto-Selection ==========
-# baseline: --bare (no hooks, no memory, pure prompt-driven)
-# with-plugin: --clean-profile (hooks fire, MCP available, no memory/CLAUDE.md)
-# --bare skips hooks, which kills the plugin's MANDATORY impact_analysis enforcement.
-# --clean-profile preserves hooks while removing user context contamination.
-if [ "$VARIANT" = "with-plugin" ] && [ "$BARE_MODE" = "true" ]; then
-    BARE_MODE="false"
-    CLEAN_PROFILE="true"
-fi
+# ========== Isolation Note ==========
+# Default: --clean-profile (no memory, no CLAUDE.md, hooks still fire).
+# --bare skips hooks, which kills plugin's MANDATORY impact_analysis enforcement.
+# Use --bare explicitly only for testing isolation edge cases.
 
 # ========== Venv Auto-Detection ==========
 # Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
