@@ -12,7 +12,7 @@ SCENARIO_ID="" CASE_TYPE="" VARIANT="" PROMPT_FILE=""
 SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
-DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="false"
+DRY_RUN="false" BARE_MODE="true" CLEAN_PROFILE="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -31,6 +31,7 @@ while [[ $# -gt 0 ]]; do
         --run-number)       RUN_NUMBER="$2";        shift 2 ;;
         --dry-run)          DRY_RUN="true";         shift 1 ;;
         --bare)             BARE_MODE="true";       shift 1 ;;
+        --no-bare)          BARE_MODE="false";      shift 1 ;;
         --clean-profile)    CLEAN_PROFILE="true";   shift 1 ;;
         --no-clean-profile) CLEAN_PROFILE="false";  shift 1 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;

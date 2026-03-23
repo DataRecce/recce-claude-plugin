@@ -58,7 +58,7 @@ Shared flags (apply to all flows that accept them):
 | `--adapter` | Override adapter detection | Auto-detect from profiles.yml |
 | `--plugin-dir` | Recce plugin path | Auto-resolve via `resolve-recce-root.sh` |
 | `--model` | Claude model for headless runs | Inherits from current session |
-| `--no-clean-profile` | Disable clean-profile isolation | `--clean-profile` is ON by default |
+| `--no-bare` | Disable bare mode isolation | `--bare` is ON by default |
 
 ### List Flow (short-circuit)
 
@@ -196,16 +196,16 @@ The prompt text comes from the scenario YAML's `prompt` field, with `{target}` a
 
 ### Step 6: Generate Eval MCP Config
 
-Create a temporary MCP config JSON that includes **both** the eval MCP server (on the eval port) and the recce-docs server. This is passed via `--strict-mcp-config` to the `with-plugin` variant so the headless session uses **only** this config, ignoring the plugin's `.mcp.json`:
+Create a temporary MCP config JSON using **stdio** transport for Recce MCP. This avoids DuckDB lock conflicts — claude spawns the MCP server as a child process after run-case.sh setup completes, so `dbt run` in setup never competes for the database lock.
 
 ```bash
-EVAL_PORT="${RECCE_EVAL_MCP_PORT:-8085}"
 cat > /tmp/recce-eval-mcp-config.json << EOF
 {
   "mcpServers": {
     "recce": {
-      "type": "sse",
-      "url": "http://localhost:${EVAL_PORT}/sse"
+      "type": "stdio",
+      "command": "recce",
+      "args": ["mcp-server"]
     },
     "recce-docs": {
       "type": "stdio",
@@ -216,22 +216,15 @@ cat > /tmp/recce-eval-mcp-config.json << EOF
 }
 EOF
 echo "MCP_CONFIG=/tmp/recce-eval-mcp-config.json"
-echo "EVAL_PORT=$EVAL_PORT"
 ```
 
-**Why `--strict-mcp-config`**: The `--mcp-config` flag is additive and its merge behavior with plugin `.mcp.json` for same-name keys is undocumented. Using `--strict-mcp-config` guarantees the eval config is the sole MCP source, with the eval port for `recce` and the docs server preserved.
+**Why stdio, not SSE**: SSE mode (`start-eval-mcp.sh`) keeps a persistent DuckDB read connection that blocks `dbt run`'s exclusive write lock during setup. stdio transport defers MCP startup to claude's process, which runs after setup. No external MCP server lifecycle management needed.
 
-### Step 7: Start Eval MCP Server
+**Why `--strict-mcp-config`**: The `--mcp-config` flag is additive and its merge behavior with plugin `.mcp.json` for same-name keys is undocumented. Using `--strict-mcp-config` guarantees the eval config is the sole MCP source.
 
-Start the MCP server with eval-specific port and PID isolation:
+### Step 7: (Removed — stdio MCP needs no external server)
 
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/start-eval-mcp.sh
-```
-
-Parse the KEY=VALUE output:
-- `STATUS=STARTED` or `STATUS=ALREADY_RUNNING` → record `PORT` and `PID`, proceed.
-- `ERROR=` → abort with the error details. If `ERROR=PORT_IN_USE`, suggest setting `RECCE_EVAL_MCP_PORT` to a different port.
+With stdio transport (Step 6), claude spawns MCP as a child process. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed.
 
 ### Step 8: Interleaved Run Loop
 
@@ -244,8 +237,8 @@ For each run number (1 to N), for each variant (`baseline` first, then `with-plu
 mkdir -p "$BATCH_DIR/$SCENARIO_ID"
 
 # ---- Baseline variant ----
-# --clean-profile is default: simulates a real new user (no memory, no CLAUDE.md)
-# Pass --no-clean-profile to disable (for internal dev testing only)
+# --bare is default: no memory, no CLAUDE.md, pure prompt-driven evaluation
+# Pass --no-bare to use the user's full profile (for internal dev testing only)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -257,8 +250,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --target "$TARGET" \
     --max-budget-usd "$MAX_BUDGET" \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
-    --run-number "$RUN_NUM" \
-    --clean-profile
+    --run-number "$RUN_NUM"
 ```
 
 Parse the KEY=VALUE output from `run-case.sh`. Record `OUTPUT_FILE`, `JSON_EXTRACTED`, `TOTAL_COST_USD`, `DURATION_MS`.
@@ -276,6 +268,7 @@ Then run the with-plugin variant:
 
 ```bash
 # ---- With-plugin variant ----
+# --bare is default; --plugin-dir injects the plugin even in bare mode
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -289,8 +282,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
     --plugin-dir "$RECCE_PLUGIN_ROOT" \
     --mcp-config /tmp/recce-eval-mcp-config.json \
-    --run-number "$RUN_NUM" \
-    --clean-profile
+    --run-number "$RUN_NUM"
 ```
 
 Score the with-plugin run:
@@ -316,15 +308,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/score-deterministic.sh \
 
 Report progress to the user after each run completes: "Run {N} {variant} complete: cost=${cost}, duration=${duration}s, json_extracted={yes/no}".
 
-### Step 9: Stop Eval MCP Server
-
-After all runs complete (or if aborting due to an error), stop the eval MCP server:
-
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/stop-eval-mcp.sh
-```
-
-Confirm `STATUS=STOPPED` or `STATUS=NOT_RUNNING`. Always execute this step, even if earlier steps failed.
+### Step 9: (Removed — stdio MCP terminates with claude process)
 
 ### Step 10: Dispatch LLM Judge
 
@@ -506,31 +490,28 @@ If empty, tell user "No eval runs found." and **STOP**.
 
 ## Isolation Modes
 
-`run-case.sh` supports two isolation modes for simulating users without accumulated context:
+`run-case.sh` supports three isolation modes:
 
 | Flag | Memory | CLAUDE.md | Plugin Hooks | Auth | Use Case |
 |------|--------|-----------|-------------|------|----------|
-| _(none)_ | ✅ | ✅ | ✅ | OAuth | Internal dev testing |
-| `--bare` | ❌ | ❌ | ❌ | API key | Absolute minimum baseline |
-| `--clean-profile` | ❌ | ❌ | ✅ | API key | **Recommended: simulates a real new user** |
+| `--no-bare` | ✅ | ✅ | ✅ | OAuth | Internal dev testing |
+| **`--bare`** (default) | ❌ | ❌ | ❌ | API key | **Recommended: identical isolation for both variants** |
+| `--clean-profile` | ❌ | ❌ | ✅ | API key | Deprecated — causes baseline to produce only 1 turn |
 
-### `--clean-profile` (recommended for external-facing claims)
+### `--bare` (default, recommended)
 
-Creates a temporary `HOME` directory so `claude -p` sees an empty `~/.claude/` — no auto-memory, no CLAUDE.md, no conversation history. Plugin hooks still fire because `--bare` is NOT used.
+Both variants run with `--bare` for identical isolation. The with-plugin variant adds `--plugin-dir` which injects the Recce plugin even in bare mode — hooks fire, MCP tools are available, but there is no user memory or CLAUDE.md leaking into results.
 
 ```bash
-bash run-case.sh --id ch3-phantom-filter --variant baseline \
-    --clean-profile ...  # ← adds temp HOME override
+# Baseline: --bare (implicit default)
+bash run-case.sh --id ch3-phantom-filter --variant baseline ...
+
+# With-plugin: --bare + --plugin-dir (plugin injected in bare mode)
+bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
+    --plugin-dir "$RECCE_PLUGIN_ROOT" --mcp-config /tmp/eval-mcp.json ...
 ```
 
-**Mechanism**: `HOME=/tmp/xxx claude -p ...` — Claude CLI resolves `~/.claude/` to the temp dir (empty). Auth requires `ANTHROPIC_API_KEY` env var (keychain is in the real HOME). The script auto-resolves the key from known `.env` locations.
-
-**Why not `--bare`**: `--bare` also skips plugin hooks (SessionStart, PostToolUse). This means the plugin's onboarding flow (auto-detect dbt project, inject model overview) doesn't run, understating the plugin's value.
-
-**Empirical impact** (ch3-phantom-filter baseline):
-- With memory: 12/12
-- `--bare`: 7/12
-- `--clean-profile`: 10/12
+**Why `--bare` over `--clean-profile`**: `--clean-profile` (HOME override) causes baseline agents to produce only 1 text turn with no structured JSON output, making scoring impossible. `--bare` provides clean isolation while the agent still engages with tools normally. `--bare --plugin-dir` injects the plugin, so with-plugin runs get the full plugin experience.
 
 ## Common Mistakes
 
@@ -552,7 +533,7 @@ bash run-case.sh --id ch3-phantom-filter --variant baseline \
 
 - **Adapter detection uses Python + PyYAML**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper parsing.
 
-- **Always stop the eval MCP server**: Even if runs fail or the judge errors out, execute `stop-eval-mcp.sh` before finishing. Leaving the server running on the eval port will block future eval runs.
+- **stdio MCP needs no lifecycle management**: With stdio transport, claude spawns/kills the MCP server automatically. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed. The `start-eval-mcp.sh` and `stop-eval-mcp.sh` scripts are retained for SSE mode fallback only.
 
 - **Prompt file per scenario**: When running `--all`, create a separate prompt file for each scenario (use `${EVAL_ID}-${SCENARIO_ID}` in the filename) since each scenario has a different prompt.
 
