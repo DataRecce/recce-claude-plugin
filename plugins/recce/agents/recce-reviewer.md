@@ -74,16 +74,22 @@ If `impacted_models` is empty: output the "No impact detected" summary (see Sect
 
 ### Step 2 — Follow-up Investigation
 
-For each entry in `suggested_deep_dives`, call the suggested tool:
+For each entry in `suggested_deep_dives`:
 
+**2a. Value diff** — If `value_diff` in impact_analysis shows `rows_changed > 0` or the suggestion mentions value changes, call:
+```
+mcp__recce__value_diff_detail(model: "{model}", primary_key: "{pk}")
+```
+This returns the exact rows that changed and by how much. Use the `rows_changed` count as your `affected_row_count`.
+
+**2b. Profile diff** — Call for statistical context:
 ```
 mcp__recce__profile_diff(model: "{model}", columns: ["{col1}", "{col2}"])
 ```
-
-This step is **investigation** — profile_diff gives statistical distributions (min, max, mean, nulls, distinct counts) that reveal the nature of the change. The impact_analysis results told you WHERE to look; profile_diff tells you WHAT changed.
+This gives distributions (min, max, mean, nulls, distinct counts) that reveal the nature of the change.
 
 - If `columns` is null in the suggestion: call `profile_diff` on the whole model (omit `columns` parameter).
-- On any MCP error: record "profile_diff skipped for {model}: {error reason}" and continue.
+- On any MCP error: record "tool skipped for {model}: {error reason}" and continue.
 - Limit to the first 3 suggested deep dives to control cost.
 
 ### Step 3 — Summary

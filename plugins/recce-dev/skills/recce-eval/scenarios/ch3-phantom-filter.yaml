@@ -39,13 +39,14 @@ prompt: |
   5. Examine any recent code changes in the staging models
   6. Report your findings
 
-  At the end of your response, output a fenced JSON block with exactly these keys:
+  IMPORTANT: Your very last message MUST be a text response (not a tool call)
+  containing a fenced JSON block with exactly these keys:
     "issue_found": true or false,
     "root_cause": "description of the root cause",
     "impacted_models": ["list", "of", "impacted", "models"],
     "not_impacted_models": ["list", "of", "models", "not", "impacted"],
-    "affected_row_count": number,
-    "all_tests_pass": true or false
+    "affected_row_count": number (count rows where values actually changed, not total rows),
+    "all_tests_pass": true or false (report the ACTUAL dbt test result, not whether tests should exist)
 
 headless:
   max_budget_usd: 5.00
