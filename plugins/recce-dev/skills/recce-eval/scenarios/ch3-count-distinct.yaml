@@ -61,7 +61,7 @@ ground_truth:
   root_cause_keywords: ["count", "distinct", "customer_id", "order_count", "metric", "semantic"]
   impacted_models: ["orders_daily_summary"]
   not_impacted_models: ["stg_orders", "stg_payments", "stg_customers", "orders", "customers", "customer_segments", "customer_order_pattern"]
-  affected_row_count: 334
+  affected_row_count: 253
   all_tests_pass: true
 
 judge_criteria:
