@@ -12,7 +12,7 @@ SCENARIO_ID="" CASE_TYPE="" VARIANT="" PROMPT_FILE=""
 SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
-DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
+DRY_RUN="false" BARE_MODE="true" CLEAN_PROFILE="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -65,9 +65,10 @@ if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
 fi
 
 # ========== Isolation Note ==========
-# Default: --clean-profile (no memory, no CLAUDE.md, hooks still fire).
-# --bare skips hooks, which kills plugin's MANDATORY impact_analysis enforcement.
-# Use --bare explicitly only for testing isolation edge cases.
+# Default: --bare for both variants (no keychain reads, no memory, no CLAUDE.md).
+# --bare skips hooks, so with-plugin uses --append-system-prompt to inject
+# the IMPACT_RULE that SessionStart hook would have provided.
+# Use --clean-profile explicitly only if hooks beyond IMPACT_RULE are needed.
 
 # ========== Venv Auto-Detection ==========
 # Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
@@ -236,6 +237,11 @@ if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$MCP_CONFIG" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
+    # --bare skips hooks, so manually inject what SessionStart would provide.
+    # This is the IMPACT_RULE from session-start.sh — tells the agent to use
+    # impact_analysis MCP tool and map value_diff.rows_changed to affected_row_count.
+    IMPACT_RULE="MANDATORY: When determining which dbt models are impacted by a code change, you MUST call the impact_analysis MCP tool BEFORE reporting impacted_models. Do NOT determine impact by reading code, inferring from ref() calls, or guessing from model names — these approaches confuse upstream dependencies with downstream impact and produce false positives. impact_analysis uses the lineage DAG to deterministically classify models as impacted (modified + downstream) or not-impacted. Its impacted_models and not_impacted_models lists are authoritative — copy them directly into your output. When the response includes value_diff.rows_changed for a model, use that number as the affected row count — it is the exact count of rows whose values differ between base and current."
+    CMD="$CMD --append-system-prompt \"$IMPACT_RULE\""
 fi
 
 # ========== Dry Run Mode ==========
