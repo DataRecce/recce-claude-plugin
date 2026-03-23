@@ -257,6 +257,14 @@ if [ "$CLEAN_PROFILE" = "true" ]; then
     # Plugin hooks still fire (unlike --bare). Auth via ANTHROPIC_API_KEY.
     EVAL_CLEAN_HOME=$(mktemp -d)
     mkdir -p "$EVAL_CLEAN_HOME/.claude"
+    # Seed minimal settings so headless mode works correctly.
+    # - skipDangerousModePermissionPrompt: required for --dangerously-skip-permissions
+    # - effortLevel: match real user's setting for fair comparison
+    # - apiKeyHelper: tell Claude to read ANTHROPIC_API_KEY from env instead of
+    #   trying macOS Keychain (which pops up "key not found" dialogs with temp HOME)
+    cat > "$EVAL_CLEAN_HOME/.claude/settings.json" << 'SETTINGS_EOF'
+{"skipDangerousModePermissionPrompt":true,"effortLevel":"high","apiKeyHelper":"printenv ANTHROPIC_API_KEY"}
+SETTINGS_EOF
     ORIG_HOME="$HOME" HOME="$EVAL_CLEAN_HOME" eval "$CMD" -- '"$PROMPT_CONTENT"' > "$CLAUDE_RAW_FILE" 2>"$CLAUDE_ERR_FILE" || {
         echo '{"result":null,"error":"claude invocation failed","usage":{},"num_turns":0,"total_cost_usd":0,"duration_ms":0}' > "$CLAUDE_RAW_FILE"
     }
