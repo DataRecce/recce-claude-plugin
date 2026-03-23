@@ -55,9 +55,9 @@ else
     echo "TARGET_BASE_EXISTS=false"
 fi
 
-# ========== Lineage Best Practice ==========
-# Injected into context so the agent interprets lineage_diff correctly
-echo "LINEAGE_RULE=Before reporting which models are impacted by a change, ALWAYS call lineage_diff to check the DAG. Each node has an 'impacted' boolean column: true=modified or downstream, false=not affected. Trust this column over code-based assumptions about dependencies. Do NOT guess model dependencies from column names or shared sources."
+# ========== Impact Analysis Rule (mandatory) ==========
+# Injected into context so the agent uses impact_analysis for all impact determination
+echo "IMPACT_RULE=MANDATORY: When determining which dbt models are impacted by a code change, you MUST call the impact_analysis MCP tool BEFORE reporting impacted_models. Do NOT determine impact by reading code, inferring from ref() calls, or guessing from model names — these approaches confuse upstream dependencies with downstream impact and produce false positives. impact_analysis uses the lineage DAG to deterministically classify models as impacted (modified + downstream) or not-impacted. Its impacted_models and not_impacted_models lists are authoritative — copy them directly into your output."
 
 # ========== MCP Auto-Start Decision ==========
 # Only attempt if: recce installed AND target/manifest.json exists

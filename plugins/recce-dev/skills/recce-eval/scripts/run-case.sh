@@ -136,8 +136,14 @@ if [ "$DRY_RUN" = "false" ]; then
                 echo "ERROR: Patch file not found: $PATCH_FILE" >&2
                 exit 1
             fi
+            # Regenerate target-base/ from clean state BEFORE applying patch.
+            # This ensures base artifacts match current code exactly (no stale diffs).
+            # Without this, orders.sql may show as "modified" due to old target-base/.
+            dbt docs generate --target-path target-base --target "$TARGET" --quiet 2>/dev/null || true
+            # Now apply patch (introduces the bug) and rebuild current state
             git apply --reverse "$PATCH_FILE"
             dbt run --target "$TARGET" --quiet
+            dbt docs generate --target "$TARGET" --quiet 2>/dev/null || true
             ;;
         none)
             # No setup needed
@@ -185,6 +191,13 @@ esac
 
 # ========== Assemble claude -p Command ==========
 PROMPT_CONTENT=$(cat "$PROMPT_FILE")
+
+# Prepend setup context so the agent knows dbt was already run
+if [ "$SETUP_STRATEGY" = "git_patch" ]; then
+    PROMPT_CONTENT="[Setup context: The code change has already been applied and 'dbt run --target $TARGET' has already completed successfully. You do NOT need to run dbt run again — the data is ready for review. Focus on reviewing the data impact.]
+
+$PROMPT_CONTENT"
+fi
 
 CMD="$CLAUDE_BIN -p"
 if [ "$BARE_MODE" = "true" ]; then
@@ -256,7 +269,8 @@ DURATION_MS=$(jq -r ".duration_ms // $ELAPSED_MS" "$CLAUDE_RAW_FILE")
 
 # ========== Extract Structured JSON from Fenced Block ==========
 # Use Python for reliable multi-line extraction from .result field
-python3 - "$CLAUDE_RAW_FILE" "$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_structured.json" <<'PYEOF'
+# Wrapped in subshell: extraction failure is non-fatal (per-run JSON still written)
+(python3 - "$CLAUDE_RAW_FILE" "$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_structured.json" <<'PYEOF'
 import sys, re, json
 
 raw_file, out_file = sys.argv[1], sys.argv[2]
@@ -277,6 +291,7 @@ with open(out_file, "w") as f:
     f.write("null")
 sys.exit(1)
 PYEOF
+) || true
 
 JSON_EXTRACTED="false"
 STRUCTURED_JSON_FILE="$OUTPUT_DIR/${VARIANT}_run${RUN_NUMBER}_structured.json"
