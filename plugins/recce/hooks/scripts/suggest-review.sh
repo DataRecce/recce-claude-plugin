@@ -24,10 +24,10 @@ CHANGES_FILE="/tmp/recce-changed-${PROJECT_HASH}.txt"
 if [ -f "$CHANGES_FILE" ] && [ -s "$CHANGES_FILE" ]; then
     MODEL_COUNT=$(wc -l < "$CHANGES_FILE" | tr -d ' ')
     MODEL_NAMES=$(while IFS= read -r f; do basename "$f" .sql; done < "$CHANGES_FILE" | paste -sd ', ' -)
-    CTX="dbt execution completed. You changed ${MODEL_COUNT} model(s) since last review: ${MODEL_NAMES}. Run /recce-review to check for unexpected data changes. IMPORTANT: Before reporting which models are impacted, call lineage_diff to verify — the 'impacted' column shows which models are truly downstream of the change."
+    CTX="dbt execution completed. You changed ${MODEL_COUNT} model(s) since last review: ${MODEL_NAMES}. MANDATORY: You MUST call impact_analysis before reporting impacted_models in your final output. Do NOT determine impact by reading code or ref() calls — this confuses upstream with downstream and produces false positives. impact_analysis returns the authoritative impacted_models and not_impacted_models lists."
 else
-    # No tracked changes, but dbt ran — suggest using lineage_diff for impact verification
-    CTX="dbt execution completed. If you need to assess which models are affected by code changes, call lineage_diff first — the 'impacted' column is authoritative for distinguishing downstream models from unrelated siblings sharing the same sources."
+    # No tracked changes, but dbt ran — mandate impact_analysis for impact verification
+    CTX="dbt execution completed. MANDATORY: Before reporting which models are impacted by code changes, you MUST call impact_analysis. Do NOT infer impact from code reading — it confuses upstream dependencies with downstream impact. impact_analysis returns authoritative impacted_models and not_impacted_models lists."
 fi
 
 jq -n --arg ctx "$CTX" \
