@@ -45,7 +45,7 @@ prompt: |
     "root_cause": "description of the root cause",
     "impacted_models": ["list", "of", "impacted", "models"],
     "not_impacted_models": ["list", "of", "models", "not", "impacted"],
-    "affected_row_count": number (count rows where values actually changed, not total rows),
+    "affected_row_count": number (rows where values differ — use your best analysis, including manual SQL if tools report 0),
     "all_tests_pass": true or false (report the ACTUAL dbt test result, not whether tests should exist)
 
 headless:
