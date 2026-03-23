@@ -7,6 +7,7 @@ case_type: problem_exists
 setup:
   strategy: git_patch
   patch_reverse_file: patches/ch1-add-coalesce.patch
+  skip_context: true  # Agent must run dbt itself (fix-the-bug workflow)
   dbt_commands:
     - "dbt run --target {target}"
 

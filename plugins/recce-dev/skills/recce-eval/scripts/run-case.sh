@@ -34,6 +34,7 @@ while [[ $# -gt 0 ]]; do
         --no-bare)          BARE_MODE="false";      shift 1 ;;
         --clean-profile)    CLEAN_PROFILE="true";   shift 1 ;;
         --no-clean-profile) CLEAN_PROFILE="false";  shift 1 ;;
+        --skip-setup-context) SKIP_SETUP_CONTEXT="true"; shift 1 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -218,8 +219,11 @@ esac
 # ========== Assemble claude -p Command ==========
 PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
-# Prepend setup context so the agent knows dbt was already run
-if [ "$SETUP_STRATEGY" = "git_patch" ]; then
+# Prepend setup context so the agent knows dbt was already run.
+# Skip if the scenario is a fix-the-bug workflow (agent must run dbt itself).
+# Controlled by SKIP_SETUP_CONTEXT env var, set by the orchestrator when
+# the scenario YAML contains setup.skip_context: true.
+if [ "$SETUP_STRATEGY" = "git_patch" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
     PROMPT_CONTENT="[Setup context: The code change has already been applied. 'dbt run --target $TARGET' completed successfully. 'dbt test --target $TARGET' result: ${DBT_TEST_RESULT:-not run}. You do NOT need to run dbt run or dbt test again — the data and test results are ready. Focus on reviewing the data impact.]
 
 $PROMPT_CONTENT"
