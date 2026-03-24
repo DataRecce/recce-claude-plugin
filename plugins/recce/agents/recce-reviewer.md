@@ -181,3 +181,4 @@ LOW — No models were affected by the change. Safe to proceed.
 - Do NOT paste raw MCP tool JSON output into the summary. Extract only the relevant metrics.
 - Complete the review in a single pass. Do not offer to "continue" or "dive deeper".
 - impact_analysis is your entry point — it handles lineage, row count, schema, and value diff in one call. Do NOT call row_count_diff or schema_diff separately.
+- NEVER use Python, curl, requests, httpx, or any other method to directly interact with Recce's HTTP/SSE endpoints. Use ONLY the MCP tools provided (impact_analysis, profile_diff, value_diff_detail, lineage_diff). If MCP tools are unavailable, report the error — do NOT attempt to bypass MCP.
