@@ -55,38 +55,17 @@ else
     echo "TARGET_BASE_EXISTS=false"
 fi
 
-# ========== Impact Analysis Rule (mandatory) ==========
-# Injected into context so the agent uses impact_analysis for all impact determination
-echo "IMPACT_RULE=MANDATORY: When determining which dbt models are impacted by a code change, you MUST call the impact_analysis MCP tool BEFORE reporting impacted_models. Do NOT determine impact by reading code, inferring from ref() calls, or guessing from model names — these approaches confuse upstream dependencies with downstream impact and produce false positives. impact_analysis uses the lineage DAG to deterministically classify models as impacted (modified + downstream) or not-impacted. Its impacted_models and not_impacted_models lists are authoritative — copy them directly into your output. When the response includes value_diff.rows_changed for a model, use that number as the affected row count — it is the exact count of rows whose values differ between base and current."
-
-# ========== MCP Auto-Start Decision ==========
-# Only attempt if: recce installed AND target/manifest.json exists
+# ========== MCP Readiness Check ==========
+# MCP server is now stdio-based (.mcp.json) — Claude Code spawns it on demand.
+# No external server to start. Just report whether prerequisites are met.
 
 if [ "$RECCE_INSTALLED" = "true" ] && [ "$TARGET_EXISTS" = "true" ]; then
-    # Delegate to start-mcp.sh — it handles PID, settings, health polling
-    MCP_OUTPUT=$(bash "$PLUGIN_ROOT/scripts/start-mcp.sh" 2>/dev/null)
-    MCP_EXIT=$?
-
-    # Parse start-mcp.sh output
-    MCP_STATUS=$(echo "$MCP_OUTPUT" | grep "^STATUS=" | cut -d= -f2)
-    MCP_PORT_VAL=$(echo "$MCP_OUTPUT" | grep "^PORT=" | cut -d= -f2)
-
-    if [ "$MCP_STATUS" = "STARTED" ] || [ "$MCP_STATUS" = "ALREADY_RUNNING" ]; then
-        echo "MCP_STARTED=true"
-        echo "MCP_PORT=$MCP_PORT_VAL"
-    else
-        echo "MCP_STARTED=false"
-        # Forward error/fix lines from start-mcp.sh
-        echo "$MCP_OUTPUT" | grep -E "^(ERROR|FIX|MESSAGE)="
-    fi
-
-    # Forward single-env and warning lines from start-mcp.sh
-    echo "$MCP_OUTPUT" | grep -E "^(SINGLE_ENV_MODE|WARNING)=" 2>/dev/null
+    echo "MCP_READY=true"
 else
-    echo "MCP_STARTED=false"
-    # Explain why MCP was skipped
+    echo "MCP_READY=false"
     if [ "$RECCE_INSTALLED" != "true" ]; then
         echo "MCP_SKIP_REASON=recce not installed"
+        echo "FIX=Activate your venv or run: pip install recce"
     elif [ "$TARGET_EXISTS" != "true" ]; then
         echo "MCP_SKIP_REASON=no target/manifest.json"
         echo "FIX=Run: dbt docs generate"

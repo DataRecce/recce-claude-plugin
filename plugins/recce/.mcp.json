@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "recce": {
-      "type": "sse",
-      "url": "http://localhost:8081/sse"
+      "type": "stdio",
+      "command": "bash",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/run-mcp-stdio.sh"]
     },
     "recce-docs": {
       "type": "stdio",
