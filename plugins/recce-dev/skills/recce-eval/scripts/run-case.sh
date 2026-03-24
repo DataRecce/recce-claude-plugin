@@ -13,6 +13,7 @@ SETUP_STRATEGY="" PATCH_FILE="" RESTORE_FILES=""
 TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
 DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
+SKIP_SETUP="false" SKIP_TEARDOWN="false" MODEL=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -35,6 +36,9 @@ while [[ $# -gt 0 ]]; do
         --clean-profile)    CLEAN_PROFILE="true";   shift 1 ;;
         --no-clean-profile) CLEAN_PROFILE="false";  shift 1 ;;
         --skip-setup-context) SKIP_SETUP_CONTEXT="true"; shift 1 ;;
+        --skip-setup)       SKIP_SETUP="true";          shift 1 ;;
+        --skip-teardown)    SKIP_TEARDOWN="true";       shift 1 ;;
+        --model)            MODEL="$2";                 shift 2 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -119,6 +123,7 @@ fi
 
 # ========== Teardown Trap ==========
 cleanup() {
+    if [ "$SKIP_TEARDOWN" = "true" ]; then return; fi
     if [ -n "$RESTORE_FILES" ]; then
         IFS=',' read -ra FILES <<< "$RESTORE_FILES"
         for f in "${FILES[@]}"; do
@@ -133,7 +138,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ========== Setup Strategy ==========
-if [ "$DRY_RUN" = "false" ]; then
+if [ "$DRY_RUN" = "false" ] && [ "$SKIP_SETUP" = "false" ]; then
     case "$SETUP_STRATEGY" in
         git_patch)
             if [ -z "$PATCH_FILE" ]; then
@@ -180,6 +185,11 @@ if [ "$DRY_RUN" = "false" ]; then
             exit 1
             ;;
     esac
+fi
+
+# If setup was skipped, provide a default test result for prompt injection
+if [ "$SKIP_SETUP" = "true" ] && [ -z "${DBT_TEST_RESULT:-}" ]; then
+    DBT_TEST_RESULT="${DBT_TEST_RESULT_OVERRIDE:-ALL TESTS PASSED (PASS=25 WARN=0 ERROR=0 TOTAL=25)}"
 fi
 
 # ========== Detect Adapter (for prompt interpolation) ==========
@@ -236,6 +246,9 @@ fi
 CMD="$CMD --dangerously-skip-permissions"
 CMD="$CMD --output-format json"
 CMD="$CMD --max-budget-usd $MAX_BUDGET_USD"
+if [ -n "$MODEL" ]; then
+    CMD="$CMD --model $MODEL"
+fi
 
 if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$PLUGIN_DIR" ]; then
