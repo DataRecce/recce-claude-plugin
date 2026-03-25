@@ -1,36 +1,36 @@
 id: ch1-null-amounts
 name: "Chapter 1: NULL Amount Orders"
-description: "Find and fix NULL amount orders caused by LEFT JOIN without COALESCE"
+description: "Review data impact of removed COALESCE guards — NULL amounts from LEFT JOIN"
 chapter: 1
 case_type: problem_exists
 
 setup:
   strategy: git_patch
   patch_reverse_file: patches/ch1-add-coalesce.patch
-  skip_context: true  # Agent must run dbt itself (fix-the-bug workflow)
   dbt_commands:
     - "dbt run --target {target}"
 
 prompt: |
-  You are a new accounting hire at Jaffle Shop. The dbt pipeline runs on
-  {adapter_description}. Your job is to audit the data pipeline for
-  financial reporting accuracy.
+  You are a senior data engineer at Jaffle Shop. The dbt pipeline runs on
+  {adapter_description}. A colleague submitted a PR that modifies the orders
+  model. They say "simplified the SELECT, removed unnecessary COALESCE calls."
+  dbt tests caught some failures.
 
-  1. Run the pipeline: dbt run --target {target}
-  2. Run the tests: dbt test --target {target}
-  3. Investigate any test failures
-  4. Fix the root cause
-  5. Re-run and confirm all tests pass
-  6. Report your findings.
+  Your job is to thoroughly review the data impact:
+  1. Examine the code changes in the orders model
+  2. Even though tests failed, investigate the full scope of data impact
+  3. Identify which models are affected and which are not
+  4. Quantify the number of rows with incorrect data
+  5. Report your findings
 
-  At the end of your response, output a fenced JSON block with exactly these keys:
+  IMPORTANT: Your very last message MUST be a text response (not a tool call)
+  containing a fenced JSON block with exactly these keys:
     "issue_found": true or false,
     "root_cause": "description of the root cause",
-    "fix_applied": "description of the fix",
     "impacted_models": ["list", "of", "impacted", "models"],
     "not_impacted_models": ["list", "of", "models", "not", "impacted"],
-    "affected_row_count": number,
-    "all_tests_pass": true or false
+    "affected_row_count": number (rows where values differ — use your best analysis, including manual SQL if tools report 0),
+    "all_tests_pass": true or false (report the ACTUAL dbt test result, not whether tests should exist)
 
 headless:
   max_budget_usd: 5.00
@@ -42,12 +42,12 @@ ground_truth:
   impacted_models: ["orders", "orders_daily_summary"]
   not_impacted_models: ["customers", "customer_segments", "customer_order_pattern"]
   affected_row_count: 1584
-  all_tests_pass: true
+  all_tests_pass: false
 
 judge_criteria:
   - "Agent correctly traces the causal chain: LEFT JOIN → missing payments → NULL amounts"
   - "Agent does NOT claim models that read from stg_orders/stg_payments (not orders) are impacted"
-  - "Fix is minimal and correct (coalesce, not INNER JOIN or WHERE filter)"
+  - "Agent quantifies the impact using data comparison, not just code reading"
 
 teardown:
   restore_files: ["models/orders.sql"]
