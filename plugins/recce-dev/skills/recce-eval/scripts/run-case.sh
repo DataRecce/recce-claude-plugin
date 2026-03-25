@@ -257,8 +257,20 @@ if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$MCP_CONFIG" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
-    # No manual IMPACT_RULE injection needed — plugin's SessionStart hook
-    # fires organically under --clean-profile and injects it automatically.
+    # Append reviewer workflow context — simulates what /recce-review does
+    # in real usage (dispatches recce-reviewer agent with structured workflow).
+    # Only inject when MCP tools are available (has --mcp-config).
+    # Skip for scenarios where the agent must run dbt itself (no MCP needed).
+    if [ -n "$MCP_CONFIG" ]; then
+        PROMPT_CONTENT="$PROMPT_CONTENT
+
+[Recce Review Context: You have Recce MCP tools available for data validation.
+After completing your own analysis, use these tools to verify and enrich your findings:
+1. Call impact_analysis to get DAG-based impact classification. Its confirmed_impacted_models and confirmed_not_impacted_models are authoritative — use them for your impacted_models output. Use total_affected_row_count as your affected_row_count.
+2. For models in suggested_deep_dives, call profile_diff for statistical context.
+3. If value_diff shows rows_changed > 0, call value_diff_detail for row-level evidence.
+4. Trust the MCP tool results over code-reading analysis for impact classification and row counts.]"
+    fi
 fi
 
 # ========== Dry Run Mode ==========
