@@ -254,14 +254,13 @@ if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$PLUGIN_DIR" ]; then
         CMD="$CMD --plugin-dir \"$PLUGIN_DIR\""
     fi
-    if [ -n "$MCP_CONFIG" ]; then
+    # Skip MCP for fix-the-bug scenarios (skip_context=true) — agent needs
+    # to run dbt, and stdio MCP holds a DuckDB write lock that blocks dbt run.
+    if [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
-    # Append reviewer workflow context — simulates what /recce-review does
-    # in real usage (dispatches recce-reviewer agent with structured workflow).
-    # Only inject when MCP tools are available (has --mcp-config).
-    # Skip for scenarios where the agent must run dbt itself (no MCP needed).
-    if [ -n "$MCP_CONFIG" ]; then
+    # Append reviewer workflow context when MCP tools are available.
+    if [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
         PROMPT_CONTENT="$PROMPT_CONTENT
 
 [Recce Review Context: You have Recce MCP tools available for data validation.
