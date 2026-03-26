@@ -32,7 +32,16 @@ JSON_EXTRACTED=$(jq -r '.agent_output.json_extracted' "$RUN_FILE")
 
 if [ "$JSON_EXTRACTED" != "true" ] || [ "$AGENT_JSON" = "null" ]; then
     if [ "$CASE_TYPE" = "problem_exists" ]; then
-        CHECKS='[{"name":"issue_found","expected":"true","actual":"null","result":"FAIL"},{"name":"root_cause_keywords","expected":"match","actual":"no output","result":"FAIL"},{"name":"all_tests_pass","expected":"true","actual":"null","result":"FAIL"}]'
+        CHECKS='[{"name":"issue_found","expected":"true","actual":"null","result":"FAIL"},{"name":"root_cause_keywords","expected":"match","actual":"no output","result":"FAIL"}]'
+        # all_tests_pass (v1 only — skip if absent from ground truth)
+        if [ "$(echo "$GROUND_TRUTH" | jq 'has("all_tests_pass")')" = "true" ]; then
+            CHECKS=$(echo "$CHECKS" | jq '. + [{"name":"all_tests_pass","expected":"true","actual":"null","result":"FAIL"}]')
+        fi
+        # dashboard_impact (v2 only — skip if absent from ground truth)
+        if [ "$(echo "$GROUND_TRUTH" | jq 'has("dashboard_impact")')" = "true" ]; then
+            GT_DASHBOARD=$(echo "$GROUND_TRUTH" | jq -r '.dashboard_impact | tostring')
+            CHECKS=$(echo "$CHECKS" | jq --arg e "$GT_DASHBOARD" '. + [{"name":"dashboard_impact","expected":$e,"actual":"null","result":"FAIL"}]')
+        fi
     else
         CHECKS='[{"name":"issue_found","expected":"false","actual":"null","result":"FAIL"}]'
     fi
@@ -99,11 +108,24 @@ if [ "$CASE_TYPE" = "problem_exists" ]; then
         fi
     fi
 
-    # all_tests_pass
-    EXPECTED_PASS=$(echo "$GROUND_TRUTH" | jq -r '.all_tests_pass | tostring')
-    ACTUAL_PASS=$(echo "$AGENT_JSON" | jq -r 'if .all_tests_pass == null then "null" else (.all_tests_pass | tostring) end')
-    if [ "$ACTUAL_PASS" = "$EXPECTED_PASS" ]; then add_check "all_tests_pass" "$EXPECTED_PASS" "$ACTUAL_PASS" "PASS"
-    else add_check "all_tests_pass" "$EXPECTED_PASS" "$ACTUAL_PASS" "FAIL"; fi
+    # dashboard_impact (v2 only — skip if absent from ground truth; uses has() to avoid jq // false gotcha)
+    if [ "$(echo "$GROUND_TRUTH" | jq 'has("dashboard_impact")')" = "true" ]; then
+        GT_DASHBOARD=$(echo "$GROUND_TRUTH" | jq -r '.dashboard_impact | tostring')
+        ACTUAL_DASHBOARD=$(echo "$AGENT_JSON" | jq -r 'if .dashboard_impact == null then "null" else (.dashboard_impact | tostring) end')
+        if [ "$ACTUAL_DASHBOARD" = "$GT_DASHBOARD" ]; then
+            add_check "dashboard_impact" "$GT_DASHBOARD" "$ACTUAL_DASHBOARD" "PASS"
+        else
+            add_check "dashboard_impact" "$GT_DASHBOARD" "$ACTUAL_DASHBOARD" "FAIL"
+        fi
+    fi
+
+    # all_tests_pass (v1 only — skip if absent from ground truth; uses has() to avoid jq // false gotcha)
+    if [ "$(echo "$GROUND_TRUTH" | jq 'has("all_tests_pass")')" = "true" ]; then
+        EXPECTED_PASS=$(echo "$GROUND_TRUTH" | jq -r '.all_tests_pass | tostring')
+        ACTUAL_PASS=$(echo "$AGENT_JSON" | jq -r 'if .all_tests_pass == null then "null" else (.all_tests_pass | tostring) end')
+        if [ "$ACTUAL_PASS" = "$EXPECTED_PASS" ]; then add_check "all_tests_pass" "$EXPECTED_PASS" "$ACTUAL_PASS" "PASS"
+        else add_check "all_tests_pass" "$EXPECTED_PASS" "$ACTUAL_PASS" "FAIL"; fi
+    fi
 
 elif [ "$CASE_TYPE" = "no_problem" ]; then
     # issue_found == false
