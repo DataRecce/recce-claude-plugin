@@ -1,22 +1,13 @@
-diff --git a/models/marts/orders.sql b/models/marts/orders.sql
-index 56fdc59..c9ddc3f 100644
+diff --git b/models/marts/orders.sql a/models/marts/orders.sql
+index cc290af..56fdc59 100644
 --- a/models/marts/orders.sql
 +++ b/models/marts/orders.sql
 @@ -17,7 +17,7 @@ order_items_summary as (
      select
          order_id,
  
--        sum(supply_cost) as order_cost,
-+        sum(case when is_food_item then supply_cost else 0 end) as order_cost,
+-        sum(case when is_food_item then supply_cost else 0 end) as order_cost,
++        sum(supply_cost) as order_cost,
          sum(product_price) as order_items_subtotal,
          count(order_item_id) as count_order_items,
          sum(
-@@ -65,6 +65,8 @@ customer_order_count as (
-     select
-         *,
- 
-+        order_total - order_cost as gross_profit,
-+
-         row_number() over (
-             partition by customer_id
-             order by ordered_at asc
