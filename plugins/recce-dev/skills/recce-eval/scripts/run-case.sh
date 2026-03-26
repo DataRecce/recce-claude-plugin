@@ -265,8 +265,8 @@ fi
 
 if [ "$VARIANT" = "with-plugin" ]; then
     # Mode controls what with-plugin gets beyond MCP tools:
-    #   real-world: full plugin (hooks, skills, agents) + workflow prompt
-    #   tool-only:  MCP tools only — no plugin context, no workflow prompt
+    #   real-world: full plugin (hooks, skills, agents) — agent discovers tools naturally
+    #   tool-only:  MCP tools only — no plugin context, agent discovers MCP on its own
     if [ "$MODE" = "real-world" ]; then
         if [ -n "$PLUGIN_DIR" ]; then
             CMD="$CMD --plugin-dir \"$PLUGIN_DIR\""
@@ -278,17 +278,9 @@ if [ "$VARIANT" = "with-plugin" ]; then
     if [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
-    # Append reviewer workflow context only in real-world mode.
-    if [ "$MODE" = "real-world" ] && [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
-        PROMPT_CONTENT="$PROMPT_CONTENT
-
-[Recce Review Context: You have Recce MCP tools available for data validation.
-After completing your own analysis, use these tools to verify and enrich your findings:
-1. Call impact_analysis to get DAG-based impact classification. Its confirmed_impacted_models and confirmed_not_impacted_models are authoritative — use them for your impacted_models output. Use total_affected_row_count as your affected_row_count.
-2. For models in suggested_deep_dives, call profile_diff for statistical context.
-3. If value_diff shows rows_changed > 0, call value_diff_detail for row-level evidence.
-4. Trust the MCP tool results over code-reading analysis for impact classification and row counts.]"
-    fi
+    # No workflow prompt injected — real-world mode relies on plugin hooks/skills
+    # to naturally guide the agent (e.g., SessionStart hook, /recce-review skill).
+    # tool-only mode has no plugin context, so the agent discovers MCP tools on its own.
 fi
 
 # ========== Dry Run Mode ==========
