@@ -1,14 +1,13 @@
-diff --git a/models/staging/stg_orders.sql b/models/staging/stg_orders.sql
-index 61408c0..45b5ccf 100644
+diff --git b/models/staging/stg_orders.sql a/models/staging/stg_orders.sql
+index 738434f..61408c0 100644
 --- a/models/staging/stg_orders.sql
 +++ b/models/staging/stg_orders.sql
-@@ -23,6 +23,9 @@ renamed as (
+@@ -19,7 +19,7 @@ renamed as (
+         subtotal as subtotal_cents,
+         tax_paid as tax_paid_cents,
+         order_total as order_total_cents,
+-        {{ cents_to_dollars('subtotal') }} - {{ cents_to_dollars('tax_paid') }} as subtotal,
++        {{ cents_to_dollars('subtotal') }} as subtotal,
          {{ cents_to_dollars('tax_paid') }} as tax_paid,
          {{ cents_to_dollars('order_total') }} as order_total,
- 
-+        ---------- calculated
-+        round({{ cents_to_dollars('tax_paid') }} / {{ cents_to_dollars('subtotal') }}, 2) as tax_rate,
-+
-         ---------- timestamps
-         {{ dbt.date_trunc('day','ordered_at') }} as ordered_at
  

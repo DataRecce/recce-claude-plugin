@@ -1,19 +1,18 @@
 id: r2-cogs-miscalculation
 name: "R2: COGS Miscalculation"
-description: "gross_profit added to orders, but order_cost only includes food supply costs — drinks omitted"
+description: "order_cost filtered to food-only supply costs — drink supply costs (59% of COGS) omitted"
 layer: review
 difficulty: medium
 stakeholder: management
 case_type: problem_exists
 
 story: |
-  The VP of Operations (P0) requested per-location gross profit visibility.
-  A teammate added gross_profit = order_total - order_cost to the orders mart.
-  The formula is correct. But in the same PR, the order_items_summary CTE was
-  "optimized" to only sum supply_cost for food items (CASE WHEN is_food_item).
-  This means drink supply costs (~59% of total COGS) are excluded from order_cost,
-  making gross_profit systematically too high for 643,875 orders (98% of all orders).
-  Code review sees "order_total - order_cost" and approves.
+  The VP of Operations (P0) asked the team to review COGS accuracy in the orders pipeline.
+  A teammate "optimized" the order_items_summary CTE to only sum supply_cost for food items
+  (CASE WHEN is_food_item), claiming drink items have negligible supply costs.
+  Code review approved — the CASE WHEN pattern is standard and the PR says "optimization".
+  But drink supply costs account for ~59% of total COGS. The change makes order_cost
+  systematically too low for 643,875 orders (98% — all orders with at least one drink item).
 
 environment:
   repo: DataRecce/jaffle-shop-simulator
@@ -28,8 +27,8 @@ prompt:
   template: prompts/review.md
   vars:
     stakeholder_name: "VP of Operations (P0, Management)"
-    stakeholder_request: "Per-location gross profit report"
-    pr_description: "Added gross_profit column to orders — optimized COGS calculation for performance"
+    stakeholder_request: "Review COGS accuracy in the orders pipeline"
+    pr_description: "Optimize COGS calculation — filter to food supply costs for performance"
 
 headless:
   max_budget_usd: 5.00
@@ -40,15 +39,16 @@ ground_truth:
   issue_type: data_drift
   root_cause_keywords: ["supply", "cost", "drink", "food", "COGS", "order_cost", "is_food_item"]
   impacted_models: ["orders"]
-  not_impacted_models: ["stg_orders", "stg_customers", "stg_locations", "stg_order_items", "stg_products", "stg_supplies", "customers", "locations", "products", "supplies", "order_items"]
+  not_impacted_models: ["customers", "order_items"]
   affected_row_count: 643875
   dashboard_impact: false
   detection_requires: data_comparison
 
 judge_criteria:
-  - "Agent identifies the supply_cost aggregation bug through DATA comparison, not just reading the gross_profit formula"
+  - "Agent identifies the supply_cost aggregation bug through DATA comparison, not just reading the formula"
   - "Agent recognizes that order_cost excludes drink supply costs due to the is_food_item filter"
-  - "Agent correctly identifies that the Executive Dashboard is NOT impacted (gross_profit is new; order_total unchanged)"
+  - "Agent correctly identifies that customers model is NOT impacted (customers doesn't use order_cost)"
+  - "Agent correctly identifies that the Executive Dashboard is NOT impacted (order_cost is not a dashboard column)"
 
 teardown:
   restore_files: ["models/marts/orders.sql"]
