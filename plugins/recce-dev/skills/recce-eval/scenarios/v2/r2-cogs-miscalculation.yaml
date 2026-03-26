@@ -1,0 +1,54 @@
+id: r2-cogs-miscalculation
+name: "R2: COGS Miscalculation"
+description: "gross_profit added to orders, but order_cost only includes food supply costs — drinks omitted"
+layer: review
+difficulty: medium
+stakeholder: management
+case_type: problem_exists
+
+story: |
+  The VP of Operations (P0) requested per-location gross profit visibility.
+  A teammate added gross_profit = order_total - order_cost to the orders mart.
+  The formula is correct. But in the same PR, the order_items_summary CTE was
+  "optimized" to only sum supply_cost for food items (CASE WHEN is_food_item).
+  This means drink supply costs (~59% of total COGS) are excluded from order_cost,
+  making gross_profit systematically too high for 643,875 orders (98% of all orders).
+  Code review sees "order_total - order_cost" and approves.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/r2-cogs-miscalculation.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "VP of Operations (P0, Management)"
+    stakeholder_request: "Per-location gross profit report"
+    pr_description: "Added gross_profit column to orders — optimized COGS calculation for performance"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["supply", "cost", "drink", "food", "COGS", "order_cost", "is_food_item"]
+  impacted_models: ["orders"]
+  not_impacted_models: ["stg_orders", "stg_customers", "stg_locations", "stg_order_items", "stg_products", "stg_supplies", "customers", "locations", "products", "supplies", "order_items"]
+  affected_row_count: 643875
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies the supply_cost aggregation bug through DATA comparison, not just reading the gross_profit formula"
+  - "Agent recognizes that order_cost excludes drink supply costs due to the is_food_item filter"
+  - "Agent correctly identifies that the Executive Dashboard is NOT impacted (gross_profit is new; order_total unchanged)"
+
+teardown:
+  restore_files: ["models/marts/orders.sql"]

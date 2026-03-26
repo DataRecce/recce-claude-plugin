@@ -1,0 +1,25 @@
+version: 2
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  commit_sha: "021e2d38f42abda7301f1babe25604b0d0839ee4"
+  adapter: duckdb
+  target: dev
+  db_path: data/jaffel-shop.duckdb
+  schema: dev
+  adapter_description: "DuckDB (local file database, target: dev)"
+
+dashboard:
+  # Columns the Executive Dashboard reads from orders mart
+  # Source: dashboard/queries.py
+  orders_columns:
+    - order_id
+    - order_total
+    - subtotal
+    - tax_paid
+    - ordered_at
+    - customer_id
+    - location_id
+    - is_food_order
+    - is_drink_order
+    - count_food_items
+    - count_drink_items

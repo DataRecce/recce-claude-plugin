@@ -1,0 +1,52 @@
+id: r1-tax-calculation-drift
+name: "R1: Tax Calculation Drift"
+description: "tax_rate column via ROUND(tax_paid/subtotal,2) produces NaN for zero-subtotal orders"
+layer: review
+difficulty: easy
+stakeholder: accounting
+case_type: problem_exists
+
+story: |
+  The Accounting Manager (P1) requested a tax_rate column in the orders pipeline
+  to support per-location tax analysis. A teammate added ROUND(tax_paid / subtotal, 2)
+  to stg_orders. Code review approved — the formula is mathematically correct.
+  But 4,155 orders have subtotal=0 (placed orders with no items yet), producing NaN
+  tax_rate values that propagate through stg_orders (view) into the orders mart (table).
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/r1-tax-calculation-drift.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Accounting Manager (P1)"
+    stakeholder_request: "Add tax_rate column for per-location tax analysis"
+    pr_description: "Added tax_rate calculation to stg_orders — ROUND(tax_paid / subtotal, 2)"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["tax_rate", "nan", "subtotal", "zero", "divide", "inf"]
+  impacted_models: ["stg_orders", "orders"]
+  not_impacted_models: ["stg_customers", "stg_locations", "stg_order_items", "stg_products", "stg_supplies", "customers", "locations", "products", "supplies", "order_items"]
+  affected_row_count: 4155
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies NaN tax_rate values through DATA profiling, not just code reading"
+  - "Agent traces the cause to division by zero on subtotal=0 orders"
+  - "Agent correctly identifies that the Executive Dashboard is NOT impacted (tax_rate is a new column, not referenced by dashboard)"
+
+teardown:
+  restore_files: ["models/staging/stg_orders.sql"]
