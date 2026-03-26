@@ -14,6 +14,7 @@ TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
 DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
 SKIP_SETUP="false" SKIP_TEARDOWN="false" MODEL=""
+MODE="real-world"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         --skip-setup)       SKIP_SETUP="true";          shift 1 ;;
         --skip-teardown)    SKIP_TEARDOWN="true";       shift 1 ;;
         --model)            MODEL="$2";                 shift 2 ;;
+        --mode)             MODE="$2";                  shift 2 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -66,6 +68,11 @@ fi
 
 if [ "$VARIANT" != "baseline" ] && [ "$VARIANT" != "with-plugin" ]; then
     echo "ERROR: --variant must be 'baseline' or 'with-plugin', got: $VARIANT" >&2
+    exit 1
+fi
+
+if [ "$MODE" != "tool-only" ] && [ "$MODE" != "real-world" ]; then
+    echo "ERROR: --mode must be 'tool-only' or 'real-world', got: $MODE" >&2
     exit 1
 fi
 
@@ -257,16 +264,22 @@ if [ -n "$MODEL" ]; then
 fi
 
 if [ "$VARIANT" = "with-plugin" ]; then
-    if [ -n "$PLUGIN_DIR" ]; then
-        CMD="$CMD --plugin-dir \"$PLUGIN_DIR\""
+    # Mode controls what with-plugin gets beyond MCP tools:
+    #   real-world: full plugin (hooks, skills, agents) + workflow prompt
+    #   tool-only:  MCP tools only — no plugin context, no workflow prompt
+    if [ "$MODE" = "real-world" ]; then
+        if [ -n "$PLUGIN_DIR" ]; then
+            CMD="$CMD --plugin-dir \"$PLUGIN_DIR\""
+        fi
     fi
+    # MCP config loaded in BOTH modes (MCP tools are the variable being tested).
     # Skip MCP for fix-the-bug scenarios (skip_context=true) — agent needs
     # to run dbt, and stdio MCP holds a DuckDB write lock that blocks dbt run.
     if [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
         CMD="$CMD --strict-mcp-config --mcp-config \"$MCP_CONFIG\""
     fi
-    # Append reviewer workflow context when MCP tools are available.
-    if [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
+    # Append reviewer workflow context only in real-world mode.
+    if [ "$MODE" = "real-world" ] && [ -n "$MCP_CONFIG" ] && [ "${SKIP_SETUP_CONTEXT:-false}" != "true" ]; then
         PROMPT_CONTENT="$PROMPT_CONTENT
 
 [Recce Review Context: You have Recce MCP tools available for data validation.
@@ -285,6 +298,7 @@ if [ "$DRY_RUN" = "true" ]; then
     else
         echo "PLUGIN_DIR=$PLUGIN_DIR"
     fi
+    echo "MODE=$MODE"
     echo "ADAPTER_TYPE=$ADAPTER_TYPE"
     echo "ADAPTER_DESC=$ADAPTER_DESC"
     echo "CMD: $CMD -- <prompt>"
