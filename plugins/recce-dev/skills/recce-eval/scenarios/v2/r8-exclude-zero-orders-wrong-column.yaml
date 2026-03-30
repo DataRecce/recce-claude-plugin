@@ -1,0 +1,79 @@
+id: r8-exclude-zero-orders-wrong-column
+name: "R8: Exclude $0 Orders — Wrong Column"
+description: "stg_orders filters on subtotal > 0 instead of order_total > 0 — semantically wrong column, but data results happen to be identical with current dataset"
+layer: review
+difficulty: hard
+stakeholder: management
+case_type: problem_exists
+
+story: |
+  The VP of Operations (P0) escalated that ~4,155 complimentary orders (order_total = 0) are
+  inflating order counts and diluting AOV on the Executive Dashboard. The board noticed
+  discrepancies between pipeline metrics and finance reports.
+
+  A teammate submitted a PR adding `WHERE subtotal > 0` to stg_orders to filter out these
+  comp orders. Code review approved — the filter works and removes the right rows.
+
+  But the issue specification explicitly says `WHERE order_total > 0` (filter by total charged
+  amount). The PR uses `subtotal > 0` instead. In the current dataset, subtotal = 0 ↔
+  order_total = 0 for all rows, so the results are identical. However, the column choice is
+  semantically incorrect: subtotal is the pre-tax item total, while order_total is the actual
+  amount charged. If future data includes orders where subtotal ≠ 0 but order_total = 0
+  (e.g., fully discounted orders with tax credit), the filter would silently produce wrong results.
+
+  This scenario tests whether the agent merely validates data correctness or also checks
+  implementation against the original specification.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/r8-exclude-zero-orders-wrong-column.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "VP of Operations (P0, Management)"
+    stakeholder_request: "Exclude complimentary ($0) orders from all mart models — filter at stg_orders where order_total = 0"
+    pr_description: "Filter out $0 comp orders at staging layer — add WHERE subtotal > 0 to stg_orders for clean downstream metrics"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: spec_deviation
+  root_cause_keywords: ["subtotal", "order_total", "wrong column", "spec", "filter", "complimentary"]
+  impacted_models: ["stg_orders", "orders", "customers"]
+  not_impacted_models: ["order_items", "products"]
+  affected_row_count: 4155
+  affected_customers: 236
+  dashboard_impact: true
+  detection_requires: code_review
+  data_impact_vs_correct_impl: identical
+  notes: |
+    With current data, WHERE subtotal > 0 and WHERE order_total > 0 produce identical results
+    (all 4,155 zero-total orders also have zero subtotal). The bug is semantic, not numerical.
+    Agent must compare the PR code against the issue spec to catch the wrong column.
+    - stg_orders: 658,657 → 654,502 (-4,155 rows)
+    - orders: 658,657 → 654,502 (-4,155 rows)
+    - order_items: 969,324 → 969,324 (unchanged — comp orders have no line items)
+    - customers: 2,586 → 2,586 (same count, but 236 customers have lower count_lifetime_orders)
+    - AOV: 10.9178 → 10.9871 (+0.63%)
+    - Revenue: unchanged ($0 orders contribute nothing)
+    - No customer_type changes (all affected remain "returning")
+
+judge_criteria:
+  - "Agent identifies that the filter uses subtotal instead of order_total as specified in the issue"
+  - "Agent recognizes this is a spec deviation — the column semantics differ even though current data produces identical results"
+  - "Agent correctly identifies that customers model IS impacted (count_lifetime_orders changes for 236 customers)"
+  - "Agent correctly identifies that order_items is NOT impacted (comp orders have no line items)"
+  - "Agent correctly identifies that the Executive Dashboard IS impacted (order counts and AOV change)"
+  - "Agent explains why order_total is the correct column (total charged vs pre-tax subtotal)"
+
+teardown:
+  restore_files: ["models/staging/stg_orders.sql"]

@@ -41,3 +41,4 @@ logs/
 tmp/
 temp/
 *.tmp
+.worktrees/
