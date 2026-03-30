@@ -49,8 +49,8 @@ PID_FILE="/tmp/recce-mcp-${PROJECT_HASH}.pid"
 LOG_FILE="/tmp/recce-mcp-${PROJECT_HASH}.log"
 PORT_STATE_FILE="/tmp/recce-mcp-resolved-port-${PROJECT_HASH}.txt"
 
-# If a SessionStart hook already resolved a free port, prefer it
-if [ -f "$PORT_STATE_FILE" ]; then
+# If no explicit env var and a SessionStart hook already resolved a free port, prefer it
+if [ -z "${RECCE_MCP_PORT:-}" ] && [ -f "$PORT_STATE_FILE" ]; then
     HOOK_PORT=$(cat "$PORT_STATE_FILE" 2>/dev/null | tr -d '[:space:]')
     if [ -n "$HOOK_PORT" ] && [ "$HOOK_PORT" -ge 1 ] 2>/dev/null && [ "$HOOK_PORT" -le 65535 ] 2>/dev/null; then
         PORT="$HOOK_PORT"
@@ -141,6 +141,9 @@ fi
 nohup recce mcp-server --sse --port "$PORT" > "$LOG_FILE" 2>&1 &
 MCP_PID=$!
 echo "$MCP_PID" > "$PID_FILE"
+# Persist resolved port for future sessions — the next SessionStart hook
+# reads this to sync .mcp.json with the running server's actual port.
+echo "$PORT" > "$PORT_STATE_FILE"
 
 echo "STARTING=true"
 echo "PORT=$PORT"
@@ -166,8 +169,6 @@ for i in {1..15}; do
     if [ "$HTTP_CODE" = "200" ]; then
         echo "STATUS=STARTED"
         echo "URL=http://localhost:$PORT/sse"
-        # Persist resolved port so SessionStart hook can sync .mcp.json
-        echo "$PORT" > "$PORT_STATE_FILE"
         exit 0
     fi
 done
