@@ -1,0 +1,9 @@
+diff --git b/models/staging/stg_orders.sql a/models/staging/stg_orders.sql
+index f7da410..61408c0 100644
+--- b/models/staging/stg_orders.sql
++++ a/models/staging/stg_orders.sql
+@@ -31,4 +31,3 @@ renamed as (
+ )
+ 
+ select * from renamed
+-where subtotal > 0
