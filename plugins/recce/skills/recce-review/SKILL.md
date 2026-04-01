@@ -97,7 +97,7 @@ Include in the dispatch context:
 - **PR description** (what the change claims to do)
 - **Change rationale** (why the change was made)
 
-Format: `"Context: [stakeholder] requested '[request]'. PR says: '[description]'."`
+Format: `Context: [stakeholder] requested '[request]'. PR says: '[description]'.`
 
 This enables the reviewer's context validation step (Step 4 in the agent workflow).
 
