@@ -66,10 +66,10 @@ Shared flags (apply to all flows that accept them):
 
 Based on `--version`, determine the scenario subdirectory and default target:
 
-- `--version v1` (default): scenarios live in `skills/recce-eval/scenarios/`, default target is `dev-local`
+- `--version v1` (default): scenarios live in `skills/recce-eval/scenarios/v1/`, default target is `dev-local`
 - `--version v2`: scenarios live in `skills/recce-eval/scenarios/v2/`, default target is `dev`
 
-**IMPORTANT**: Throughout this document, all references to the scenarios directory must use the version-appropriate path. When `--version v2`, replace `scenarios/` with `scenarios/v2/` in every scenario path lookup, glob, and `--patch-file` reference.
+**IMPORTANT**: Throughout this document, all references to the scenarios directory must use the version-appropriate path. Use `scenarios/v1/` for v1 and `scenarios/v2/` for v2 in every scenario path lookup, glob, and `--patch-file` reference.
 
 The `--target` flag overrides the default if provided.
 
@@ -78,7 +78,7 @@ The `--target` flag overrides the default if provided.
 Determine the scenario directory based on `--version` (see routing above). Read all YAML files in that directory. For each file, use Python to extract `id`, `name`, `case_type`:
 
 ```bash
-# SCENARIO_DIR: use "scenarios" for v1, "scenarios/v2" for v2
+# SCENARIO_DIR: use "scenarios/v1" for v1, "scenarios/v2" for v2
 python3 -c "
 import yaml, glob, os
 base = os.path.join('${CLAUDE_PLUGIN_ROOT}', 'skills', 'recce-eval', 'SCENARIO_DIR_HERE')
@@ -89,7 +89,7 @@ for f in sorted(glob.glob(os.path.join(base, '*.yaml'))):
 "
 ```
 
-Replace `SCENARIO_DIR_HERE` with `scenarios` (v1) or `scenarios/v2` (v2) based on the `--version` flag.
+Replace `SCENARIO_DIR_HERE` with `scenarios/v1` (v1) or `scenarios/v2` (v2) based on the `--version` flag.
 
 Display results as a table:
 
@@ -141,7 +141,7 @@ If `--case <id1>,<id2>,...` (comma-separated): read each `<scenario-dir>/<id>.ya
 If `--all`: read all `.yaml` files in `<scenario-dir>/`.
 If `--select`: scenarios were already selected in the Select Flow above.
 
-Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
+Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v1` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
 
 For each scenario file, parse the YAML content:
 
@@ -534,7 +534,7 @@ Re-score existing runs without re-running them. Useful after updating scoring lo
 
 1. Read all `*_run*.json` files in the specified directory.
 2. For each file, determine `case_type` from the JSON's `case_type` field.
-3. Look up the corresponding scenario YAML from `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/` using the `scenario_id` in the JSON.
+3. Look up the corresponding scenario YAML from the version-appropriate directory (`scenarios/v1/` or `scenarios/v2/`) using the `scenario_id` in the JSON.
 4. Extract `ground_truth` from the scenario YAML.
 5. Re-run `score-deterministic.sh` on each file:
 
@@ -650,22 +650,22 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 ### Scenarios
 
-- **`scenarios/ch1-null-amounts.yaml`** — Case A (problem_exists): broken pipeline with NULL amounts from missing COALESCE.
-- **`scenarios/ch1-healthy-audit.yaml`** — Case B (no_problem): healthy pipeline audit that should find no issues.
-- **`scenarios/ch2-silent-filter.yaml`** — Case C (problem_exists): WHERE clause silently drops return_pending orders, all tests pass.
-- **`scenarios/ch2-amount-misscale.yaml`** — Case D (problem_exists): amount/1000 instead of /100 makes payments 10x too small, all tests pass.
-- **`scenarios/ch3-phantom-filter.yaml`** — Case E (problem_exists): WHERE amount > 0 silently drops 2,326 valid $0 transactions, looks like intentional cleanup.
-- **`scenarios/ch3-join-shift.yaml`** — Case F (problem_exists): join key typo (customer_id vs order_id) produces plausible but wrong amounts, all tests pass.
-- **`scenarios/ch3-count-distinct.yaml`** — Case G (problem_exists): count(*) → count(distinct customer_id) changes metric semantics without changing column name.
+- **`scenarios/v1/ch1-null-amounts.yaml`** — Case A (problem_exists): broken pipeline with NULL amounts from missing COALESCE.
+- **`scenarios/v1/ch1-healthy-audit.yaml`** — Case B (no_problem): healthy pipeline audit that should find no issues.
+- **`scenarios/v1/ch2-silent-filter.yaml`** — Case C (problem_exists): WHERE clause silently drops return_pending orders, all tests pass.
+- **`scenarios/v1/ch2-amount-misscale.yaml`** — Case D (problem_exists): amount/1000 instead of /100 makes payments 10x too small, all tests pass.
+- **`scenarios/v1/ch3-phantom-filter.yaml`** — Case E (problem_exists): WHERE amount > 0 silently drops 2,326 valid $0 transactions, looks like intentional cleanup.
+- **`scenarios/v1/ch3-join-shift.yaml`** — Case F (problem_exists): join key typo (customer_id vs order_id) produces plausible but wrong amounts, all tests pass.
+- **`scenarios/v1/ch3-count-distinct.yaml`** — Case G (problem_exists): count(*) → count(distinct customer_id) changes metric semantics without changing column name.
 
 ### Patches
 
-- **`patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
-- **`patches/ch2-remove-status-filter.patch`** — Removes the return_pending filter from stg_orders.
-- **`patches/ch2-fix-amount-scale.patch`** — Fixes amount/1000 → amount/100 in stg_payments.
-- **`patches/ch3-phantom-filter.patch`** — Removes the WHERE amount > 0 filter from stg_payments.
-- **`patches/ch3-join-shift.patch`** — Restores correct join key (order_id) in orders.sql.
-- **`patches/ch3-count-distinct.patch`** — Restores count(*) in orders_daily_summary.
+- **`scenarios/v1/patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
+- **`scenarios/v1/patches/ch2-remove-status-filter.patch`** — Removes the return_pending filter from stg_orders.
+- **`scenarios/v1/patches/ch2-fix-amount-scale.patch`** — Fixes amount/1000 → amount/100 in stg_payments.
+- **`scenarios/v1/patches/ch3-phantom-filter.patch`** — Removes the WHERE amount > 0 filter from stg_payments.
+- **`scenarios/v1/patches/ch3-join-shift.patch`** — Restores correct join key (order_id) in orders.sql.
+- **`scenarios/v1/patches/ch3-count-distinct.patch`** — Restores count(*) in orders_daily_summary.
 
 ---
 

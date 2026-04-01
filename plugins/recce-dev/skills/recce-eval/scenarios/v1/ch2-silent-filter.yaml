@@ -6,7 +6,7 @@ case_type: problem_exists
 
 setup:
   strategy: git_patch
-  patch_reverse_file: patches/ch2-remove-status-filter.patch
+  patch_reverse_file: scenarios/v1/patches/ch2-remove-status-filter.patch
   dbt_commands:
     - "dbt run --target {target}"
 
