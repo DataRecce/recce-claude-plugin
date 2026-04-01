@@ -92,6 +92,15 @@ Include in the dispatch context:
 Include in the dispatch context:
 > "No tracked changes file found. Use state:modified+ as the default selector to review all modified models."
 
+**Context passthrough:** If the user's request includes any of the following, include it in the dispatch message so the reviewer can validate findings against intent:
+- **Stakeholder request** (who asked for the change and what they asked for)
+- **PR description** (what the change claims to do)
+- **Change rationale** (why the change was made)
+
+Format: `"Context: [stakeholder] requested '[request]'. PR says: '[description]'."`
+
+This enables the reviewer's context validation step (Step 4 in the agent workflow).
+
 Wait for the agent to complete and capture its full output.
 
 ---

@@ -24,10 +24,10 @@ CHANGES_FILE="/tmp/recce-changed-${PROJECT_HASH}.txt"
 if [ -f "$CHANGES_FILE" ] && [ -s "$CHANGES_FILE" ]; then
     MODEL_COUNT=$(wc -l < "$CHANGES_FILE" | tr -d ' ')
     MODEL_NAMES=$(while IFS= read -r f; do basename "$f" .sql; done < "$CHANGES_FILE" | paste -sd ', ' -)
-    CTX="dbt execution completed. You changed ${MODEL_COUNT} model(s) since last review: ${MODEL_NAMES}. MANDATORY: You MUST call impact_analysis before reporting impacted_models in your final output. Do NOT determine impact by reading code or ref() calls — this confuses upstream with downstream and produces false positives. impact_analysis returns the authoritative impacted_models and not_impacted_models lists. When value_diff.rows_changed is present, use it as the affected row count."
+    CTX="dbt execution completed. You changed ${MODEL_COUNT} model(s) since last review: ${MODEL_NAMES}. MANDATORY: You MUST call impact_analysis to get the authoritative impacted_models and not_impacted_models lists. Do NOT determine model impact from ref() calls alone — this confuses upstream with downstream. Use data evidence from impact_analysis for impact classification, and read model SQL to understand root causes. When data_impact is 'confirmed', investigate what code change caused it. When value_diff.rows_changed is present, use it as the affected row count."
 else
     # No tracked changes, but dbt ran — mandate impact_analysis for impact verification
-    CTX="dbt execution completed. MANDATORY: Before reporting which models are impacted by code changes, you MUST call impact_analysis. Do NOT infer impact from code reading — it confuses upstream dependencies with downstream impact. impact_analysis returns authoritative impacted_models and not_impacted_models lists. When value_diff.rows_changed is present, use it as the affected row count."
+    CTX="dbt execution completed. MANDATORY: You MUST call impact_analysis to get the authoritative impacted_models and not_impacted_models lists. Do NOT determine model impact from ref() calls alone — this confuses upstream with downstream. Use data evidence from impact_analysis for impact classification, and read model SQL to understand root causes. When data_impact is 'confirmed', investigate what code change caused it. When value_diff.rows_changed is present, use it as the affected row count."
 fi
 
 jq -n --arg ctx "$CTX" \
