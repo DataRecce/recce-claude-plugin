@@ -62,10 +62,11 @@ add_check() {
 }
 
 if [ "$CASE_TYPE" = "problem_exists" ]; then
-    # issue_found == true
+    # issue_found — use ground truth value (true for data_drift, false for spec_deviation)
+    GT_ISSUE_FOUND=$(echo "$GROUND_TRUTH" | jq -r 'if has("issue_found") then (.issue_found | tostring) else "true" end')
     ACTUAL=$(echo "$AGENT_JSON" | jq -r 'if .issue_found == null then "null" else (.issue_found | tostring) end')
-    if [ "$ACTUAL" = "true" ]; then add_check "issue_found" "true" "$ACTUAL" "PASS"
-    else add_check "issue_found" "true" "$ACTUAL" "FAIL"; fi
+    if [ "$ACTUAL" = "$GT_ISSUE_FOUND" ]; then add_check "issue_found" "$GT_ISSUE_FOUND" "$ACTUAL" "PASS"
+    else add_check "issue_found" "$GT_ISSUE_FOUND" "$ACTUAL" "FAIL"; fi
 
     # root_cause contains keywords
     ROOT_CAUSE=$(echo "$AGENT_JSON" | jq -r '.root_cause // "" | ascii_downcase')
@@ -117,6 +118,20 @@ if [ "$CASE_TYPE" = "problem_exists" ]; then
         else
             add_check "dashboard_impact" "$GT_DASHBOARD" "$ACTUAL_DASHBOARD" "FAIL"
         fi
+    fi
+
+    # spec_deviation_noted (spec_deviation scenarios only — extract from root_cause text)
+    if [ "$(echo "$GROUND_TRUTH" | jq 'has("spec_deviation_keywords")')" = "true" ]; then
+        ROOT_CAUSE_TEXT=$(echo "$AGENT_JSON" | jq -r '.root_cause // "" | ascii_downcase')
+        EVIDENCE_TEXT=$(echo "$AGENT_JSON" | jq -r '.evidence_summary // "" | ascii_downcase')
+        COMBINED_TEXT="$ROOT_CAUSE_TEXT $EVIDENCE_TEXT"
+        SD_KEYWORDS=$(echo "$GROUND_TRUTH" | jq -r '.spec_deviation_keywords[]')
+        SD_MATCH="false"
+        for kw in $SD_KEYWORDS; do
+            if echo "$COMBINED_TEXT" | grep -qi "$kw"; then SD_MATCH="true"; break; fi
+        done
+        if [ "$SD_MATCH" = "true" ]; then add_check "spec_deviation_noted" "noted" "noted" "PASS"
+        else add_check "spec_deviation_noted" "noted" "not noted" "FAIL"; fi
     fi
 
     # all_tests_pass (v1 only — skip if absent from ground truth; uses has() to avoid jq // false gotcha)
