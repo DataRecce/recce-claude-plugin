@@ -1,6 +1,7 @@
-id: r1-tax-calculation-drift
-name: "R1: Subtotal Tax Deduction"
+id: data-001-double-tax-deduction
+name: "Subtotal Tax Deduction"
 description: "subtotal changed to subtract tax_paid — raw subtotal is already pre-tax, so this double-deducts tax"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/2
 layer: review
 difficulty: easy
 stakeholder: accounting
@@ -21,7 +22,7 @@ environment:
 
 setup:
   strategy: git_patch
-  patch_reverse_file: scenarios/v2/patches/r1-tax-calculation-drift.patch
+  patch_reverse_file: scenarios/v2/patches/data-001-double-tax-deduction.patch
   skip_context: false
 
 prompt:

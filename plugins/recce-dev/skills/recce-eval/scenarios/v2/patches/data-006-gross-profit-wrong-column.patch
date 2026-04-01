@@ -1,0 +1,37 @@
+diff --git a/models/marts/financial_orders.sql b/models/marts/financial_orders.sql
+deleted file mode 100644
+--- a/models/marts/financial_orders.sql
++++ /dev/null
+@@ -1,33 +0,0 @@
+-with
+-
+-orders as (
+-
+-    select * from {{ ref('orders') }}
+-
+-),
+-
+-financial as (
+-
+-    select
+-        order_id,
+-        customer_id,
+-        location_id,
+-        ordered_at,
+-
+-        -- Audit-compliant column renames
+-        subtotal as revenue_excl_tax,
+-        tax_paid as tax_collected,
+-        order_total as total_incl_tax,
+-        order_cost as cost_of_goods_sold,
+-
+-        -- Derived financial metrics
+-        -- BUG: uses tax_collected instead of cost_of_goods_sold
+-        subtotal - tax_paid as gross_profit,
+-        (subtotal - tax_paid) / nullif(subtotal, 0) as gross_margin_pct
+-
+-    from orders
+-
+-)
+-
+-select * from financial

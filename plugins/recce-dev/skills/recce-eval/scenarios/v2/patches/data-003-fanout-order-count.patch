@@ -1,0 +1,73 @@
+diff --git a/models/marts/store_performance.sql b/models/marts/store_performance.sql
+deleted file mode 100644
+--- a/models/marts/store_performance.sql
++++ /dev/null
+@@ -1,48 +0,0 @@
+-with
+-
+-orders as (
+-
+-    select * from {{ ref('orders') }}
+-
+-),
+-
+-order_items as (
+-
+-    select * from {{ ref('order_items') }}
+-
+-),
+-
+-locations as (
+-
+-    select * from {{ ref('stg_locations') }}
+-
+-),
+-
+-order_details as (
+-
+-    select
+-        orders.order_id,
+-        orders.location_id,
+-        orders.order_total,
+-        orders.customer_id,
+-        orders.ordered_at,
+-        order_items.is_food_item,
+-        order_items.is_drink_item
+-
+-    from orders
+-
+-    left join order_items on orders.order_id = order_items.order_id
+-
+-),
+-
+-store_metrics as (
+-
+-    select
+-        locations.location_id,
+-        locations.location_name,
+-        locations.opened_date,
+-
+-        count(order_details.order_id) as total_orders,
+-        sum(order_details.order_total) as total_revenue,
+-        sum(order_details.order_total) / nullif(count(order_details.order_id), 0) as avg_order_value,
+-        count(distinct order_details.customer_id) as unique_customers,
+-
+-        sum(case when order_details.is_food_item then 1 else 0 end) as total_food_items,
+-        sum(case when order_details.is_drink_item then 1 else 0 end) as total_drink_items,
+-
+-        {{ dbt.datediff("locations.opened_date", dbt.current_timestamp(), "day") }} as days_since_opening,
+-        count(order_details.order_id)
+-            / nullif({{ dbt.datediff("locations.opened_date", dbt.current_timestamp(), "day") }}, 0) as orders_per_day
+-
+-    from locations
+-
+-    left join order_details on locations.location_id = order_details.location_id
+-
+-    group by
+-        locations.location_id,
+-        locations.location_name,
+-        locations.opened_date
+-
+-)
+-
+-select * from store_metrics

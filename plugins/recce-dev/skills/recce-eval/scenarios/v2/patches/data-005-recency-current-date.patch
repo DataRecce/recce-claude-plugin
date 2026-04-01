@@ -1,0 +1,72 @@
+diff --git a/models/marts/customer_segments.sql b/models/marts/customer_segments.sql
+deleted file mode 100644
+--- a/models/marts/customer_segments.sql
++++ /dev/null
+@@ -1,65 +0,0 @@
+-with
+-
+-customers as (
+-
+-    select * from {{ ref('customers') }}
+-
+-),
+-
+-orders as (
+-
+-    select * from {{ ref('orders') }}
+-
+-),
+-
+-customer_stats as (
+-
+-    select
+-        customers.customer_id,
+-        customers.customer_name,
+-        customers.customer_type,
+-
+-        customers.count_lifetime_orders,
+-        customers.lifetime_spend,
+-        customers.lifetime_spend_pretax,
+-        customers.first_ordered_at,
+-        customers.last_ordered_at,
+-
+-        -- Recency: days since last order (BUG: uses current_date — all customers appear churned)
+-        {{ dbt.datediff("customers.last_ordered_at", dbt.current_timestamp(), "day") }} as days_since_last_order
+-
+-    from customers
+-
+-    where customers.count_lifetime_orders is not null
+-
+-),
+-
+-segmented as (
+-
+-    select
+-        *,
+-
+-        -- Spend tier (top 20% = high, bottom 30% = low, rest = medium)
+-        case
+-            when lifetime_spend >= (select percentile_cont(0.80) within group (order by lifetime_spend) from customer_stats) then 'high'
+-            when lifetime_spend <= (select percentile_cont(0.30) within group (order by lifetime_spend) from customer_stats) then 'low'
+-            else 'medium'
+-        end as spend_tier,
+-
+-        -- Frequency segment
+-        case
+-            when count_lifetime_orders = 1 then 'one-time'
+-            when count_lifetime_orders between 2 and 3 then 'occasional'
+-            else 'regular'
+-        end as frequency_segment,
+-
+-        -- Recency segment
+-        case
+-            when days_since_last_order <= 30 then 'active'
+-            when days_since_last_order <= 90 then 'at-risk'
+-            else 'churned'
+-        end as recency_segment
+-
+-    from customer_stats
+-
+-)
+-
+-select * from segmented

@@ -1,0 +1,61 @@
+id: data-003-fanout-order-count
+name: "Store Performance Order Count Fan-out"
+description: "store_performance model joins orders with order_items before grouping by location — count(order_id) inflates order counts by items-per-order multiplier"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/3
+layer: review
+difficulty: medium
+stakeholder: store-ops
+case_type: problem_exists
+
+story: |
+  The Store Operations Manager (P2) requested per-location operational metrics: total orders,
+  total revenue, average order value, unique customers, and orders per day since opening.
+
+  A teammate created a new `store_performance` mart model. The implementation joins `orders`
+  with `order_items` (to get product mix data) and then aggregates by location. However,
+  `count(order_id)` counts one row per order_item, not per order. Since orders average ~1.47
+  items, total_orders is inflated ~47% per store, which also inflates orders_per_day and
+  deflates average_order_value. Revenue and unique customer counts are correct (sum and
+  count distinct are unaffected by fan-out).
+
+  The bug is a classic grain mismatch — aggregating after a one-to-many join without
+  using DISTINCT.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-003-fanout-order-count.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Store Operations Manager (P2)"
+    stakeholder_request: "Add per-location store performance metrics — total orders, revenue, AOV, unique customers, and daily throughput"
+    pr_description: "Add store_performance mart model — joins orders with order_items for product mix, aggregates KPIs by location"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["count", "distinct", "order_id", "fan-out", "order_items", "grain", "inflate"]
+  impacted_models: ["store_performance"]
+  not_impacted_models: ["orders", "customers", "order_items", "products", "locations"]
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies that count(order_id) is inflated due to the order_items join fan-out"
+  - "Agent recognizes the grain mismatch — order_items has multiple rows per order"
+  - "Agent notes that total_revenue and unique_customers are unaffected (sum and count distinct are fan-out safe)"
+  - "Agent recommends count(distinct order_id) or pre-aggregating order_items before joining"
+  - "Agent correctly identifies that existing models (orders, customers, etc.) are NOT impacted — this is a new model only"
+
+teardown:
+  restore_files: ["models/marts/store_performance.sql"]

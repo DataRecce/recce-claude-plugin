@@ -1,0 +1,65 @@
+id: data-005-recency-current-date
+name: "Customer Segmentation — Broken Recency Logic"
+description: "customer_segments model uses current_date for recency calculation but dataset ends in the past — all customers classified as churned"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/5
+layer: review
+difficulty: easy
+stakeholder: marketing
+case_type: problem_exists
+
+story: |
+  The Marketing Manager (P2) requested customer segmentation with spend tiers, frequency
+  segments, and recency classification (Active: ≤30 days, At-risk: 31-90 days, Churned: >90
+  days since last order).
+
+  A teammate created a `customer_segments` mart model. The recency calculation uses
+  `current_date - last_ordered_at` to determine days since last order. However, the
+  jaffle-shop-simulator dataset has a fixed end date — the most recent orders are months
+  or years in the past. Since current_date is always "today", every single customer shows
+  a recency of hundreds of days, and ALL customers are classified as "churned".
+
+  The correct approach is to calculate recency relative to the dataset's max order date
+  (e.g., `max(ordered_at) over () - last_ordered_at`), not current_date.
+
+  This is a common pitfall with historical/simulated datasets — using current_date for
+  time-relative metrics only works with live, continuously-updated data.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-005-recency-current-date.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Marketing Manager (P2)"
+    stakeholder_request: "Add customer segmentation — spend tiers, frequency segments, and recency classification (Active ≤30d, At-risk 31-90d, Churned >90d)"
+    pr_description: "Add customer_segments mart — spend tiers, frequency buckets, and recency segmentation using last order date"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["current_date", "recency", "churned", "last_ordered_at", "max", "dataset", "historical"]
+  impacted_models: ["customer_segments"]
+  not_impacted_models: ["orders", "customers", "order_items", "products"]
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies that ALL customers are classified as 'churned' due to current_date usage"
+  - "Agent recognizes the dataset is historical and current_date produces unrealistic recency values"
+  - "Agent recommends using max(ordered_at) or a similar dataset-relative reference date"
+  - "Agent verifies that spend tiers and frequency segments are correct (only recency is broken)"
+  - "Agent correctly identifies that existing models are NOT impacted — this is a new model only"
+  - "Agent correctly identifies that the Executive Dashboard is NOT impacted"
+
+teardown:
+  restore_files: ["models/marts/customer_segments.sql"]
