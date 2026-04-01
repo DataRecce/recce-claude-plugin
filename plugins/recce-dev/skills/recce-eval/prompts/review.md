@@ -24,6 +24,6 @@ containing a fenced JSON block with exactly these keys:
   "root_cause": "description of the root cause",
   "impacted_models": ["list", "of", "impacted", "models"],
   "not_impacted_models": ["list", "of", "models", "not", "impacted"],
-  "affected_row_count": number (rows where values differ),
+  "affected_row_count": number (rows directly affected by the primary change — e.g., rows removed, rows with changed values in the modified column; exclude cascading side effects such as window function renumbering),
   "dashboard_impact": true or false (would the Executive Dashboard break or show wrong data?),
   "evidence_summary": "describe what data-level evidence you used to reach your conclusion"
