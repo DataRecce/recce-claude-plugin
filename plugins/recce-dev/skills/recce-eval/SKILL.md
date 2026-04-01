@@ -63,33 +63,32 @@ Shared flags (apply to all flows that accept them):
 
 ### Version-Based Path Routing
 
-Based on `--version`, set the scenario base path and default target:
+Based on `--version`, determine the scenario subdirectory and default target:
 
-```
-if --version v1 (default):
-    SCENARIO_BASE = "scenarios"
-    DEFAULT_TARGET = "dev-local"
-elif --version v2:
-    SCENARIO_BASE = "scenarios/v2"
-    DEFAULT_TARGET = "dev"
-```
+- `--version v1` (default): scenarios live in `skills/recce-eval/scenarios/`, default target is `dev-local`
+- `--version v2`: scenarios live in `skills/recce-eval/scenarios/v2/`, default target is `dev`
 
-All scenario path references below use `${SCENARIO_BASE}` — this is the ONLY difference between v1 and v2 path resolution. The `--target` flag overrides the default if provided.
+**IMPORTANT**: Throughout this document, all references to the scenarios directory must use the version-appropriate path. When `--version v2`, replace `scenarios/` with `scenarios/v2/` in every scenario path lookup, glob, and `--patch-file` reference.
+
+The `--target` flag overrides the default if provided.
 
 ### List Flow (short-circuit)
 
-Read all YAML files in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/`. For each file, use Python to extract `id`, `name`, `case_type`, `chapter`:
+Determine the scenario directory based on `--version` (see routing above). Read all YAML files in that directory. For each file, use Python to extract `id`, `name`, `case_type`:
 
 ```bash
+# SCENARIO_DIR: use "scenarios" for v1, "scenarios/v2" for v2
 python3 -c "
 import yaml, glob, os
-base = '${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}'
+base = os.path.join('${CLAUDE_PLUGIN_ROOT}', 'skills', 'recce-eval', 'SCENARIO_DIR_HERE')
 for f in sorted(glob.glob(os.path.join(base, '*.yaml'))):
     with open(f) as fh:
         d = yaml.safe_load(fh)
-    print(f\"{d['id']}|{d['name']}|{d['case_type']}|{d.get('chapter', '-')}\")
+    print(f\"{d['id']}|{d['name']}|{d['case_type']}|{d.get('difficulty', '-')}\")
 "
 ```
+
+Replace `SCENARIO_DIR_HERE` with `scenarios` (v1) or `scenarios/v2` (v2) based on the `--version` flag.
 
 Display results as a table:
 
@@ -122,15 +121,19 @@ This is the core orchestration — 14 steps that set up scenarios, run headless 
 
 ### Step 1: Read Scenario(s)
 
-If `--case <id>`: read `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<id>.yaml`.
-If `--all`: read all `.yaml` files in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/`.
+Use the version-appropriate scenario directory (see Version-Based Path Routing above).
+
+If `--case <id>`: read `<scenario-dir>/<id>.yaml`.
+If `--all`: read all `.yaml` files in `<scenario-dir>/`.
+
+Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
 
 For each scenario file, parse the YAML content:
 
 ```bash
 python3 -c "
 import yaml, json
-with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<id>.yaml') as f:
+with open('<scenario-dir>/<id>.yaml') as f:
     d = yaml.safe_load(f)
 print(json.dumps(d))
 "
@@ -147,13 +150,13 @@ v2 scenarios include `environment.repo` and `environment.ref` fields that specif
 ```bash
 REPO=$(python3 -c "
 import yaml
-with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<first-scenario-id>.yaml') as f:
+with open('<scenario-dir>/<first-scenario-id>.yaml') as f:
     d = yaml.safe_load(f)
 print(d['environment']['repo'])
 ")
 REF=$(python3 -c "
 import yaml
-with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<first-scenario-id>.yaml') as f:
+with open('<scenario-dir>/<first-scenario-id>.yaml') as f:
     d = yaml.safe_load(f)
 print(d['environment'].get('ref', 'main'))
 ")
