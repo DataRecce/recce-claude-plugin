@@ -17,6 +17,7 @@ story: |
 
 environment:
   repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
   adapter: duckdb
 
 setup:

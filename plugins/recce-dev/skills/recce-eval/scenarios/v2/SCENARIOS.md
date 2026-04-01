@@ -1,6 +1,20 @@
 # Eval V2 Scenarios
 
-All scenarios are based on the [jaffle-shop-simulator](https://github.com/DataRecce/jaffle-shop-simulator) repository.
+All scenarios are based on the [jaffle-shop-simulator](https://github.com/DataRecce/jaffle-shop-simulator) repository (`eval-base` branch).
+
+## Running V2 Scenarios
+
+Use `--version v2` to run v2 scenarios:
+
+```bash
+/recce-eval list --version v2
+/recce-eval run --case data-001-double-tax-deduction --version v2
+/recce-eval run --all --version v2
+```
+
+V2 scenarios are self-contained: the eval system automatically clones the repo to a temp directory, bootstraps dbt (venv + deps + seed), runs the evaluation, and cleans up. No manual project setup required.
+
+Each scenario YAML specifies `environment.repo` and `environment.ref` to identify the target repository and branch/tag/SHA.
 
 ## Naming Convention
 

@@ -54,20 +54,36 @@ Shared flags (apply to all flows that accept them):
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--target` | dbt target name | `dev-local` |
+| `--version` | Scenario version: `v1` or `v2` | `v1` |
+| `--target` | dbt target name | `dev-local` (v1), `dev` (v2) |
 | `--adapter` | Override adapter detection | Auto-detect from profiles.yml |
 | `--plugin-dir` | Recce plugin path | Auto-resolve via `resolve-recce-root.sh` |
 | `--model` | Claude model for headless runs | Inherits from current session |
 | `--no-bare` | Disable bare mode isolation | `--bare` is ON by default |
 
+### Version-Based Path Routing
+
+Based on `--version`, set the scenario base path and default target:
+
+```
+if --version v1 (default):
+    SCENARIO_BASE = "scenarios"
+    DEFAULT_TARGET = "dev-local"
+elif --version v2:
+    SCENARIO_BASE = "scenarios/v2"
+    DEFAULT_TARGET = "dev"
+```
+
+All scenario path references below use `${SCENARIO_BASE}` — this is the ONLY difference between v1 and v2 path resolution. The `--target` flag overrides the default if provided.
+
 ### List Flow (short-circuit)
 
-Read all YAML files in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/`. For each file, use Python to extract `id`, `name`, `case_type`, `chapter`:
+Read all YAML files in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/`. For each file, use Python to extract `id`, `name`, `case_type`, `chapter`:
 
 ```bash
 python3 -c "
 import yaml, glob, os
-base = '${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios'
+base = '${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}'
 for f in sorted(glob.glob(os.path.join(base, '*.yaml'))):
     with open(f) as fh:
         d = yaml.safe_load(fh)
@@ -106,21 +122,61 @@ This is the core orchestration — 14 steps that set up scenarios, run headless 
 
 ### Step 1: Read Scenario(s)
 
-If `--case <id>`: read `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/<id>.yaml`.
-If `--all`: read all `.yaml` files in the scenarios directory.
+If `--case <id>`: read `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<id>.yaml`.
+If `--all`: read all `.yaml` files in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/`.
 
 For each scenario file, parse the YAML content:
 
 ```bash
 python3 -c "
 import yaml, json
-with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/<id>.yaml') as f:
+with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<id>.yaml') as f:
     d = yaml.safe_load(f)
 print(json.dumps(d))
 "
 ```
 
 Extract and record these fields for each scenario: `id`, `case_type`, `setup` (strategy, patch_reverse_file, dbt_commands), `prompt`, `headless` (max_budget_usd), `ground_truth`, `judge_criteria`, `teardown` (restore_files).
+
+### Step 1b: Clone & Bootstrap v2 Project (v2 only)
+
+**Skip this step entirely for `--version v1`.** Only execute when `--version v2`.
+
+v2 scenarios include `environment.repo` and `environment.ref` fields that specify the dbt project to clone. Parse these from the first scenario (all v2 scenarios share the same repo):
+
+```bash
+REPO=$(python3 -c "
+import yaml
+with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<first-scenario-id>.yaml') as f:
+    d = yaml.safe_load(f)
+print(d['environment']['repo'])
+")
+REF=$(python3 -c "
+import yaml
+with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/${SCENARIO_BASE}/<first-scenario-id>.yaml') as f:
+    d = yaml.safe_load(f)
+print(d['environment'].get('ref', 'main'))
+")
+echo "REPO=$REPO REF=$REF"
+```
+
+Clone the repo and bootstrap dbt:
+
+```bash
+eval "$(bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/setup-v2-project.sh \
+    --repo "$REPO" --ref "$REF")"
+echo "PROJECT_DIR=$PROJECT_DIR"
+```
+
+Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to all `run-case.sh` invocations in Step 8.
+
+**Cleanup**: At the very end of the Run Flow (after Step 14), remove the temp project:
+
+```bash
+if [ -n "$PROJECT_DIR" ]; then
+    rm -rf "$PROJECT_DIR"
+fi
+```
 
 ### Step 2: Detect Adapter
 
@@ -250,7 +306,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --target "$TARGET" \
     --max-budget-usd "$MAX_BUDGET" \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
-    --run-number "$RUN_NUM"
+    --run-number "$RUN_NUM" \
+    ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 
 Parse the KEY=VALUE output from `run-case.sh`. Record `OUTPUT_FILE`, `JSON_EXTRACTED`, `TOTAL_COST_USD`, `DURATION_MS`.
@@ -282,7 +339,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
     --plugin-dir "$RECCE_PLUGIN_ROOT" \
     --mcp-config /tmp/recce-eval-mcp-config.json \
-    --run-number "$RUN_NUM"
+    --run-number "$RUN_NUM" \
+    ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 
 Score the with-plugin run:
@@ -537,6 +595,12 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 - **Prompt file per scenario**: When running `--all`, create a separate prompt file for each scenario (use `${EVAL_ID}-${SCENARIO_ID}` in the filename) since each scenario has a different prompt.
 
+- **v2 project cleanup**: When `--version v2`, always `rm -rf "$PROJECT_DIR"` at the end of the Run Flow, even if runs fail. The setup script creates a temp dir that will leak if not cleaned up.
+
+- **v2 default target is `dev`, not `dev-local`**: The jaffle-shop-simulator profiles.yml uses `dev` as its default target. If `--target` is not provided with `--version v2`, use `dev`.
+
+- **v2 clone is shared across scenarios**: When running `--all --version v2`, clone the repo ONCE (from the first scenario's `environment.repo` and `environment.ref`) and reuse `PROJECT_DIR` for all scenarios. Do not clone per-scenario.
+
 ---
 
 ## Additional Resources
@@ -547,6 +611,7 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 - **`scripts/score-deterministic.sh`** — jq-based scoring against ground truth. Reads and updates per-run JSON in-place. Outputs KEY=VALUE lines.
 - **`scripts/start-eval-mcp.sh`** — Start Recce MCP server on eval-specific port (default 8085) with isolated PID file. Outputs KEY=VALUE lines.
 - **`scripts/stop-eval-mcp.sh`** — Stop eval MCP server using eval-scoped PID file.
+- **`scripts/setup-v2-project.sh`** — Clone a dbt project repo to a temp dir and bootstrap (venv, dbt deps, seed). Used by v2 scenarios only. Outputs `PROJECT_DIR=<path>`.
 - **`scripts/resolve-recce-root.sh`** (plugin-level, at `${CLAUDE_PLUGIN_ROOT}/scripts/`) — Locate sibling `recce` plugin across monorepo and cache layouts.
 
 ### Agents

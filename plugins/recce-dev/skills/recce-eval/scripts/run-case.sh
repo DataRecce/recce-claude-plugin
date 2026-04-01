@@ -14,7 +14,7 @@ TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
 DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
 SKIP_SETUP="false" SKIP_TEARDOWN="false" MODEL=""
-MODE="real-world"
+MODE="real-world" PROJECT_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -41,6 +41,7 @@ while [[ $# -gt 0 ]]; do
         --skip-teardown)    SKIP_TEARDOWN="true";       shift 1 ;;
         --model)            MODEL="$2";                 shift 2 ;;
         --mode)             MODE="$2";                  shift 2 ;;
+        --project-dir)      PROJECT_DIR="$2";               shift 2 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -81,6 +82,13 @@ fi
 # Seed settings.json in temp HOME provides apiKeyHelper (no keychain prompts),
 # skipDangerousModePermissionPrompt, and effortLevel=high.
 # Use --bare explicitly for tools-only testing (hooks skipped).
+
+# ========== Project Directory Override ==========
+# When --project-dir is set (v2 scenarios), cd into the cloned project.
+# v1 scenarios omit this flag and use CWD as the dbt project.
+if [ -n "$PROJECT_DIR" ]; then
+    cd "$PROJECT_DIR"
+fi
 
 # ========== Venv Auto-Detection ==========
 # Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
