@@ -52,7 +52,7 @@ ground_truth:
   not_impacted_models: ["order_items", "products"]
   affected_row_count: 4155
   affected_customers: 236
-  dashboard_impact: true
+  dashboard_impact: false
   detection_requires: code_review
   data_impact_vs_correct_impl: identical
   notes: |
@@ -72,7 +72,7 @@ judge_criteria:
   - "Agent recognizes this is a spec deviation — the column semantics differ even though current data produces identical results"
   - "Agent correctly identifies that customers model IS impacted (count_lifetime_orders changes for 236 customers)"
   - "Agent correctly identifies that order_items is NOT impacted (comp orders have no line items)"
-  - "Agent correctly identifies that the Executive Dashboard IS impacted (order counts and AOV change)"
+  - "Agent correctly identifies that the Executive Dashboard is NOT broken by this change (removed $0 orders is intended behavior; dashboard columns remain structurally intact)"
   - "Agent explains why order_total is the correct column (total charged vs pre-tax subtotal)"
 
 teardown:
