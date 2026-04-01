@@ -45,8 +45,9 @@ headless:
   output_format: json
 
 ground_truth:
-  issue_found: true
+  issue_found: false
   issue_type: spec_deviation
+  spec_deviation_keywords: ["order_total", "wrong column", "spec", "specification", "mismatch", "semantically different"]
   root_cause_keywords: ["subtotal", "order_total", "wrong column", "spec", "filter", "complimentary"]
   impacted_models: ["stg_orders", "orders", "customers"]
   not_impacted_models: ["order_items", "products"]
