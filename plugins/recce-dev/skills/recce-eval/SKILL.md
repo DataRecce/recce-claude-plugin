@@ -75,18 +75,19 @@ The `--target` flag overrides the default if provided.
 
 ### List Flow (short-circuit)
 
-Determine the scenario directory based on `--version` (see routing above). Read all YAML files in that directory. For each file, use Python to extract `id`, `name`, `case_type`:
+Determine the scenario directory based on `--version` (see routing above). Read all YAML files in that directory. For each file, extract `id`, `name`, `case_type`:
 
 ```bash
 # SCENARIO_DIR: use "scenarios/v1" for v1, "scenarios/v2" for v2
-python3 -c "
-import yaml, glob, os
-base = os.path.join('${CLAUDE_PLUGIN_ROOT}', 'skills', 'recce-eval', 'SCENARIO_DIR_HERE')
-for f in sorted(glob.glob(os.path.join(base, '*.yaml'))):
-    with open(f) as fh:
-        d = yaml.safe_load(fh)
-    print(f\"{d['id']}|{d['name']}|{d['case_type']}|{d.get('difficulty', '-')}\")
-"
+SCENARIO_BASE="${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/SCENARIO_DIR_HERE"
+for f in "$SCENARIO_BASE"/*.yaml; do
+    id=$(yq '.id // ""' "$f")
+    [ -z "$id" ] && continue
+    name=$(yq '.name' "$f")
+    case_type=$(yq '.case_type' "$f")
+    difficulty=$(yq '.difficulty // "-"' "$f")
+    echo "${id}|${name}|${case_type}|${difficulty}"
+done
 ```
 
 Replace `SCENARIO_DIR_HERE` with `scenarios/v1` (v1) or `scenarios/v2` (v2) based on the `--version` flag.
@@ -143,15 +144,11 @@ If `--select`: scenarios were already selected in the Select Flow above.
 
 Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v1` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
 
-For each scenario file, parse the YAML content:
+For each scenario file, parse the YAML content using `yq`:
 
 ```bash
-python3 -c "
-import yaml, json
-with open('<scenario-dir>/<id>.yaml') as f:
-    d = yaml.safe_load(f)
-print(json.dumps(d))
-"
+# Read entire scenario as JSON
+yq -o=json '.' "<scenario-dir>/<id>.yaml"
 ```
 
 Extract and record these fields for each scenario: `id`, `case_type`, `setup` (strategy, patch_reverse_file, dbt_commands), `prompt`, `headless` (max_budget_usd), `ground_truth`, `judge_criteria`, `teardown` (restore_files).
@@ -163,18 +160,9 @@ Extract and record these fields for each scenario: `id`, `case_type`, `setup` (s
 v2 scenarios include `environment.repo` and `environment.ref` fields that specify the dbt project to clone. Parse these from the first scenario (all v2 scenarios share the same repo):
 
 ```bash
-REPO=$(python3 -c "
-import yaml
-with open('<scenario-dir>/<first-scenario-id>.yaml') as f:
-    d = yaml.safe_load(f)
-print(d['environment']['repo'])
-")
-REF=$(python3 -c "
-import yaml
-with open('<scenario-dir>/<first-scenario-id>.yaml') as f:
-    d = yaml.safe_load(f)
-print(d['environment'].get('ref', 'main'))
-")
+FIRST_SCENARIO="<scenario-dir>/<first-scenario-id>.yaml"
+REPO=$(yq '.environment.repo' "$FIRST_SCENARIO")
+REF=$(yq '.environment.ref // "main"' "$FIRST_SCENARIO")
 echo "REPO=$REPO REF=$REF"
 ```
 
@@ -202,18 +190,8 @@ Determine the dbt adapter type from profiles.yml. Use `--adapter` if provided; o
 
 ```bash
 TARGET="${USER_TARGET:-dev-local}"
-ADAPTER=$(python3 -c "
-import yaml
-with open('profiles.yml') as f:
-    p = yaml.safe_load(f)
-for proj in p.values():
-    if isinstance(proj, dict) and 'outputs' in proj:
-        t = proj.get('target', 'dev')
-        outputs = proj['outputs']
-        target_cfg = outputs.get('$TARGET', outputs.get(t, {}))
-        print(target_cfg.get('type', 'unknown'))
-        break
-" 2>/dev/null || echo "unknown")
+ADAPTER=$(yq ".. | select(has(\"outputs\")) | .outputs[\"$TARGET\"].type // \"unknown\"" profiles.yml 2>/dev/null | head -1)
+ADAPTER="${ADAPTER:-unknown}"
 echo "ADAPTER=$ADAPTER"
 ```
 
@@ -614,7 +592,7 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 - **Ground truth as JSON string**: When passing `--ground-truth` to `score-deterministic.sh`, the value must be a valid JSON string. Use single quotes around the entire JSON value in bash to prevent shell expansion.
 
-- **Adapter detection uses Python + PyYAML**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper parsing.
+- **Adapter detection uses `yq`**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper parsing. Use `yq` (mikefarah/yq).
 
 - **stdio MCP needs no lifecycle management**: With stdio transport, claude spawns/kills the MCP server automatically. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed. The `start-eval-mcp.sh` and `stop-eval-mcp.sh` scripts are retained for SSE mode fallback only.
 
