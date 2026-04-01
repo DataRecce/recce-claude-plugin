@@ -18,6 +18,13 @@ Measure the Recce Review Agent's impact by running headless Claude Code sessions
 
 ---
 
+## Dependencies
+
+Eval scripts require:
+
+- **yq** — YAML processor ([mikefarah/yq](https://github.com/mikefarah/yq)). Install: `brew install yq`
+- **jq** — JSON processor. Install: `brew install jq`
+
 ## Setup
 
 Read learned patterns before starting:
@@ -75,26 +82,13 @@ The `--target` flag overrides the default if provided.
 
 ### List Flow (short-circuit)
 
-Determine the scenario directory based on `--version` (see routing above). Read all YAML files in that directory. For each file, extract `id`, `name`, `case_type`:
-
 ```bash
-# SCENARIO_DIR: use "scenarios/v1" for v1, "scenarios/v2" for v2
-SCENARIO_BASE="${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/SCENARIO_DIR_HERE"
-for f in "$SCENARIO_BASE"/*.yaml; do
-    id=$(yq '.id // ""' "$f")
-    [ -z "$id" ] && continue
-    name=$(yq '.name' "$f")
-    case_type=$(yq '.case_type' "$f")
-    difficulty=$(yq '.difficulty // "-"' "$f")
-    echo "${id}|${name}|${case_type}|${difficulty}"
-done
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/list-scenarios.sh --version <v1|v2>
 ```
-
-Replace `SCENARIO_DIR_HERE` with `scenarios/v1` (v1) or `scenarios/v2` (v2) based on the `--version` flag.
 
 Display results as a table:
 
-| ID | Name | Case Type | Chapter |
+| ID | Name | Case Type | Difficulty |
 |----|------|-----------|---------|
 
 **STOP here.** Do not proceed to the Run Flow.
@@ -131,7 +125,7 @@ If the user selects nothing (cancels), **STOP**.
 
 ## Run Flow
 
-This is the core orchestration — 14 steps that set up scenarios, run headless Claude Code, score results, and produce a report.
+This is the core orchestration — 12 steps that set up scenarios, run headless Claude Code, score results, and produce a report.
 
 ### Step 1: Read Scenario(s)
 
@@ -144,14 +138,22 @@ If `--select`: scenarios were already selected in the Select Flow above.
 
 Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v1` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
 
-For each scenario file, parse the YAML content using `yq`:
+For each scenario file, extract the required fields in a single `yq` call:
 
 ```bash
-# Read entire scenario as JSON
-yq -o=json '.' "<scenario-dir>/<id>.yaml"
+yq -o=json '{
+  "id": .id,
+  "case_type": .case_type,
+  "setup_strategy": .setup.strategy,
+  "patch_file": .setup.patch_reverse_file,
+  "prompt_template": .prompt.template,
+  "prompt_vars": .prompt.vars,
+  "max_budget_usd": .headless.max_budget_usd,
+  "ground_truth": .ground_truth,
+  "judge_criteria": .judge_criteria,
+  "restore_files": .teardown.restore_files
+}' "<scenario-dir>/<id>.yaml"
 ```
-
-Extract and record these fields for each scenario: `id`, `case_type`, `setup` (strategy, patch_reverse_file, dbt_commands), `prompt`, `headless` (max_budget_usd), `ground_truth`, `judge_criteria`, `teardown` (restore_files).
 
 ### Step 1b: Clone & Bootstrap v2 Project (v2 only)
 
@@ -160,10 +162,7 @@ Extract and record these fields for each scenario: `id`, `case_type`, `setup` (s
 v2 scenarios include `environment.repo` and `environment.ref` fields that specify the dbt project to clone. Parse these from the first scenario (all v2 scenarios share the same repo):
 
 ```bash
-FIRST_SCENARIO="<scenario-dir>/<first-scenario-id>.yaml"
-REPO=$(yq '.environment.repo' "$FIRST_SCENARIO")
-REF=$(yq '.environment.ref // "main"' "$FIRST_SCENARIO")
-echo "REPO=$REPO REF=$REF"
+yq -o=json '{"repo": .environment.repo, "ref": .environment.ref // "main"}' "<scenario-dir>/<first-scenario-id>.yaml"
 ```
 
 Clone the repo and bootstrap dbt:
@@ -176,11 +175,11 @@ echo "PROJECT_DIR=$PROJECT_DIR"
 
 Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to all `run-case.sh` invocations in Step 8.
 
-**Cleanup**: At the very end of the Run Flow (after Step 14), remove the temp project:
+**Cleanup**: At the very end of the Run Flow (after Step 12), remove the temp project:
 
 ```bash
-if [ -n "$PROJECT_DIR" ]; then
-    rm -rf "$PROJECT_DIR"
+if [ -n "$WORK_DIR" ] && [[ "$WORK_DIR" == "${TMPDIR:-/tmp}"* ]]; then
+    rm -rf "$WORK_DIR"
 fi
 ```
 
@@ -234,7 +233,7 @@ Record `EVAL_ID` and `BATCH_DIR` for later steps.
 
 ### Step 5: Prepare Prompt
 
-For each scenario, substitute template variables (`{target}`, `{adapter_description}`) in the scenario's `prompt` field. Write the substituted prompt to a temp file:
+For each scenario, read the prompt template file (from `prompt_template` in Step 1), substitute `{variables}` with values from the scenario's `prompt_vars` and runtime values (`{target}`, `{adapter_description}`), and write to a temp file:
 
 ```bash
 PROMPT_FILE="/tmp/recce-eval-prompt-${EVAL_ID}-${SCENARIO_ID}.txt"
@@ -243,8 +242,6 @@ cat > "$PROMPT_FILE" << 'PROMPT_EOF'
 PROMPT_EOF
 echo "PROMPT_FILE=$PROMPT_FILE"
 ```
-
-The prompt text comes from the scenario YAML's `prompt` field, with `{target}` and `{adapter_description}` replaced by the values determined in Step 2.
 
 ### Step 6: Generate Eval MCP Config
 
@@ -274,11 +271,7 @@ echo "MCP_CONFIG=/tmp/recce-eval-mcp-config.json"
 
 **Why `--strict-mcp-config`**: The `--mcp-config` flag is additive and its merge behavior with plugin `.mcp.json` for same-name keys is undocumented. Using `--strict-mcp-config` guarantees the eval config is the sole MCP source.
 
-### Step 7: (Removed — stdio MCP needs no external server)
-
-With stdio transport (Step 6), claude spawns MCP as a child process. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed.
-
-### Step 8: Interleaved Run Loop
+### Step 7: Interleaved Run Loop
 
 Set `NO_BARE` based on whether the user passed `--no-bare`:
 - If `--no-bare` was passed: `NO_BARE=true` (passes `--no-bare --no-clean-profile` to `run-case.sh`, uses OAuth auth)
@@ -369,9 +362,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/score-deterministic.sh \
 
 Report progress to the user after each run completes: "Run {N} {variant} complete: cost=${cost}, duration=${duration}s, json_extracted={yes/no}".
 
-### Step 9: (Removed — stdio MCP terminates with claude process)
-
-### Step 10: Dispatch LLM Judge
+### Step 8: Dispatch LLM Judge
 
 Use the Agent tool to dispatch `recce-dev:eval-judge` with a prompt that includes all the information the judge needs. Group runs by scenario so the judge can compare variants:
 
@@ -399,7 +390,7 @@ If running multiple scenarios, dispatch the judge once per scenario (not once pe
 
 **Error handling**: If the judge agent fails or returns invalid JSON, continue without judge scores. The report will note "LLM judge: unavailable" for affected runs.
 
-### Step 11: Merge Judge Scores
+### Step 9: Merge Judge Scores
 
 Parse the judge's JSON output. For each run entry in the judge's `runs` array, read the corresponding per-run JSON file and merge `scores.llm_judge` into it:
 
@@ -426,7 +417,7 @@ The judge returns scores per run in the format:
 
 Write `comparison_notes` to each run's `scores.llm_judge.comparison_notes` as well.
 
-### Step 12: Write meta.json
+### Step 10: Write meta.json
 
 Write batch metadata to the batch directory:
 
@@ -449,7 +440,7 @@ EOF
 
 Where `$SCENARIOS_JSON_ARRAY` is a JSON array of scenario IDs (e.g., `["ch1-null-amounts", "ch1-healthy-audit"]`), and `$CLAUDE_MODEL` is from `--model` flag or the current session's model.
 
-### Step 13: Generate Report
+### Step 11: Generate Report
 
 Read all per-run JSONs in the batch directory (now containing both deterministic and judge scores). Follow the structure defined in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/references/report-template.md`.
 
@@ -471,7 +462,7 @@ The report includes:
 4. **Detailed Scores** with per-run deterministic checks and judge scores
 5. **Cross-Eval Comparison** with historical deltas (if available)
 
-### Step 14: Update History and Print Summary
+### Step 12: Update History and Print Summary
 
 Append a summary entry to `.claude/recce-eval/history.json`:
 
@@ -592,13 +583,13 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 - **Ground truth as JSON string**: When passing `--ground-truth` to `score-deterministic.sh`, the value must be a valid JSON string. Use single quotes around the entire JSON value in bash to prevent shell expansion.
 
-- **Adapter detection uses `yq`**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper parsing. Use `yq` (mikefarah/yq).
+- **Adapter detection uses `yq`**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper YAML parsing.
 
 - **stdio MCP needs no lifecycle management**: With stdio transport, claude spawns/kills the MCP server automatically. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed. The `start-eval-mcp.sh` and `stop-eval-mcp.sh` scripts are retained for SSE mode fallback only.
 
 - **Prompt file per scenario**: When running `--all`, create a separate prompt file for each scenario (use `${EVAL_ID}-${SCENARIO_ID}` in the filename) since each scenario has a different prompt.
 
-- **v2 project cleanup**: When `--version v2`, always `rm -rf "$PROJECT_DIR"` at the end of the Run Flow, even if runs fail. The setup script creates a temp dir that will leak if not cleaned up.
+- **v2 project cleanup**: When `--version v2`, clean up `WORK_DIR` at the end of the Run Flow. Always guard with a `$TMPDIR` prefix check before `rm -rf` to avoid accidental deletion outside temp.
 
 - **v2 default target is `dev`, not `dev-local`**: The jaffle-shop-simulator profiles.yml uses `dev` as its default target. If `--target` is not provided with `--version v2`, use `dev`.
 
@@ -610,11 +601,12 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 ### Scripts
 
+- **`scripts/list-scenarios.sh`** — List scenarios for a version. Single `yq eval-all` call. Outputs pipe-delimited rows.
 - **`scripts/run-case.sh`** — Atomic runner: setup state, invoke `claude -p`, capture output, teardown, write per-run JSON. Outputs KEY=VALUE lines.
 - **`scripts/score-deterministic.sh`** — jq-based scoring against ground truth. Reads and updates per-run JSON in-place. Outputs KEY=VALUE lines.
-- **`scripts/start-eval-mcp.sh`** — Start Recce MCP server on eval-specific port (default 8085) with isolated PID file. Outputs KEY=VALUE lines.
-- **`scripts/stop-eval-mcp.sh`** — Stop eval MCP server using eval-scoped PID file.
-- **`scripts/setup-v2-project.sh`** — Clone a dbt project repo to a temp dir and bootstrap (venv, dbt deps, seed). Used by v2 scenarios only. Outputs `PROJECT_DIR=<path>`.
+- **`scripts/setup-v2-project.sh`** — Clone a dbt project repo to a temp dir and bootstrap (venv, dbt deps, seed). Used by v2 scenarios only. Outputs `PROJECT_DIR=<path>` and `WORK_DIR=<path>`.
+- **`scripts/start-eval-mcp.sh`** — Start Recce MCP server on eval-specific port (default 8085). Retained for SSE mode fallback only.
+- **`scripts/stop-eval-mcp.sh`** — Stop eval MCP server. Retained for SSE mode fallback only.
 - **`scripts/resolve-recce-root.sh`** (plugin-level, at `${CLAUDE_PLUGIN_ROOT}/scripts/`) — Locate sibling `recce` plugin across monorepo and cache layouts.
 
 ### Agents
