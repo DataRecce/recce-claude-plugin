@@ -137,7 +137,7 @@ cleanup() {
             f="${f#"${f%%[![:space:]]*}"}"  # trim leading whitespace
             f="${f%"${f##*[![:space:]]}"}"  # trim trailing whitespace
             if [ -n "$f" ] && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-                git restore --staged "$f" 2>/dev/null || true
+                git restore --staged -- "$f" 2>/dev/null || true
                 git checkout -- "$f" 2>/dev/null || true
             fi
         done
