@@ -2,7 +2,7 @@ diff --git a/models/marts/customer_segments.sql b/models/marts/customer_segments
 deleted file mode 100644
 --- a/models/marts/customer_segments.sql
 +++ /dev/null
-@@ -1,65 +0,0 @@
+@@ -1,67 +0,0 @@
 -with
 -
 -customers as (

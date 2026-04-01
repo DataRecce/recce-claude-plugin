@@ -43,8 +43,9 @@ Before running eval, confirm:
 
 Parse user input to determine which flow to execute:
 
-- **`run --case <id> [-n N]`** → Run Flow (single scenario)
+- **`run --case <id>[,<id2>,...] [-n N]`** → Run Flow (one or more scenarios by ID)
 - **`run --all [-n N]`** → Run Flow (all scenarios)
+- **`run --select [-n N]`** → Select Flow → Run Flow (interactive scenario picker)
 - **`score <run-dir>`** → Score Flow
 - **`report [eval-id]`** → Report Flow
 - **`list`** → List Flow (short-circuit)
@@ -59,7 +60,7 @@ Shared flags (apply to all flows that accept them):
 | `--adapter` | Override adapter detection | Auto-detect from profiles.yml |
 | `--plugin-dir` | Recce plugin path | Auto-resolve via `resolve-recce-root.sh` |
 | `--model` | Claude model for headless runs | Inherits from current session |
-| `--no-bare` | Disable bare mode isolation | `--bare` is ON by default |
+| `--no-bare` | Disable bare mode — use OAuth auth, no API key needed | `--bare` is ON by default |
 
 ### Version-Based Path Routing
 
@@ -113,6 +114,18 @@ cat .claude/recce-eval/history.json 2>/dev/null || echo "NO_HISTORY"
 
 **STOP here.** Do not proceed to the Run Flow.
 
+### Select Flow (interactive picker)
+
+When `--select` is used, present the user with an interactive scenario picker before entering the Run Flow.
+
+1. Load all scenario YAML files from the version-appropriate directory (same as List Flow).
+2. Use `AskUserQuestion` with `multiSelect: true` to let the user pick scenarios:
+   - Each option's `label` is the scenario ID
+   - Each option's `description` is the scenario name and difficulty
+3. Parse the selected IDs and proceed to the Run Flow with those scenarios (same as `--case <id1>,<id2>,...`).
+
+If the user selects nothing (cancels), **STOP**.
+
 ---
 
 ## Run Flow
@@ -123,8 +136,10 @@ This is the core orchestration — 14 steps that set up scenarios, run headless 
 
 Use the version-appropriate scenario directory (see Version-Based Path Routing above).
 
-If `--case <id>`: read `<scenario-dir>/<id>.yaml`.
+If `--case <id>` (single ID): read `<scenario-dir>/<id>.yaml`.
+If `--case <id1>,<id2>,...` (comma-separated): read each `<scenario-dir>/<id>.yaml`.
 If `--all`: read all `.yaml` files in `<scenario-dir>/`.
+If `--select`: scenarios were already selected in the Select Flow above.
 
 Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
 
@@ -287,6 +302,10 @@ With stdio transport (Step 6), claude spawns MCP as a child process. No `start-e
 
 ### Step 8: Interleaved Run Loop
 
+Set `NO_BARE` based on whether the user passed `--no-bare`:
+- If `--no-bare` was passed: `NO_BARE=true` (passes `--no-bare --no-clean-profile` to `run-case.sh`, uses OAuth auth)
+- Otherwise: `NO_BARE=""` (default `--bare` mode, requires `ANTHROPIC_API_KEY`)
+
 Run each scenario with both variants in interleaved order. For N runs, the execution order is: baseline run1 → with-plugin run1 → baseline run2 → with-plugin run2 → ... This reduces systematic bias from cache warming or temporal effects.
 
 For each run number (1 to N), for each variant (`baseline` first, then `with-plugin`):
@@ -297,7 +316,7 @@ mkdir -p "$BATCH_DIR/$SCENARIO_ID"
 
 # ---- Baseline variant ----
 # --bare is default: no memory, no CLAUDE.md, pure prompt-driven evaluation
-# Pass --no-bare to use the user's full profile (for internal dev testing only)
+# When user passes --no-bare: add --no-bare --no-clean-profile (uses OAuth, no API key needed)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -310,6 +329,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --max-budget-usd "$MAX_BUDGET" \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
     --run-number "$RUN_NUM" \
+    ${NO_BARE:+--no-bare --no-clean-profile} \
     ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 
@@ -329,6 +349,7 @@ Then run the with-plugin variant:
 ```bash
 # ---- With-plugin variant ----
 # --bare is default; --plugin-dir injects the plugin even in bare mode
+# When user passes --no-bare: add --no-bare --no-clean-profile (uses OAuth, no API key needed)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -343,6 +364,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --plugin-dir "$RECCE_PLUGIN_ROOT" \
     --mcp-config /tmp/recce-eval-mcp-config.json \
     --run-number "$RUN_NUM" \
+    ${NO_BARE:+--no-bare --no-clean-profile} \
     ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 

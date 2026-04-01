@@ -2,7 +2,7 @@ diff --git a/models/marts/financial_orders.sql b/models/marts/financial_orders.s
 deleted file mode 100644
 --- a/models/marts/financial_orders.sql
 +++ /dev/null
-@@ -1,33 +0,0 @@
+@@ -1,32 +0,0 @@
 -with
 -
 -orders as (

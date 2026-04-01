@@ -2,7 +2,7 @@ diff --git a/models/marts/store_performance.sql b/models/marts/store_performance
 deleted file mode 100644
 --- a/models/marts/store_performance.sql
 +++ /dev/null
-@@ -1,48 +0,0 @@
+@@ -1,68 +0,0 @@
 -with
 -
 -orders as (
