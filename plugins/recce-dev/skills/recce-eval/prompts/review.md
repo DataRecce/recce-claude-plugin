@@ -10,13 +10,14 @@ The Executive Dashboard (Streamlit app used by management) reads from these mart
 order_id, order_total, subtotal, tax_paid, ordered_at, customer_id, location_id,
 is_food_order, is_drink_order, count_food_items, count_drink_items
 
-Run /recce-review to analyze the data impact of this change. When the review agent asks for context or when dispatching it, include:
+If the /recce-review command is available, run it to analyze the data impact of this change. When the review agent asks for context or when dispatching it, include:
 - Stakeholder: {stakeholder_name} requested "{stakeholder_request}"
 - PR description: "{pr_description}"
 - Dashboard columns: order_id, order_total, subtotal, tax_paid, ordered_at, customer_id, location_id, is_food_order, is_drink_order, count_food_items, count_drink_items
 
-After the review completes, synthesize the findings into your final assessment.
-Determine whether the Executive Dashboard would be impacted by checking if any changed columns overlap with the dashboard columns listed above.
+If /recce-review is not available, analyze the data impact directly using the available tools, then synthesize your findings.
+
+After the review completes, determine whether the Executive Dashboard would be impacted by checking if any changed columns overlap with the dashboard columns listed above.
 
 IMPORTANT: Your very last message MUST be a text response (not a tool call)
 containing a fenced JSON block with exactly these keys:

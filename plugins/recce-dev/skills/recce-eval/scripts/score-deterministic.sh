@@ -32,7 +32,8 @@ JSON_EXTRACTED=$(jq -r '.agent_output.json_extracted' "$RUN_FILE")
 
 if [ "$JSON_EXTRACTED" != "true" ] || [ "$AGENT_JSON" = "null" ]; then
     if [ "$CASE_TYPE" = "problem_exists" ]; then
-        CHECKS='[{"name":"issue_found","expected":"true","actual":"null","result":"FAIL"},{"name":"root_cause_keywords","expected":"match","actual":"no output","result":"FAIL"}]'
+        FALLBACK_EXPECTED=$(echo "$GROUND_TRUTH" | jq -r 'if has("issue_found") then (.issue_found | tostring) else "true" end')
+        CHECKS=$(jq -n --arg e "$FALLBACK_EXPECTED" '[{"name":"issue_found","expected":$e,"actual":"null","result":"FAIL"},{"name":"root_cause_keywords","expected":"match","actual":"no output","result":"FAIL"}]')
         # all_tests_pass (v1 only — skip if absent from ground truth)
         if [ "$(echo "$GROUND_TRUTH" | jq 'has("all_tests_pass")')" = "true" ]; then
             CHECKS=$(echo "$CHECKS" | jq '. + [{"name":"all_tests_pass","expected":"true","actual":"null","result":"FAIL"}]')
@@ -68,13 +69,12 @@ if [ "$CASE_TYPE" = "problem_exists" ]; then
     if [ "$ACTUAL" = "$GT_ISSUE_FOUND" ]; then add_check "issue_found" "$GT_ISSUE_FOUND" "$ACTUAL" "PASS"
     else add_check "issue_found" "$GT_ISSUE_FOUND" "$ACTUAL" "FAIL"; fi
 
-    # root_cause contains keywords
+    # root_cause contains keywords (phrase-safe iteration)
     ROOT_CAUSE=$(echo "$AGENT_JSON" | jq -r '.root_cause // "" | ascii_downcase')
-    KEYWORDS=$(echo "$GROUND_TRUTH" | jq -r '.root_cause_keywords[]')
     KW_MATCH="false"
-    for kw in $KEYWORDS; do
-        if echo "$ROOT_CAUSE" | grep -qi "$kw"; then KW_MATCH="true"; break; fi
-    done
+    while IFS= read -r kw; do
+        if echo "$ROOT_CAUSE" | grep -Fqi -- "$kw"; then KW_MATCH="true"; break; fi
+    done < <(echo "$GROUND_TRUTH" | jq -r '.root_cause_keywords[]')
     if [ "$KW_MATCH" = "true" ]; then add_check "root_cause_keywords" "match" "matched" "PASS"
     else add_check "root_cause_keywords" "match" "no match" "FAIL"; fi
 
@@ -120,16 +120,15 @@ if [ "$CASE_TYPE" = "problem_exists" ]; then
         fi
     fi
 
-    # spec_deviation_noted (spec_deviation scenarios only — extract from root_cause text)
+    # spec_deviation_noted (spec_deviation scenarios only — extract from root_cause text, phrase-safe)
     if [ "$(echo "$GROUND_TRUTH" | jq 'has("spec_deviation_keywords")')" = "true" ]; then
         ROOT_CAUSE_TEXT=$(echo "$AGENT_JSON" | jq -r '.root_cause // "" | ascii_downcase')
         EVIDENCE_TEXT=$(echo "$AGENT_JSON" | jq -r '.evidence_summary // "" | ascii_downcase')
         COMBINED_TEXT="$ROOT_CAUSE_TEXT $EVIDENCE_TEXT"
-        SD_KEYWORDS=$(echo "$GROUND_TRUTH" | jq -r '.spec_deviation_keywords[]')
         SD_MATCH="false"
-        for kw in $SD_KEYWORDS; do
-            if echo "$COMBINED_TEXT" | grep -qi "$kw"; then SD_MATCH="true"; break; fi
-        done
+        while IFS= read -r kw; do
+            if echo "$COMBINED_TEXT" | grep -Fqi -- "$kw"; then SD_MATCH="true"; break; fi
+        done < <(echo "$GROUND_TRUTH" | jq -r '.spec_deviation_keywords[]')
         if [ "$SD_MATCH" = "true" ]; then add_check "spec_deviation_noted" "noted" "noted" "PASS"
         else add_check "spec_deviation_noted" "noted" "not noted" "FAIL"; fi
     fi
