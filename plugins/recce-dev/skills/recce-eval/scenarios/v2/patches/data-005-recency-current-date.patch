@@ -30,7 +30,7 @@ deleted file mode 100644
 -        customers.first_ordered_at,
 -        customers.last_ordered_at,
 -
--        -- Recency: days since last order (BUG: uses current_date — all customers appear churned)
+-        -- Recency: days since last order
 -        {{ dbt.datediff("customers.last_ordered_at", dbt.current_timestamp(), "day") }} as days_since_last_order
 -
 -    from customers

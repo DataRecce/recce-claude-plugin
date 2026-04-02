@@ -2,7 +2,7 @@ diff --git a/models/marts/supply_analysis.sql b/models/marts/supply_analysis.sql
 deleted file mode 100644
 --- a/models/marts/supply_analysis.sql
 +++ /dev/null
-@@ -1,52 +0,0 @@
+@@ -1,51 +0,0 @@
 -with
 -
 -products as (
@@ -33,7 +33,6 @@ deleted file mode 100644
 -        sum(case when supplies.is_perishable_supply then 1 else 0 end) as perishable_supply_count,
 -        sum(case when supplies.is_perishable_supply then supplies.supply_cost else 0 end) as perishable_supply_cost,
 -
--        -- BUG: uses count ratio instead of cost ratio
 -        sum(case when supplies.is_perishable_supply then 1 else 0 end)::float
 -            / nullif(count(*), 0) as perishable_cost_pct,
 -

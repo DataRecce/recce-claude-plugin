@@ -12,8 +12,8 @@ worktree:
 issue:
 pr:
 jaffle_issue: 8
-patch_file: plugins/recce-dev/skills/recce-eval/scenarios/v2/patches/r8-exclude-zero-orders-wrong-column.patch
-scenario_yaml: plugins/recce-dev/skills/recce-eval/scenarios/v2/r8-exclude-zero-orders-wrong-column.yaml
+patch_file: plugins/recce-dev/skills/recce-eval/scenarios/v2/patches/code-001-filter-spec-deviation.patch
+scenario_yaml: plugins/recce-dev/skills/recce-eval/scenarios/v2/code-001-filter-spec-deviation.yaml
 prompt_file:
 ---
 

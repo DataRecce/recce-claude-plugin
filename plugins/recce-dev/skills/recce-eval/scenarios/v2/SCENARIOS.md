@@ -4,12 +4,12 @@ All scenarios are based on the [jaffle-shop-simulator](https://github.com/DataRe
 
 ## Running V2 Scenarios
 
-Use `--version v2` to run v2 scenarios:
+V2 is the default version. Examples:
 
 ```bash
-/recce-eval list --version v2
-/recce-eval run --case data-001-double-tax-deduction --version v2
-/recce-eval run --all --version v2
+/recce-eval list
+/recce-eval run --case data-001-double-tax-deduction
+/recce-eval run --all
 ```
 
 V2 scenarios are self-contained: the eval system automatically clones the repo to a temp directory, bootstraps dbt (venv + deps + seed), runs the evaluation, and cleans up. No manual project setup required.
@@ -225,12 +225,12 @@ where subtotal > 0
 - AOV: 10.9178 → 10.9871 (+0.63%)
 
 **What we expect the agent to find**:
-- Issue found: **yes** — spec deviation
+- Issue found: **no** (spec deviation — data results are identical with current data)
 - Root cause: filter uses `subtotal` instead of `order_total` as specified in the issue
 - Impacted: `stg_orders`, `orders`, `customers`
 - Not impacted: `order_items`, `products`
 - Affected rows: **4,155**
-- Dashboard impact: **yes** (order counts and AOV change)
+- Dashboard impact: **no** (removing $0 orders is intended; dashboard columns remain structurally intact)
 - Detection requires: **code review** (data is identical between subtotal>0 and order_total>0)
 
 **Difficulty**: hard — the agent must compare PR code against the issue spec, not just validate data correctness
@@ -247,4 +247,4 @@ where subtotal > 0
 | data-004 | Count ratio vs cost ratio | New `supply_analysis` | medium | data comparison | no | all rows |
 | data-005 | current_date on historical data | New `customer_segments` | easy | data comparison | no | all rows |
 | data-006 | Tax instead of COGS in formula | New `financial_orders` | easy | data comparison | no | all rows |
-| code-001 | Wrong filter column (spec deviation) | Modified `stg_orders` | hard | code review | yes | 4,155 |
+| code-001 | Wrong filter column (spec deviation) | Modified `stg_orders` | hard | code review | no | 4,155 |

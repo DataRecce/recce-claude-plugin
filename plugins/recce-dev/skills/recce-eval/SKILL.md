@@ -75,12 +75,12 @@ Shared flags (apply to all flows that accept them):
 
 Based on `--version`, determine the scenario subdirectory and default target:
 
-- `--version v1`: scenarios live in `skills/recce-eval/scenarios/v1/`, default target is `dev-local`
-- `--version v2` (default): scenarios live in `skills/recce-eval/scenarios/v2/`, default target is `dev`
+- `--version v1`: scenarios live in `skills/recce-eval/scenarios/v1/`, set `DEFAULT_TARGET=dev-local`
+- `--version v2` (default): scenarios live in `skills/recce-eval/scenarios/v2/`, set `DEFAULT_TARGET=dev`
 
 **IMPORTANT**: Throughout this document, all references to the scenarios directory must use the version-appropriate path. Use `scenarios/v1/` for v1 and `scenarios/v2/` for v2 in every scenario path lookup, glob, and `--patch-file` reference.
 
-The `--target` flag overrides the default if provided.
+The `--target` flag overrides the default if provided. `DEFAULT_TARGET` is used in Step 2 when `--target` is not provided.
 
 ### List Flow (short-circuit)
 
@@ -135,7 +135,7 @@ Use the version-appropriate scenario directory (see Version-Based Path Routing a
 
 If `--case <id>` (single ID): read `<scenario-dir>/<id>.yaml`.
 If `--case <id1>,<id2>,...` (comma-separated): read each `<scenario-dir>/<id>.yaml`.
-If `--all`: read all `.yaml` files in `<scenario-dir>/`.
+If `--all`: read all `data-*.yaml` and `code-*.yaml` files in `<scenario-dir>/` (skip non-scenario files like `eval-config.yaml`).
 If `--select`: scenarios were already selected in the Select Flow above.
 
 Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v1` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
@@ -195,7 +195,7 @@ eval "$(bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/setup-v2-project.sh
 echo "PROJECT_DIR=$PROJECT_DIR"
 ```
 
-Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to all `run-case.sh` invocations in Step 8.
+Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to all `run-case.sh` invocations in Step 7.
 
 **Cleanup**: At the very end of the Run Flow (after Step 12), remove the temp project:
 
@@ -210,7 +210,8 @@ fi
 Determine the dbt adapter type from profiles.yml. Use `--adapter` if provided; otherwise auto-detect:
 
 ```bash
-TARGET="${USER_TARGET:-dev}"
+# Default target depends on version: dev-local for v1, dev for v2
+TARGET="${USER_TARGET:-${DEFAULT_TARGET:-dev}}"
 # Try the requested target first; fall back to the profile's default target
 ADAPTER=$(yq "
   .. | select(has(\"outputs\")) |
@@ -222,14 +223,14 @@ ADAPTER="${ADAPTER:-unknown}"
 echo "ADAPTER=$ADAPTER"
 ```
 
-Set template variables based on adapter:
+Set template variables based on adapter. The `{target}` value comes from `DEFAULT_TARGET` (set by version routing), not from the adapter:
 
-| Adapter | `{target}` | `{adapter_description}` |
-|---------|-----------|------------------------|
-| duckdb | `dev-local` | `DuckDB (local file database, target: dev-local)` |
-| snowflake | `dev` | `Snowflake (cloud data warehouse, target: dev)` |
+| Adapter | `{adapter_description}` |
+|---------|------------------------|
+| duckdb | `DuckDB (local file database, target: {target})` |
+| snowflake | `Snowflake (cloud data warehouse, target: {target})` |
 
-If a custom `--target` was provided, use that value for `{target}` regardless of adapter defaults.
+If a custom `--target` was provided, use that value for `{target}` regardless of version defaults.
 
 ### Step 3: Resolve Plugin Dir
 
@@ -473,7 +474,7 @@ cat > "$BATCH_DIR/meta.json" << EOF
 EOF
 ```
 
-Where `$SCENARIOS_JSON_ARRAY` is a JSON array of scenario IDs (e.g., `["ch1-null-amounts", "ch1-healthy-audit"]`), and `$CLAUDE_MODEL` is from `--model` flag or the current session's model.
+Where `$SCENARIOS_JSON_ARRAY` is a JSON array of scenario IDs (e.g., `["data-001-double-tax-deduction", "data-002-cogs-food-only"]`), and `$CLAUDE_MODEL` is from `--model` flag or the current session's model.
 
 ### Step 11: Generate Report
 
