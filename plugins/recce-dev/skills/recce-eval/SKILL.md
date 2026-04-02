@@ -24,6 +24,8 @@ Eval scripts require:
 
 - **yq** — YAML processor ([mikefarah/yq](https://github.com/mikefarah/yq)). Install: `brew install yq`
 - **jq** — JSON processor. Install: `brew install jq`
+- **git** — required for v2 eval flows that clone/manage projects. Install: `brew install git` (or use your OS package manager)
+- **Python 3 with venv + pip** — required for v2 eval flows via `setup-v2-project.sh`. Ensure `python3`, `python3 -m venv`, and `pip` are available in your PATH.
 
 ## Setup
 
@@ -138,7 +140,9 @@ If `--select`: scenarios were already selected in the Select Flow above.
 
 Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v1` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
 
-For each scenario file, extract the required fields in a single `yq` call:
+For each scenario file, extract the required fields in a single `yq` call.
+
+**v2 scenarios** use `prompt.template` + `prompt.vars` (template-based):
 
 ```bash
 yq -o=json '{
@@ -154,6 +158,24 @@ yq -o=json '{
   "restore_files": .teardown.restore_files
 }' "<scenario-dir>/<id>.yaml"
 ```
+
+**v1 scenarios** use `prompt:` as an inline string (no template/vars):
+
+```bash
+yq -o=json '{
+  "id": .id,
+  "case_type": .case_type,
+  "setup_strategy": .setup.strategy,
+  "patch_file": .setup.patch_reverse_file,
+  "prompt_inline": .prompt,
+  "max_budget_usd": .headless.max_budget_usd,
+  "ground_truth": .ground_truth,
+  "judge_criteria": .judge_criteria,
+  "restore_files": .teardown.restore_files
+}' "<scenario-dir>/<id>.yaml"
+```
+
+When `prompt_template` is non-null (v2), read the template file and substitute vars in Step 5. When `prompt_inline` is non-null (v1), use it directly as the prompt text.
 
 ### Step 1b: Clone & Bootstrap v2 Project (v2 only)
 
@@ -188,8 +210,14 @@ fi
 Determine the dbt adapter type from profiles.yml. Use `--adapter` if provided; otherwise auto-detect:
 
 ```bash
-TARGET="${USER_TARGET:-dev-local}"
-ADAPTER=$(yq ".. | select(has(\"outputs\")) | .outputs[\"$TARGET\"].type // \"unknown\"" profiles.yml 2>/dev/null | head -1)
+TARGET="${USER_TARGET:-dev}"
+# Try the requested target first; fall back to the profile's default target
+ADAPTER=$(yq "
+  .. | select(has(\"outputs\")) |
+  .outputs[\"$TARGET\"].type //
+  .outputs[.target // \"dev\"].type //
+  \"unknown\"
+" profiles.yml 2>/dev/null | head -1)
 ADAPTER="${ADAPTER:-unknown}"
 echo "ADAPTER=$ADAPTER"
 ```
@@ -223,17 +251,24 @@ Create a timestamped directory for this eval batch:
 
 ```bash
 EVAL_ID=$(date +"%Y%m%d-%H%M")
-BATCH_DIR=".claude/recce-eval/runs/$EVAL_ID"
+# Use PROJECT_DIR (v2) or CWD (v1) as the base for eval output.
+# Always resolve to an absolute path so scripts work after cd.
+EVAL_BASE="${PROJECT_DIR:-$(pwd)}"
+BATCH_DIR="${EVAL_BASE}/.claude/recce-eval/runs/$EVAL_ID"
 mkdir -p "$BATCH_DIR"
 echo "EVAL_ID=$EVAL_ID"
 echo "BATCH_DIR=$BATCH_DIR"
 ```
 
-Record `EVAL_ID` and `BATCH_DIR` for later steps.
+Record `EVAL_ID` and `BATCH_DIR` for later steps. `BATCH_DIR` is always absolute, so it works correctly even when `run-case.sh` changes directory via `--project-dir`.
 
 ### Step 5: Prepare Prompt
 
-For each scenario, read the prompt template file (from `prompt_template` in Step 1), substitute `{variables}` with values from the scenario's `prompt_vars` and runtime values (`{target}`, `{adapter_description}`), and write to a temp file:
+Build the prompt text for each scenario, then write to a temp file.
+
+**v2 (template+vars):** Read the template file from `prompt_template` (relative to `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/`), then substitute `{variables}` with values from `prompt_vars` and runtime values (`{target}`, `{adapter_description}`).
+
+**v1 (inline prompt):** Use the `prompt_inline` string directly, substituting only runtime values (`{target}`, `{adapter_description}`).
 
 ```bash
 PROMPT_FILE="/tmp/recce-eval-prompt-${EVAL_ID}-${SCENARIO_ID}.txt"

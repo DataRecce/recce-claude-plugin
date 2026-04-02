@@ -87,6 +87,14 @@ fi
 # When --project-dir is set (v2 scenarios), cd into the cloned project.
 # v1 scenarios omit this flag and use CWD as the dbt project.
 if [ -n "$PROJECT_DIR" ]; then
+    if [ ! -d "$PROJECT_DIR" ]; then
+        echo "ERROR: --project-dir does not exist: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    if [ ! -f "$PROJECT_DIR/dbt_project.yml" ]; then
+        echo "ERROR: --project-dir is not a dbt project (missing dbt_project.yml): $PROJECT_DIR" >&2
+        exit 1
+    fi
     cd "$PROJECT_DIR"
 fi
 
