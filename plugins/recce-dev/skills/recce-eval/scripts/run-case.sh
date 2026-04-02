@@ -194,7 +194,10 @@ if [ "$DRY_RUN" = "false" ] && [ "$SKIP_SETUP" = "false" ]; then
             # Use --full-refresh so incremental models reprocess ALL rows with
             # the buggy code — otherwise value_diff sees 0 changed rows because
             # the stored data was computed before the patch was applied.
-            git apply --reverse --3way "$PATCH_FILE"
+            # Try --3way first (handles whitespace mismatches), fall back to
+            # plain apply for patches that create new files (no base in index).
+            git apply --reverse --3way "$PATCH_FILE" 2>/dev/null \
+                || git apply --reverse "$PATCH_FILE"
             dbt run --target "$TARGET" --full-refresh --quiet
             dbt docs generate --target "$TARGET" --quiet 2>/dev/null || true
             # Run dbt test BEFORE MCP starts (avoids DuckDB lock conflict).
