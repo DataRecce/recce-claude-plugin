@@ -251,16 +251,16 @@ Create a timestamped directory for this eval batch:
 
 ```bash
 EVAL_ID=$(date +"%Y%m%d-%H%M")
-# Use PROJECT_DIR (v2) or CWD (v1) as the base for eval output.
-# Always resolve to an absolute path so scripts work after cd.
-EVAL_BASE="${PROJECT_DIR:-$(pwd)}"
+# Always use the invoking CWD (the plugin repo) as the eval output base.
+# v2 PROJECT_DIR is a temp dir that gets cleaned up — output must survive cleanup.
+EVAL_BASE="$(pwd)"
 BATCH_DIR="${EVAL_BASE}/.claude/recce-eval/runs/$EVAL_ID"
 mkdir -p "$BATCH_DIR"
 echo "EVAL_ID=$EVAL_ID"
 echo "BATCH_DIR=$BATCH_DIR"
 ```
 
-Record `EVAL_ID` and `BATCH_DIR` for later steps. `BATCH_DIR` is always absolute, so it works correctly even when `run-case.sh` changes directory via `--project-dir`.
+Record `EVAL_ID` and `BATCH_DIR` for later steps. `BATCH_DIR` is always absolute and anchored to the invoking CWD, so eval output survives v2 temp project cleanup.
 
 ### Step 5: Prepare Prompt
 
