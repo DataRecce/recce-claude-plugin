@@ -62,7 +62,7 @@ Shared flags (apply to all flows that accept them):
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--version` | Scenario version: `v1` or `v2` | `v1` |
+| `--version` | Scenario version: `v1` or `v2` | `v2` |
 | `--target` | dbt target name | `dev-local` (v1), `dev` (v2) |
 | `--adapter` | Override adapter detection | Auto-detect from profiles.yml |
 | `--plugin-dir` | Recce plugin path | Auto-resolve via `resolve-recce-root.sh` |
@@ -73,8 +73,8 @@ Shared flags (apply to all flows that accept them):
 
 Based on `--version`, determine the scenario subdirectory and default target:
 
-- `--version v1` (default): scenarios live in `skills/recce-eval/scenarios/v1/`, default target is `dev-local`
-- `--version v2`: scenarios live in `skills/recce-eval/scenarios/v2/`, default target is `dev`
+- `--version v1`: scenarios live in `skills/recce-eval/scenarios/v1/`, default target is `dev-local`
+- `--version v2` (default): scenarios live in `skills/recce-eval/scenarios/v2/`, default target is `dev`
 
 **IMPORTANT**: Throughout this document, all references to the scenarios directory must use the version-appropriate path. Use `scenarios/v1/` for v1 and `scenarios/v2/` for v2 in every scenario path lookup, glob, and `--patch-file` reference.
 

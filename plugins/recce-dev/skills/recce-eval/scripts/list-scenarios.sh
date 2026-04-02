@@ -4,7 +4,7 @@
 # Output: pipe-delimited rows: id|name|case_type|difficulty
 set -euo pipefail
 
-VERSION="v1" BASE_DIR=""
+VERSION="v2" BASE_DIR=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version)  VERSION="$2";  shift 2 ;;
