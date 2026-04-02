@@ -14,7 +14,7 @@ TARGET="" MAX_BUDGET_USD="" OUTPUT_DIR=""
 PLUGIN_DIR="" MCP_CONFIG="" RUN_NUMBER="1"
 DRY_RUN="false" BARE_MODE="false" CLEAN_PROFILE="true"
 SKIP_SETUP="false" SKIP_TEARDOWN="false" MODEL=""
-MODE="real-world"
+MODE="real-world" PROJECT_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -41,6 +41,7 @@ while [[ $# -gt 0 ]]; do
         --skip-teardown)    SKIP_TEARDOWN="true";       shift 1 ;;
         --model)            MODEL="$2";                 shift 2 ;;
         --mode)             MODE="$2";                  shift 2 ;;
+        --project-dir)      PROJECT_DIR="$2";               shift 2 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -81,6 +82,21 @@ fi
 # Seed settings.json in temp HOME provides apiKeyHelper (no keychain prompts),
 # skipDangerousModePermissionPrompt, and effortLevel=high.
 # Use --bare explicitly for tools-only testing (hooks skipped).
+
+# ========== Project Directory Override ==========
+# When --project-dir is set (v2 scenarios), cd into the cloned project.
+# v1 scenarios omit this flag and use CWD as the dbt project.
+if [ -n "$PROJECT_DIR" ]; then
+    if [ ! -d "$PROJECT_DIR" ]; then
+        echo "ERROR: --project-dir does not exist: $PROJECT_DIR" >&2
+        exit 1
+    fi
+    if [ ! -f "$PROJECT_DIR/dbt_project.yml" ]; then
+        echo "ERROR: --project-dir is not a dbt project (missing dbt_project.yml): $PROJECT_DIR" >&2
+        exit 1
+    fi
+    cd "$PROJECT_DIR"
+fi
 
 # ========== Venv Auto-Detection ==========
 # Always prefer local venv over global dbt — global dbt may be dbt Cloud CLI
@@ -137,8 +153,15 @@ cleanup() {
             f="${f#"${f%%[![:space:]]*}"}"  # trim leading whitespace
             f="${f%"${f##*[![:space:]]}"}"  # trim trailing whitespace
             if [ -n "$f" ] && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-                git restore --staged -- "$f" 2>/dev/null || true
-                git checkout -- "$f" 2>/dev/null || true
+                # For tracked files, unstage then restore from git.
+                # For untracked files (created by reverse-applying "deleted file"
+                # patches), remove them.
+                if git ls-files --error-unmatch "$f" &>/dev/null 2>&1; then
+                    git restore --staged -- "$f" 2>/dev/null || true
+                    git checkout -- "$f" 2>/dev/null || true
+                else
+                    rm -f "$f" 2>/dev/null || true
+                fi
             fi
         done
     fi

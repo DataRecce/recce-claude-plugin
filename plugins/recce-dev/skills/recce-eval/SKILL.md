@@ -18,6 +18,15 @@ Measure the Recce Review Agent's impact by running headless Claude Code sessions
 
 ---
 
+## Dependencies
+
+Eval scripts require:
+
+- **yq** — YAML processor ([mikefarah/yq](https://github.com/mikefarah/yq)). Install: `brew install yq`
+- **jq** — JSON processor. Install: `brew install jq`
+- **git** — required for v2 eval flows that clone/manage projects. Install: `brew install git` (or use your OS package manager)
+- **Python 3 with venv + pip** — required for v2 eval flows via `setup-v2-project.sh`. Ensure `python3`, `python3 -m venv`, and `pip` are available in your PATH.
+
 ## Setup
 
 Read learned patterns before starting:
@@ -43,8 +52,9 @@ Before running eval, confirm:
 
 Parse user input to determine which flow to execute:
 
-- **`run --case <id> [-n N]`** → Run Flow (single scenario)
+- **`run --case <id>[,<id2>,...] [-n N]`** → Run Flow (one or more scenarios by ID)
 - **`run --all [-n N]`** → Run Flow (all scenarios)
+- **`run --select [-n N]`** → Select Flow → Run Flow (interactive scenario picker)
 - **`score <run-dir>`** → Score Flow
 - **`report [eval-id]`** → Report Flow
 - **`list`** → List Flow (short-circuit)
@@ -54,30 +64,33 @@ Shared flags (apply to all flows that accept them):
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--target` | dbt target name | `dev-local` |
+| `--version` | Scenario version: `v1` or `v2` | `v2` |
+| `--target` | dbt target name | `dev-local` (v1), `dev` (v2) |
 | `--adapter` | Override adapter detection | Auto-detect from profiles.yml |
 | `--plugin-dir` | Recce plugin path | Auto-resolve via `resolve-recce-root.sh` |
 | `--model` | Claude model for headless runs | Inherits from current session |
-| `--no-bare` | Disable bare mode isolation | `--bare` is ON by default |
+| `--no-bare` | Disable bare mode — use OAuth auth, no API key needed | `--bare` is ON by default |
+
+### Version-Based Path Routing
+
+Based on `--version`, determine the scenario subdirectory and default target:
+
+- `--version v1`: scenarios live in `skills/recce-eval/scenarios/v1/`, set `DEFAULT_TARGET=dev-local`
+- `--version v2` (default): scenarios live in `skills/recce-eval/scenarios/v2/`, set `DEFAULT_TARGET=dev`
+
+**IMPORTANT**: Throughout this document, all references to the scenarios directory must use the version-appropriate path. Use `scenarios/v1/` for v1 and `scenarios/v2/` for v2 in every scenario path lookup, glob, and `--patch-file` reference.
+
+The `--target` flag overrides the default if provided. `DEFAULT_TARGET` is used in Step 2 when `--target` is not provided.
 
 ### List Flow (short-circuit)
 
-Read all YAML files in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/`. For each file, use Python to extract `id`, `name`, `case_type`, `chapter`:
-
 ```bash
-python3 -c "
-import yaml, glob, os
-base = '${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios'
-for f in sorted(glob.glob(os.path.join(base, '*.yaml'))):
-    with open(f) as fh:
-        d = yaml.safe_load(fh)
-    print(f\"{d['id']}|{d['name']}|{d['case_type']}|{d.get('chapter', '-')}\")
-"
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/list-scenarios.sh --version <v1|v2>
 ```
 
 Display results as a table:
 
-| ID | Name | Case Type | Chapter |
+| ID | Name | Case Type | Difficulty |
 |----|------|-----------|---------|
 
 **STOP here.** Do not proceed to the Run Flow.
@@ -98,59 +111,126 @@ cat .claude/recce-eval/history.json 2>/dev/null || echo "NO_HISTORY"
 
 **STOP here.** Do not proceed to the Run Flow.
 
+### Select Flow (interactive picker)
+
+When `--select` is used, present the user with an interactive scenario picker before entering the Run Flow.
+
+1. Load all scenario YAML files from the version-appropriate directory (same as List Flow).
+2. Use `AskUserQuestion` with `multiSelect: true` to let the user pick scenarios:
+   - Each option's `label` is the scenario ID
+   - Each option's `description` is the scenario name and difficulty
+3. Parse the selected IDs and proceed to the Run Flow with those scenarios (same as `--case <id1>,<id2>,...`).
+
+If the user selects nothing (cancels), **STOP**.
+
 ---
 
 ## Run Flow
 
-This is the core orchestration — 14 steps that set up scenarios, run headless Claude Code, score results, and produce a report.
+This is the core orchestration — 12 steps that set up scenarios, run headless Claude Code, score results, and produce a report.
 
 ### Step 1: Read Scenario(s)
 
-If `--case <id>`: read `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/<id>.yaml`.
-If `--all`: read all `.yaml` files in the scenarios directory.
+Use the version-appropriate scenario directory (see Version-Based Path Routing above).
 
-For each scenario file, parse the YAML content:
+If `--case <id>` (single ID): read `<scenario-dir>/<id>.yaml`.
+If `--case <id1>,<id2>,...` (comma-separated): read each `<scenario-dir>/<id>.yaml`.
+If `--all`: read all `data-*.yaml` and `code-*.yaml` files in `<scenario-dir>/` (skip non-scenario files like `eval-config.yaml`).
+If `--select`: scenarios were already selected in the Select Flow above.
+
+Where `<scenario-dir>` is `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v1` (v1) or `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2` (v2).
+
+For each scenario file, extract the required fields in a single `yq` call.
+
+**v2 scenarios** use `prompt.template` + `prompt.vars` (template-based):
 
 ```bash
-python3 -c "
-import yaml, json
-with open('${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/<id>.yaml') as f:
-    d = yaml.safe_load(f)
-print(json.dumps(d))
-"
+yq -o=json '{
+  "id": .id,
+  "case_type": .case_type,
+  "setup_strategy": .setup.strategy,
+  "patch_file": .setup.patch_reverse_file,
+  "prompt_template": .prompt.template,
+  "prompt_vars": .prompt.vars,
+  "max_budget_usd": .headless.max_budget_usd,
+  "ground_truth": .ground_truth,
+  "judge_criteria": .judge_criteria,
+  "restore_files": .teardown.restore_files
+}' "<scenario-dir>/<id>.yaml"
 ```
 
-Extract and record these fields for each scenario: `id`, `case_type`, `setup` (strategy, patch_reverse_file, dbt_commands), `prompt`, `headless` (max_budget_usd), `ground_truth`, `judge_criteria`, `teardown` (restore_files).
+**v1 scenarios** use `prompt:` as an inline string (no template/vars):
+
+```bash
+yq -o=json '{
+  "id": .id,
+  "case_type": .case_type,
+  "setup_strategy": .setup.strategy,
+  "patch_file": .setup.patch_reverse_file,
+  "prompt_inline": .prompt,
+  "max_budget_usd": .headless.max_budget_usd,
+  "ground_truth": .ground_truth,
+  "judge_criteria": .judge_criteria,
+  "restore_files": .teardown.restore_files
+}' "<scenario-dir>/<id>.yaml"
+```
+
+When `prompt_template` is non-null (v2), read the template file and substitute vars in Step 5. When `prompt_inline` is non-null (v1), use it directly as the prompt text.
+
+### Step 1b: Clone & Bootstrap v2 Project (v2 only)
+
+**Skip this step entirely for `--version v1`.** Only execute when `--version v2`.
+
+v2 scenarios include `environment.repo` and `environment.ref` fields that specify the dbt project to clone. Parse these from the first scenario (all v2 scenarios share the same repo):
+
+```bash
+yq -o=json '{"repo": .environment.repo, "ref": .environment.ref // "main"}' "<scenario-dir>/<first-scenario-id>.yaml"
+```
+
+Clone the repo and bootstrap dbt:
+
+```bash
+eval "$(bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/setup-v2-project.sh \
+    --repo "$REPO" --ref "$REF")"
+echo "PROJECT_DIR=$PROJECT_DIR"
+```
+
+Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to all `run-case.sh` invocations in Step 7.
+
+**Cleanup**: At the very end of the Run Flow (after Step 12), remove the temp project:
+
+```bash
+if [ -n "$WORK_DIR" ] && [[ "$WORK_DIR" == "${TMPDIR:-/tmp}"* ]]; then
+    rm -rf "$WORK_DIR"
+fi
+```
 
 ### Step 2: Detect Adapter
 
 Determine the dbt adapter type from profiles.yml. Use `--adapter` if provided; otherwise auto-detect:
 
 ```bash
-TARGET="${USER_TARGET:-dev-local}"
-ADAPTER=$(python3 -c "
-import yaml
-with open('profiles.yml') as f:
-    p = yaml.safe_load(f)
-for proj in p.values():
-    if isinstance(proj, dict) and 'outputs' in proj:
-        t = proj.get('target', 'dev')
-        outputs = proj['outputs']
-        target_cfg = outputs.get('$TARGET', outputs.get(t, {}))
-        print(target_cfg.get('type', 'unknown'))
-        break
-" 2>/dev/null || echo "unknown")
+# Default target depends on version: dev-local for v1, dev for v2
+TARGET="${USER_TARGET:-${DEFAULT_TARGET:-dev}}"
+# Try the requested target first; fall back to the profile's default target
+ADAPTER=$(yq "
+  .. | select(has(\"outputs\")) |
+  .outputs[\"$TARGET\"].type //
+  .outputs[.target // \"dev\"].type //
+  \"unknown\"
+" profiles.yml 2>/dev/null | head -1)
+ADAPTER="${ADAPTER:-unknown}"
 echo "ADAPTER=$ADAPTER"
 ```
 
-Set template variables based on adapter:
+Set template variables based on adapter. The `{target}` value comes from `DEFAULT_TARGET` (set by version routing), not from the adapter:
 
-| Adapter | `{target}` | `{adapter_description}` |
-|---------|-----------|------------------------|
-| duckdb | `dev-local` | `DuckDB (local file database, target: dev-local)` |
-| snowflake | `dev` | `Snowflake (cloud data warehouse, target: dev)` |
+| Adapter | `{adapter_description}` |
+|---------|------------------------|
+| duckdb | `DuckDB (local file database, target: {target})` |
+| snowflake | `Snowflake (cloud data warehouse, target: {target})` |
 
-If a custom `--target` was provided, use that value for `{target}` regardless of adapter defaults.
+If a custom `--target` was provided, use that value for `{target}` regardless of version defaults.
 
 ### Step 3: Resolve Plugin Dir
 
@@ -172,17 +252,24 @@ Create a timestamped directory for this eval batch:
 
 ```bash
 EVAL_ID=$(date +"%Y%m%d-%H%M")
-BATCH_DIR=".claude/recce-eval/runs/$EVAL_ID"
+# Always use the invoking CWD (the plugin repo) as the eval output base.
+# v2 PROJECT_DIR is a temp dir that gets cleaned up — output must survive cleanup.
+EVAL_BASE="$(pwd)"
+BATCH_DIR="${EVAL_BASE}/.claude/recce-eval/runs/$EVAL_ID"
 mkdir -p "$BATCH_DIR"
 echo "EVAL_ID=$EVAL_ID"
 echo "BATCH_DIR=$BATCH_DIR"
 ```
 
-Record `EVAL_ID` and `BATCH_DIR` for later steps.
+Record `EVAL_ID` and `BATCH_DIR` for later steps. `BATCH_DIR` is always absolute and anchored to the invoking CWD, so eval output survives v2 temp project cleanup.
 
 ### Step 5: Prepare Prompt
 
-For each scenario, substitute template variables (`{target}`, `{adapter_description}`) in the scenario's `prompt` field. Write the substituted prompt to a temp file:
+Build the prompt text for each scenario, then write to a temp file.
+
+**v2 (template+vars):** Read the template file from `prompt_template` (relative to `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/`), then substitute `{variables}` with values from `prompt_vars` and runtime values (`{target}`, `{adapter_description}`).
+
+**v1 (inline prompt):** Use the `prompt_inline` string directly, substituting only runtime values (`{target}`, `{adapter_description}`).
 
 ```bash
 PROMPT_FILE="/tmp/recce-eval-prompt-${EVAL_ID}-${SCENARIO_ID}.txt"
@@ -191,8 +278,6 @@ cat > "$PROMPT_FILE" << 'PROMPT_EOF'
 PROMPT_EOF
 echo "PROMPT_FILE=$PROMPT_FILE"
 ```
-
-The prompt text comes from the scenario YAML's `prompt` field, with `{target}` and `{adapter_description}` replaced by the values determined in Step 2.
 
 ### Step 6: Generate Eval MCP Config
 
@@ -222,11 +307,11 @@ echo "MCP_CONFIG=/tmp/recce-eval-mcp-config.json"
 
 **Why `--strict-mcp-config`**: The `--mcp-config` flag is additive and its merge behavior with plugin `.mcp.json` for same-name keys is undocumented. Using `--strict-mcp-config` guarantees the eval config is the sole MCP source.
 
-### Step 7: (Removed — stdio MCP needs no external server)
+### Step 7: Interleaved Run Loop
 
-With stdio transport (Step 6), claude spawns MCP as a child process. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed.
-
-### Step 8: Interleaved Run Loop
+Set `NO_BARE` based on whether the user passed `--no-bare`:
+- If `--no-bare` was passed: `NO_BARE=true` (passes `--no-bare --no-clean-profile` to `run-case.sh`, uses OAuth auth)
+- Otherwise: `NO_BARE=""` (default `--bare` mode, requires `ANTHROPIC_API_KEY`)
 
 Run each scenario with both variants in interleaved order. For N runs, the execution order is: baseline run1 → with-plugin run1 → baseline run2 → with-plugin run2 → ... This reduces systematic bias from cache warming or temporal effects.
 
@@ -238,7 +323,7 @@ mkdir -p "$BATCH_DIR/$SCENARIO_ID"
 
 # ---- Baseline variant ----
 # --bare is default: no memory, no CLAUDE.md, pure prompt-driven evaluation
-# Pass --no-bare to use the user's full profile (for internal dev testing only)
+# When user passes --no-bare: add --no-bare --no-clean-profile (uses OAuth, no API key needed)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -250,7 +335,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --target "$TARGET" \
     --max-budget-usd "$MAX_BUDGET" \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
-    --run-number "$RUN_NUM"
+    --run-number "$RUN_NUM" \
+    ${NO_BARE:+--no-bare --no-clean-profile} \
+    ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 
 Parse the KEY=VALUE output from `run-case.sh`. Record `OUTPUT_FILE`, `JSON_EXTRACTED`, `TOTAL_COST_USD`, `DURATION_MS`.
@@ -269,6 +356,7 @@ Then run the with-plugin variant:
 ```bash
 # ---- With-plugin variant ----
 # --bare is default; --plugin-dir injects the plugin even in bare mode
+# When user passes --no-bare: add --no-bare --no-clean-profile (uses OAuth, no API key needed)
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --id "$SCENARIO_ID" \
     --case-type "$CASE_TYPE" \
@@ -282,7 +370,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
     --output-dir "$BATCH_DIR/$SCENARIO_ID" \
     --plugin-dir "$RECCE_PLUGIN_ROOT" \
     --mcp-config /tmp/recce-eval-mcp-config.json \
-    --run-number "$RUN_NUM"
+    --run-number "$RUN_NUM" \
+    ${NO_BARE:+--no-bare --no-clean-profile} \
+    ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 
 Score the with-plugin run:
@@ -308,9 +398,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/score-deterministic.sh \
 
 Report progress to the user after each run completes: "Run {N} {variant} complete: cost=${cost}, duration=${duration}s, json_extracted={yes/no}".
 
-### Step 9: (Removed — stdio MCP terminates with claude process)
-
-### Step 10: Dispatch LLM Judge
+### Step 8: Dispatch LLM Judge
 
 Use the Agent tool to dispatch `recce-dev:eval-judge` with a prompt that includes all the information the judge needs. Group runs by scenario so the judge can compare variants:
 
@@ -338,7 +426,7 @@ If running multiple scenarios, dispatch the judge once per scenario (not once pe
 
 **Error handling**: If the judge agent fails or returns invalid JSON, continue without judge scores. The report will note "LLM judge: unavailable" for affected runs.
 
-### Step 11: Merge Judge Scores
+### Step 9: Merge Judge Scores
 
 Parse the judge's JSON output. For each run entry in the judge's `runs` array, read the corresponding per-run JSON file and merge `scores.llm_judge` into it:
 
@@ -365,7 +453,7 @@ The judge returns scores per run in the format:
 
 Write `comparison_notes` to each run's `scores.llm_judge.comparison_notes` as well.
 
-### Step 12: Write meta.json
+### Step 10: Write meta.json
 
 Write batch metadata to the batch directory:
 
@@ -386,9 +474,9 @@ cat > "$BATCH_DIR/meta.json" << EOF
 EOF
 ```
 
-Where `$SCENARIOS_JSON_ARRAY` is a JSON array of scenario IDs (e.g., `["ch1-null-amounts", "ch1-healthy-audit"]`), and `$CLAUDE_MODEL` is from `--model` flag or the current session's model.
+Where `$SCENARIOS_JSON_ARRAY` is a JSON array of scenario IDs (e.g., `["data-001-double-tax-deduction", "data-002-cogs-food-only"]`), and `$CLAUDE_MODEL` is from `--model` flag or the current session's model.
 
-### Step 13: Generate Report
+### Step 11: Generate Report
 
 Read all per-run JSONs in the batch directory (now containing both deterministic and judge scores). Follow the structure defined in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/references/report-template.md`.
 
@@ -410,7 +498,7 @@ The report includes:
 4. **Detailed Scores** with per-run deterministic checks and judge scores
 5. **Cross-Eval Comparison** with historical deltas (if available)
 
-### Step 14: Update History and Print Summary
+### Step 12: Update History and Print Summary
 
 Append a summary entry to `.claude/recce-eval/history.json`:
 
@@ -451,7 +539,7 @@ Re-score existing runs without re-running them. Useful after updating scoring lo
 
 1. Read all `*_run*.json` files in the specified directory.
 2. For each file, determine `case_type` from the JSON's `case_type` field.
-3. Look up the corresponding scenario YAML from `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/` using the `scenario_id` in the JSON.
+3. Look up the corresponding scenario YAML from the version-appropriate directory (`scenarios/v1/` or `scenarios/v2/`) using the `scenario_id` in the JSON.
 4. Extract `ground_truth` from the scenario YAML.
 5. Re-run `score-deterministic.sh` on each file:
 
@@ -531,11 +619,17 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 - **Ground truth as JSON string**: When passing `--ground-truth` to `score-deterministic.sh`, the value must be a valid JSON string. Use single quotes around the entire JSON value in bash to prevent shell expansion.
 
-- **Adapter detection uses Python + PyYAML**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper parsing.
+- **Adapter detection uses `yq`**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper YAML parsing.
 
 - **stdio MCP needs no lifecycle management**: With stdio transport, claude spawns/kills the MCP server automatically. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed. The `start-eval-mcp.sh` and `stop-eval-mcp.sh` scripts are retained for SSE mode fallback only.
 
 - **Prompt file per scenario**: When running `--all`, create a separate prompt file for each scenario (use `${EVAL_ID}-${SCENARIO_ID}` in the filename) since each scenario has a different prompt.
+
+- **v2 project cleanup**: When `--version v2`, clean up `WORK_DIR` at the end of the Run Flow. Always guard with a `$TMPDIR` prefix check before `rm -rf` to avoid accidental deletion outside temp.
+
+- **v2 default target is `dev`, not `dev-local`**: The jaffle-shop-simulator profiles.yml uses `dev` as its default target. If `--target` is not provided with `--version v2`, use `dev`.
+
+- **v2 clone is shared across scenarios**: When running `--all --version v2`, clone the repo ONCE (from the first scenario's `environment.repo` and `environment.ref`) and reuse `PROJECT_DIR` for all scenarios. Do not clone per-scenario.
 
 ---
 
@@ -543,10 +637,12 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 ### Scripts
 
+- **`scripts/list-scenarios.sh`** — List scenarios for a version. Single `yq eval-all` call. Outputs pipe-delimited rows.
 - **`scripts/run-case.sh`** — Atomic runner: setup state, invoke `claude -p`, capture output, teardown, write per-run JSON. Outputs KEY=VALUE lines.
 - **`scripts/score-deterministic.sh`** — jq-based scoring against ground truth. Reads and updates per-run JSON in-place. Outputs KEY=VALUE lines.
-- **`scripts/start-eval-mcp.sh`** — Start Recce MCP server on eval-specific port (default 8085) with isolated PID file. Outputs KEY=VALUE lines.
-- **`scripts/stop-eval-mcp.sh`** — Stop eval MCP server using eval-scoped PID file.
+- **`scripts/setup-v2-project.sh`** — Clone a dbt project repo to a temp dir and bootstrap (venv, dbt deps, seed). Used by v2 scenarios only. Outputs `PROJECT_DIR=<path>` and `WORK_DIR=<path>`.
+- **`scripts/start-eval-mcp.sh`** — Start Recce MCP server on eval-specific port (default 8085). Retained for SSE mode fallback only.
+- **`scripts/stop-eval-mcp.sh`** — Stop eval MCP server. Retained for SSE mode fallback only.
 - **`scripts/resolve-recce-root.sh`** (plugin-level, at `${CLAUDE_PLUGIN_ROOT}/scripts/`) — Locate sibling `recce` plugin across monorepo and cache layouts.
 
 ### Agents
@@ -560,22 +656,22 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 ### Scenarios
 
-- **`scenarios/ch1-null-amounts.yaml`** — Case A (problem_exists): broken pipeline with NULL amounts from missing COALESCE.
-- **`scenarios/ch1-healthy-audit.yaml`** — Case B (no_problem): healthy pipeline audit that should find no issues.
-- **`scenarios/ch2-silent-filter.yaml`** — Case C (problem_exists): WHERE clause silently drops return_pending orders, all tests pass.
-- **`scenarios/ch2-amount-misscale.yaml`** — Case D (problem_exists): amount/1000 instead of /100 makes payments 10x too small, all tests pass.
-- **`scenarios/ch3-phantom-filter.yaml`** — Case E (problem_exists): WHERE amount > 0 silently drops 2,326 valid $0 transactions, looks like intentional cleanup.
-- **`scenarios/ch3-join-shift.yaml`** — Case F (problem_exists): join key typo (customer_id vs order_id) produces plausible but wrong amounts, all tests pass.
-- **`scenarios/ch3-count-distinct.yaml`** — Case G (problem_exists): count(*) → count(distinct customer_id) changes metric semantics without changing column name.
+- **`scenarios/v1/ch1-null-amounts.yaml`** — Case A (problem_exists): broken pipeline with NULL amounts from missing COALESCE.
+- **`scenarios/v1/ch1-healthy-audit.yaml`** — Case B (no_problem): healthy pipeline audit that should find no issues.
+- **`scenarios/v1/ch2-silent-filter.yaml`** — Case C (problem_exists): WHERE clause silently drops return_pending orders, all tests pass.
+- **`scenarios/v1/ch2-amount-misscale.yaml`** — Case D (problem_exists): amount/1000 instead of /100 makes payments 10x too small, all tests pass.
+- **`scenarios/v1/ch3-phantom-filter.yaml`** — Case E (problem_exists): WHERE amount > 0 silently drops 2,326 valid $0 transactions, looks like intentional cleanup.
+- **`scenarios/v1/ch3-join-shift.yaml`** — Case F (problem_exists): join key typo (customer_id vs order_id) produces plausible but wrong amounts, all tests pass.
+- **`scenarios/v1/ch3-count-distinct.yaml`** — Case G (problem_exists): count(*) → count(distinct customer_id) changes metric semantics without changing column name.
 
 ### Patches
 
-- **`patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
-- **`patches/ch2-remove-status-filter.patch`** — Removes the return_pending filter from stg_orders.
-- **`patches/ch2-fix-amount-scale.patch`** — Fixes amount/1000 → amount/100 in stg_payments.
-- **`patches/ch3-phantom-filter.patch`** — Removes the WHERE amount > 0 filter from stg_payments.
-- **`patches/ch3-join-shift.patch`** — Restores correct join key (order_id) in orders.sql.
-- **`patches/ch3-count-distinct.patch`** — Restores count(*) in orders_daily_summary.
+- **`scenarios/v1/patches/ch1-add-coalesce.patch`** — The COALESCE fix. Reverse-applied during setup to create the broken state for ch1-null-amounts.
+- **`scenarios/v1/patches/ch2-remove-status-filter.patch`** — Removes the return_pending filter from stg_orders.
+- **`scenarios/v1/patches/ch2-fix-amount-scale.patch`** — Fixes amount/1000 → amount/100 in stg_payments.
+- **`scenarios/v1/patches/ch3-phantom-filter.patch`** — Removes the WHERE amount > 0 filter from stg_payments.
+- **`scenarios/v1/patches/ch3-join-shift.patch`** — Restores correct join key (order_id) in orders.sql.
+- **`scenarios/v1/patches/ch3-count-distinct.patch`** — Restores count(*) in orders_daily_summary.
 
 ---
 

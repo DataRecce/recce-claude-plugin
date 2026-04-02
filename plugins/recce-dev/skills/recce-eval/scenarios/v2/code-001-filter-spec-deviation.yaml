@@ -1,6 +1,7 @@
-id: r8-exclude-zero-orders-wrong-column
-name: "R8: Exclude $0 Orders — Wrong Column"
+id: code-001-filter-spec-deviation
+name: "Exclude $0 Orders — Wrong Column"
 description: "stg_orders filters on subtotal > 0 instead of order_total > 0 — semantically wrong column, but data results happen to be identical with current dataset"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/8
 layer: review
 difficulty: hard
 stakeholder: management
@@ -26,11 +27,12 @@ story: |
 
 environment:
   repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
   adapter: duckdb
 
 setup:
   strategy: git_patch
-  patch_reverse_file: scenarios/v2/patches/r8-exclude-zero-orders-wrong-column.patch
+  patch_reverse_file: scenarios/v2/patches/code-001-filter-spec-deviation.patch
   skip_context: false
 
 prompt:

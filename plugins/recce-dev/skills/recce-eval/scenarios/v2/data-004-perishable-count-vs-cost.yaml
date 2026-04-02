@@ -1,0 +1,63 @@
+id: data-004-perishable-count-vs-cost
+name: "Supply Cost Perishable Ratio — Count vs Cost"
+description: "supply_analysis model calculates perishable ratio using count(*) instead of sum(supply_cost) — reports item-count percentage rather than cost percentage"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/4
+layer: review
+difficulty: medium
+stakeholder: purchasing
+case_type: problem_exists
+
+story: |
+  The Purchasing Manager (P2) requested a supply cost analysis model with perishable risk
+  scoring per product. The key metric is "perishable cost percentage" — what fraction of a
+  product's supply COST comes from perishable supplies.
+
+  A teammate created a `supply_analysis` mart model. For the perishable cost ratio, they
+  used `count(*) where is_perishable / count(*)` instead of
+  `sum(supply_cost) where is_perishable / sum(supply_cost)`. This reports the percentage of
+  supply LINE ITEMS that are perishable, not the percentage of supply COST that is perishable.
+
+  Since perishable and non-perishable supplies have different cost distributions, the two
+  metrics diverge significantly. Some products show high perishable item counts but low
+  perishable cost ratios (cheap perishable ingredients), or vice versa. The purchasing team
+  would make wrong procurement decisions based on item counts rather than actual cost exposure.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-004-perishable-count-vs-cost.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Purchasing Manager (P2)"
+    stakeholder_request: "Build supply cost analysis with perishable risk scoring — percentage of supply COST from perishable supplies per product"
+    pr_description: "Add supply_analysis mart — product-level supply cost breakdown with perishable ratio and risk scoring"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["count", "sum", "supply_cost", "perishable", "ratio", "percentage", "cost"]
+  impacted_models: ["supply_analysis"]
+  not_impacted_models: ["orders", "customers", "order_items", "products", "supplies"]
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies that perishable ratio uses count(*) instead of sum(supply_cost)"
+  - "Agent recognizes this reports item-count percentage rather than cost percentage as requested"
+  - "Agent provides DATA evidence showing the divergence between count-based and cost-based ratios for specific products"
+  - "Agent correctly identifies that existing models are NOT impacted — this is a new model only"
+  - "Agent correctly identifies that the Executive Dashboard is NOT impacted"
+
+teardown:
+  restore_files: ["models/marts/supply_analysis.sql"]

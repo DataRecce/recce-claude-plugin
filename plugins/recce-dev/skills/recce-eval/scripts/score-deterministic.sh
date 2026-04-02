@@ -95,17 +95,20 @@ if [ "$CASE_TYPE" = "problem_exists" ]; then
     done
 
     # affected_row_count (±20% tolerance — agents interpret "affected rows" differently)
-    EXPECTED_COUNT=$(echo "$GROUND_TRUTH" | jq -r '.affected_row_count')
-    ACTUAL_COUNT=$(echo "$AGENT_JSON" | jq -r '.affected_row_count // "null"')
-    if [ "$ACTUAL_COUNT" = "null" ] || [ "$ACTUAL_COUNT" = "0" ]; then
-        add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "FAIL"
-    else
-        WITHIN_TOLERANCE=$(jq -n --argjson e "$EXPECTED_COUNT" --argjson a "$ACTUAL_COUNT" \
-            '(($a - $e) | fabs) / $e < 0.2')
-        if [ "$WITHIN_TOLERANCE" = "true" ]; then
-            add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "PASS"
-        else
+    # Skip if absent from ground truth (e.g., new-model scenarios where row count is less meaningful)
+    if [ "$(echo "$GROUND_TRUTH" | jq 'has("affected_row_count")')" = "true" ]; then
+        EXPECTED_COUNT=$(echo "$GROUND_TRUTH" | jq -r '.affected_row_count')
+        ACTUAL_COUNT=$(echo "$AGENT_JSON" | jq -r '.affected_row_count // "null"')
+        if [ "$ACTUAL_COUNT" = "null" ] || [ "$ACTUAL_COUNT" = "0" ]; then
             add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "FAIL"
+        else
+            WITHIN_TOLERANCE=$(jq -n --argjson e "$EXPECTED_COUNT" --argjson a "$ACTUAL_COUNT" \
+                '(($a - $e) | fabs) / $e < 0.2')
+            if [ "$WITHIN_TOLERANCE" = "true" ]; then
+                add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "PASS"
+            else
+                add_check "affected_row_count" "$EXPECTED_COUNT (±20%)" "$ACTUAL_COUNT" "FAIL"
+            fi
         fi
     fi
 

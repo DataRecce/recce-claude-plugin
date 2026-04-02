@@ -1,0 +1,56 @@
+diff --git a/models/marts/supply_analysis.sql b/models/marts/supply_analysis.sql
+deleted file mode 100644
+--- a/models/marts/supply_analysis.sql
++++ /dev/null
+@@ -1,51 +0,0 @@
+-with
+-
+-products as (
+-
+-    select * from {{ ref('stg_products') }}
+-
+-),
+-
+-supplies as (
+-
+-    select * from {{ ref('stg_supplies') }}
+-
+-),
+-
+-supply_metrics as (
+-
+-    select
+-        products.product_id,
+-        products.product_name,
+-        products.product_type,
+-        products.product_price,
+-        products.is_food_item,
+-        products.is_drink_item,
+-
+-        count(*) as supply_count,
+-        sum(supplies.supply_cost) as total_supply_cost,
+-
+-        sum(case when supplies.is_perishable_supply then 1 else 0 end) as perishable_supply_count,
+-        sum(case when supplies.is_perishable_supply then supplies.supply_cost else 0 end) as perishable_supply_cost,
+-
+-        sum(case when supplies.is_perishable_supply then 1 else 0 end)::float
+-            / nullif(count(*), 0) as perishable_cost_pct,
+-
+-        products.product_price - sum(supplies.supply_cost) as unit_margin,
+-        (products.product_price - sum(supplies.supply_cost)) / nullif(products.product_price, 0) as unit_margin_pct
+-
+-    from products
+-
+-    left join supplies on products.product_id = supplies.product_id
+-
+-    group by
+-        products.product_id,
+-        products.product_name,
+-        products.product_type,
+-        products.product_price,
+-        products.is_food_item,
+-        products.is_drink_item
+-
+-)
+-
+-select * from supply_metrics

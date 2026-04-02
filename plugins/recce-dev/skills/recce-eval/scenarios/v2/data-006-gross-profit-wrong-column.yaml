@@ -1,0 +1,67 @@
+id: data-006-gross-profit-wrong-column
+name: "Financial Orders — Gross Profit Uses Tax Instead of COGS"
+description: "financial_orders model computes gross_profit as revenue_excl_tax - tax_collected instead of revenue_excl_tax - cost_of_goods_sold — developer confused renamed columns"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/6
+layer: review
+difficulty: easy
+stakeholder: accounting
+case_type: problem_exists
+
+story: |
+  The Accounting Manager (P1) requested a new `financial_orders` mart with audit-compliant
+  column names: subtotal→revenue_excl_tax, tax_paid→tax_collected, order_total→total_incl_tax,
+  order_cost→cost_of_goods_sold. The model should also add derived columns: gross_profit
+  (revenue_excl_tax - cost_of_goods_sold) and gross_margin_pct (gross_profit / revenue_excl_tax).
+
+  A teammate created the model, but in the gross_profit formula they wrote
+  `revenue_excl_tax - tax_collected` instead of `revenue_excl_tax - cost_of_goods_sold`.
+  The developer appears to have confused the renamed columns — "tax_collected" and
+  "cost_of_goods_sold" are both new names, and both are numeric financial amounts.
+
+  This makes gross_profit = subtotal - tax_paid (instead of subtotal - order_cost), which
+  is a completely different metric. Gross margin percentages are also wrong since they
+  derive from gross_profit. The error would cause auditors to see inflated margins for
+  low-cost products and deflated margins for high-cost products.
+
+  The existing `orders` mart is unchanged — only the new `financial_orders` model is affected.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-006-gross-profit-wrong-column.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Accounting Manager (P1)"
+    stakeholder_request: "Create financial_orders mart with audit-compliant column names and derived gross_profit (revenue - COGS) and gross_margin_pct"
+    pr_description: "Add financial_orders mart — renames columns for audit compliance, adds gross_profit and gross_margin_pct derived columns"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["gross_profit", "tax_collected", "cost_of_goods_sold", "COGS", "order_cost", "confused", "wrong column"]
+  impacted_models: ["financial_orders"]
+  not_impacted_models: ["orders", "customers", "order_items", "products"]
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies that gross_profit uses tax_collected instead of cost_of_goods_sold"
+  - "Agent recognizes this produces subtotal - tax_paid instead of subtotal - order_cost"
+  - "Agent provides DATA evidence showing the gross_profit values are wrong (comparison with expected COGS-based calculation)"
+  - "Agent notes that gross_margin_pct is also wrong since it derives from gross_profit"
+  - "Agent correctly identifies that the existing orders mart is NOT impacted"
+  - "Agent correctly identifies that the Executive Dashboard is NOT impacted (it reads from orders, not financial_orders)"
+
+teardown:
+  restore_files: ["models/marts/financial_orders.sql"]

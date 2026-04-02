@@ -1,6 +1,7 @@
-id: r2-cogs-miscalculation
-name: "R2: COGS Miscalculation"
+id: data-002-cogs-food-only
+name: "COGS Miscalculation"
 description: "order_cost filtered to food-only supply costs — drink supply costs (59% of COGS) omitted"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/2
 layer: review
 difficulty: medium
 stakeholder: management
@@ -16,11 +17,12 @@ story: |
 
 environment:
   repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
   adapter: duckdb
 
 setup:
   strategy: git_patch
-  patch_reverse_file: scenarios/v2/patches/r2-cogs-miscalculation.patch
+  patch_reverse_file: scenarios/v2/patches/data-002-cogs-food-only.patch
   skip_context: false
 
 prompt:

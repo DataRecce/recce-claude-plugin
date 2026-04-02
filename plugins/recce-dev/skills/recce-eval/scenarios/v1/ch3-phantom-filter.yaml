@@ -22,7 +22,7 @@ story: |
 
 setup:
   strategy: git_patch
-  patch_reverse_file: patches/ch3-phantom-filter.patch
+  patch_reverse_file: scenarios/v1/patches/ch3-phantom-filter.patch
   dbt_commands:
     - "dbt run --target {target}"
 
