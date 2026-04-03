@@ -153,13 +153,12 @@ cleanup() {
             f="${f#"${f%%[![:space:]]*}"}"  # trim leading whitespace
             f="${f%"${f##*[![:space:]]}"}"  # trim trailing whitespace
             if [ -n "$f" ] && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-                # For tracked files, unstage then restore from git.
-                # For untracked files (created by reverse-applying "deleted file"
-                # patches), remove them.
-                if git ls-files --error-unmatch "$f" &>/dev/null 2>&1; then
-                    git restore --staged -- "$f" 2>/dev/null || true
+                git restore --staged -- "$f" 2>/dev/null || true
+                if git show HEAD:"$f" &>/dev/null 2>&1; then
+                    # File exists in HEAD — restore to HEAD state
                     git checkout -- "$f" 2>/dev/null || true
                 else
+                    # File doesn't exist in HEAD (created by patch) — remove
                     rm -f "$f" 2>/dev/null || true
                 fi
             fi
