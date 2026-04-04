@@ -179,16 +179,17 @@ if [ "$DRY_RUN" = "false" ] && [ "$SKIP_SETUP" = "false" ]; then
                 echo "ERROR: Patch file not found: $PATCH_FILE" >&2
                 exit 1
             fi
-            # Build base state in a SEPARATE schema so Recce can compare data.
-            # DuckDB uses one file with multiple schemas. Without a separate base
-            # schema, value_diff compares dev against itself → 0 differences.
-            # 1. Build clean state in both dev (current) and prod (base) schemas
-            # 2. Capture base artifacts from prod
-            # 3. Apply patch and rebuild dev only
-            # 4. Recce compares dev (buggy) vs prod (clean) for actual data diffs
+            # Build base state only for with-plugin variant.
+            # Baseline gets NO comparison target — it must reason from code +
+            # single-schema data alone. This mirrors reality: without Recce,
+            # a developer has no pre-built before/after comparison.
+            # With-plugin gets both prod (clean) and dev (buggy) schemas so
+            # Recce MCP tools (value_diff, profile_diff) can compare data.
             BASE_TARGET="prod"
-            dbt run --target "$BASE_TARGET" --full-refresh --quiet
-            dbt docs generate --target-path target-base --target "$BASE_TARGET" --quiet 2>/dev/null || true
+            if [ "$VARIANT" = "with-plugin" ]; then
+                dbt run --target "$BASE_TARGET" --full-refresh --quiet
+                dbt docs generate --target-path target-base --target "$BASE_TARGET" --quiet 2>/dev/null || true
+            fi
             # Now apply patch (introduces the bug) and rebuild current state.
             # Use --full-refresh so incremental models reprocess ALL rows with
             # the buggy code — otherwise value_diff sees 0 changed rows because
