@@ -127,7 +127,7 @@ If the user selects nothing (cancels), **STOP**.
 
 ## Run Flow
 
-This is the core orchestration — 12 steps that set up scenarios, run headless Claude Code, score results, and produce a report.
+This is the core orchestration — 11 steps that set up scenarios, run headless Claude Code, score results, and produce a report.
 
 ### Step 1: Read Scenario(s)
 
@@ -175,7 +175,7 @@ yq -o=json '{
 }' "<scenario-dir>/<id>.yaml"
 ```
 
-When `prompt_template` is non-null (v2), read the template file and substitute vars in Step 5. When `prompt_inline` is non-null (v1), use it directly as the prompt text.
+When `prompt_template` is non-null (v2), `run-batch.sh` uses `render-prompt.py` with template+vars. When `prompt_inline` is non-null (v1), it substitutes runtime variables directly.
 
 ### Step 1b: Clone & Bootstrap v2 Project (v2 only)
 
@@ -195,9 +195,9 @@ eval "$(bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/setup-v2-project.sh
 echo "PROJECT_DIR=$PROJECT_DIR"
 ```
 
-Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to all `run-case.sh` invocations in Step 7.
+Record `PROJECT_DIR` — pass it as `--project-dir "$PROJECT_DIR"` to `run-batch.sh` in Step 6.
 
-**Cleanup**: At the very end of the Run Flow (after Step 12), remove the temp project:
+**Cleanup**: At the very end of the Run Flow (after Step 11), remove the temp project:
 
 ```bash
 if [ -n "$WORK_DIR" ] && [[ "$WORK_DIR" == "${TMPDIR:-/tmp}"* ]]; then
@@ -263,23 +263,7 @@ echo "BATCH_DIR=$BATCH_DIR"
 
 Record `EVAL_ID` and `BATCH_DIR` for later steps. `BATCH_DIR` is always absolute and anchored to the invoking CWD, so eval output survives v2 temp project cleanup.
 
-### Step 5: Prepare Prompt
-
-Build the prompt text for each scenario, then write to a temp file.
-
-**v2 (template+vars):** Read the template file from `prompt_template` (relative to `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/`), then substitute `{variables}` with values from `prompt_vars` and runtime values (`{target}`, `{adapter_description}`).
-
-**v1 (inline prompt):** Use the `prompt_inline` string directly, substituting only runtime values (`{target}`, `{adapter_description}`).
-
-```bash
-PROMPT_FILE="/tmp/recce-eval-prompt-${EVAL_ID}-${SCENARIO_ID}.txt"
-cat > "$PROMPT_FILE" << 'PROMPT_EOF'
-<substituted prompt content here>
-PROMPT_EOF
-echo "PROMPT_FILE=$PROMPT_FILE"
-```
-
-### Step 6: Generate Eval MCP Config
+### Step 5: Generate Eval MCP Config
 
 Create a temporary MCP config JSON using **stdio** transport for Recce MCP. This avoids DuckDB lock conflicts — claude spawns the MCP server as a child process after run-case.sh setup completes, so `dbt run` in setup never competes for the database lock.
 
@@ -307,98 +291,53 @@ echo "MCP_CONFIG=/tmp/recce-eval-mcp-config.json"
 
 **Why `--strict-mcp-config`**: The `--mcp-config` flag is additive and its merge behavior with plugin `.mcp.json` for same-name keys is undocumented. Using `--strict-mcp-config` guarantees the eval config is the sole MCP source.
 
-### Step 7: Interleaved Run Loop
+### Step 6: Run Eval Batch
 
-Set `NO_BARE` based on whether the user passed `--no-bare`:
-- If `--no-bare` was passed: `NO_BARE=true` (passes `--no-bare --no-clean-profile` to `run-case.sh`, uses OAuth auth)
-- Otherwise: `NO_BARE=""` (default `--bare` mode, requires `ANTHROPIC_API_KEY`)
+Run all scenarios with both variants using `run-batch.sh`. This script encapsulates prompt rendering, the interleaved run loop, and deterministic scoring into a single background-capable command.
 
-Run each scenario with both variants in interleaved order. For N runs, the execution order is: baseline run1 → with-plugin run1 → baseline run2 → with-plugin run2 → ... This reduces systematic bias from cache warming or temporal effects.
+Build a comma-separated list of absolute scenario file paths from the scenarios parsed in Step 1. Determine the `ADAPTER_DESC` string from the adapter detected in Step 2:
 
-For each run number (1 to N), for each variant (`baseline` first, then `with-plugin`):
+| Adapter | `ADAPTER_DESC` |
+|---------|---------------|
+| duckdb | `DuckDB (local file database, target: $TARGET)` |
+| snowflake | `Snowflake (cloud data warehouse, target: $TARGET)` |
 
 ```bash
-# Create scenario output dir
-mkdir -p "$BATCH_DIR/$SCENARIO_ID"
-
-# ---- Baseline variant ----
-# --bare is default: no memory, no CLAUDE.md, pure prompt-driven evaluation
-# When user passes --no-bare: add --no-bare --no-clean-profile (uses OAuth, no API key needed)
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
-    --id "$SCENARIO_ID" \
-    --case-type "$CASE_TYPE" \
-    --variant baseline \
-    --prompt-file "$PROMPT_FILE" \
-    --setup-strategy "$SETUP_STRATEGY" \
-    --patch-file "${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/$PATCH_FILE" \
-    --restore-files "$RESTORE_FILES" \
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-batch.sh \
+    --scenarios "$SCENARIO_LIST" \
+    --batch-dir "$BATCH_DIR" \
+    --eval-id "$EVAL_ID" \
+    --skill-dir "${CLAUDE_PLUGIN_ROOT}/skills/recce-eval" \
+    --recce-plugin "$RECCE_PLUGIN_ROOT" \
     --target "$TARGET" \
-    --max-budget-usd "$MAX_BUDGET" \
-    --output-dir "$BATCH_DIR/$SCENARIO_ID" \
-    --run-number "$RUN_NUM" \
-    ${NO_BARE:+--no-bare --no-clean-profile} \
-    ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
-```
-
-Parse the KEY=VALUE output from `run-case.sh`. Record `OUTPUT_FILE`, `JSON_EXTRACTED`, `TOTAL_COST_USD`, `DURATION_MS`.
-
-Immediately score the baseline run:
-
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/score-deterministic.sh \
-    --run-file "$BATCH_DIR/$SCENARIO_ID/baseline_run${RUN_NUM}.json" \
-    --case-type "$CASE_TYPE" \
-    --ground-truth '$GROUND_TRUTH_JSON'
-```
-
-Then run the with-plugin variant:
-
-```bash
-# ---- With-plugin variant ----
-# --bare is default; --plugin-dir injects the plugin even in bare mode
-# When user passes --no-bare: add --no-bare --no-clean-profile (uses OAuth, no API key needed)
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/run-case.sh \
-    --id "$SCENARIO_ID" \
-    --case-type "$CASE_TYPE" \
-    --variant with-plugin \
-    --prompt-file "$PROMPT_FILE" \
-    --setup-strategy "$SETUP_STRATEGY" \
-    --patch-file "${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/$PATCH_FILE" \
-    --restore-files "$RESTORE_FILES" \
-    --target "$TARGET" \
-    --max-budget-usd "$MAX_BUDGET" \
-    --output-dir "$BATCH_DIR/$SCENARIO_ID" \
-    --plugin-dir "$RECCE_PLUGIN_ROOT" \
+    --adapter-desc "$ADAPTER_DESC" \
     --mcp-config /tmp/recce-eval-mcp-config.json \
-    --run-number "$RUN_NUM" \
-    ${NO_BARE:+--no-bare --no-clean-profile} \
+    -n $N \
+    ${MODEL:+--model "$MODEL"} \
+    ${NO_BARE:+--no-bare} \
     ${PROJECT_DIR:+--project-dir "$PROJECT_DIR"}
 ```
 
-Score the with-plugin run:
+Where `$SCENARIO_LIST` is a comma-separated list of absolute paths to scenario YAML files (e.g., `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2/data-001-double-tax-deduction.yaml,${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scenarios/v2/data-002-cogs-food-only.yaml,...`).
 
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/scripts/score-deterministic.sh \
-    --run-file "$BATCH_DIR/$SCENARIO_ID/with-plugin_run${RUN_NUM}.json" \
-    --case-type "$CASE_TYPE" \
-    --ground-truth '$GROUND_TRUTH_JSON'
-```
+**What `run-batch.sh` does internally:**
+1. **Renders prompts** for each scenario (v2: `render-prompt.py` with template+vars; v1: inline with variable substitution)
+2. **Runs interleaved loop**: for each run number (1 to N), for each scenario, baseline → score → with-plugin → score. This interleaving reduces systematic bias from cache warming or temporal effects.
+3. **Scores each run** immediately with `score-deterministic.sh`
+4. **Writes `batch-summary.json`** with run counts, timing, and scenario list
 
-**Important**: The `--ground-truth` value must be a valid JSON string. Extract the `ground_truth` object from the scenario YAML and pass it as a single-quoted JSON string. Example:
+**Output files** (all in `$BATCH_DIR`):
+- `<scenario-id>/baseline_run<N>.json` — per-run JSONs with deterministic scores merged in
+- `<scenario-id>/with-plugin_run<N>.json` — per-run JSONs with deterministic scores merged in
+- `batch-summary.json` — machine-readable batch metadata (succeeded/failed counts, duration, scenario list)
 
-```bash
---ground-truth '{"issue_found":true,"root_cause_keywords":["null","left join","coalesce"],"impacted_models":["orders","orders_daily_summary"],"not_impacted_models":["customers","customer_segments","customer_order_pattern"],"affected_row_count":1584,"all_tests_pass":true}'
-```
+**Running in background**: This command can be run via the Bash tool's `run_in_background` parameter for long batches. When complete, proceed to Step 7.
 
-**Handling setup.strategy**: When calling `run-case.sh`:
-- If `setup.strategy` is `git_patch`, pass `--patch-file` pointing to `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/<setup.patch_reverse_file>` and `--restore-files` as a comma-separated list from `teardown.restore_files`.
-- If `setup.strategy` is `none`, pass `--setup-strategy none`. Omit `--patch-file` and `--restore-files`.
+**Error handling**: If a single `run-case.sh` invocation fails, the batch continues to the next run. Failed runs are counted in `batch-summary.json`. The teardown trap inside `run-case.sh` handles file restoration automatically.
 
-**Error handling**: If `run-case.sh` fails (non-zero exit), log the error and continue to the next run. The teardown trap inside `run-case.sh` handles file restoration automatically. Do not add separate teardown calls here.
+**Isolation mode**: `--bare` is the default (both variants get identical isolation). `--no-bare` uses OAuth auth with no API key needed. See Isolation Modes section for details.
 
-Report progress to the user after each run completes: "Run {N} {variant} complete: cost=${cost}, duration=${duration}s, json_extracted={yes/no}".
-
-### Step 8: Dispatch LLM Judge
+### Step 7: Dispatch LLM Judge
 
 Use the Agent tool to dispatch `recce-dev:eval-judge` with a prompt that includes all the information the judge needs. Group runs by scenario so the judge can compare variants:
 
@@ -426,7 +365,7 @@ If running multiple scenarios, dispatch the judge once per scenario (not once pe
 
 **Error handling**: If the judge agent fails or returns invalid JSON, continue without judge scores. The report will note "LLM judge: unavailable" for affected runs.
 
-### Step 9: Merge Judge Scores
+### Step 8: Merge Judge Scores
 
 Parse the judge's JSON output. For each run entry in the judge's `runs` array, read the corresponding per-run JSON file and merge `scores.llm_judge` into it:
 
@@ -453,7 +392,7 @@ The judge returns scores per run in the format:
 
 Write `comparison_notes` to each run's `scores.llm_judge.comparison_notes` as well.
 
-### Step 10: Write meta.json
+### Step 9: Write meta.json
 
 Write batch metadata to the batch directory:
 
@@ -476,7 +415,7 @@ EOF
 
 Where `$SCENARIOS_JSON_ARRAY` is a JSON array of scenario IDs (e.g., `["data-001-double-tax-deduction", "data-002-cogs-food-only"]`), and `$CLAUDE_MODEL` is from `--model` flag or the current session's model.
 
-### Step 11: Generate Report
+### Step 10: Generate Report
 
 Read all per-run JSONs in the batch directory (now containing both deterministic and judge scores). Follow the structure defined in `${CLAUDE_PLUGIN_ROOT}/skills/recce-eval/references/report-template.md`.
 
@@ -498,7 +437,7 @@ The report includes:
 4. **Detailed Scores** with per-run deterministic checks and judge scores
 5. **Cross-Eval Comparison** with historical deltas (if available)
 
-### Step 12: Update History and Print Summary
+### Step 11: Update History and Print Summary
 
 Append a summary entry to `.claude/recce-eval/history.json`:
 
@@ -603,27 +542,27 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 ## Common Mistakes
 
-- **Shell variables do not persist**: Each Bash tool invocation starts a fresh shell. Re-derive `EVAL_ID`, `BATCH_DIR`, `TARGET`, `ADAPTER`, `RECCE_PLUGIN_ROOT`, and other state in every Bash block that needs them. Do not assume a previous Bash call's variables are available.
+- **Shell variables do not persist**: Each Bash tool invocation starts a fresh shell. Re-derive `EVAL_ID`, `BATCH_DIR`, `TARGET`, `ADAPTER`, `RECCE_PLUGIN_ROOT`, and other state in every Bash block that needs them. Do not assume a previous Bash call's variables are available. Note: `run-batch.sh` eliminates this problem for the run loop (Step 6), but Steps 1-4 and 7-11 still run as separate Bash calls.
 
 - **Forgetting `eval`**: Running `bash resolve-recce-root.sh` without `eval "$(...)"` does not set `RECCE_PLUGIN_ROOT` in the current shell.
 
 - **Platform-specific `md5`**: macOS uses `md5`, Linux uses `md5sum`. The eval scripts handle both — do not simplify to one.
 
-- **MCP config uses `--strict-mcp-config`**: The eval config must be the sole MCP source. `run-case.sh` passes `--strict-mcp-config --mcp-config` so the eval port is guaranteed. The eval config in Step 6 must include both `recce` (eval port) and `recce-docs` (from `$RECCE_PLUGIN_ROOT`).
+- **MCP config uses `--strict-mcp-config`**: The eval config must be the sole MCP source. `run-case.sh` passes `--strict-mcp-config --mcp-config` so the eval port is guaranteed. The eval config in Step 5 must include both `recce` (eval port) and `recce-docs` (from `$RECCE_PLUGIN_ROOT`).
 
 - **`--mcp-config` is variadic**: `--mcp-config <configs...>` consumes subsequent positional arguments. The `--` separator before the prompt in `run-case.sh` prevents the prompt from being parsed as a config argument. Do not remove it.
 
-- **Interleaved order matters**: Run baseline then with-plugin for the same run number before moving to the next run number. Do not group all baselines then all with-plugins — this introduces systematic bias.
+- **Interleaved order matters**: `run-batch.sh` handles this automatically — baseline then with-plugin for each run number. If running manually without `run-batch.sh`, do not group all baselines then all with-plugins — this introduces systematic bias.
 
-- **Teardown is trap-based in run-case.sh**: The script restores files even if `claude -p` fails. Do not add separate teardown calls in the SKILL.md orchestration.
+- **Teardown is trap-based in run-case.sh**: The script restores files even if `claude -p` fails. Do not add separate teardown calls in the orchestration.
 
-- **Ground truth as JSON string**: When passing `--ground-truth` to `score-deterministic.sh`, the value must be a valid JSON string. Use single quotes around the entire JSON value in bash to prevent shell expansion.
+- **Ground truth as JSON string**: `run-batch.sh` handles this automatically via `yq -o=json | jq -c`. If running `score-deterministic.sh` manually, the `--ground-truth` value must be a valid JSON string.
 
 - **Adapter detection uses `yq`**: Do not use grep to parse profiles.yml. The target's adapter type depends on the nested YAML structure which requires proper YAML parsing.
 
 - **stdio MCP needs no lifecycle management**: With stdio transport, claude spawns/kills the MCP server automatically. No `start-eval-mcp.sh` / `stop-eval-mcp.sh` calls needed. The `start-eval-mcp.sh` and `stop-eval-mcp.sh` scripts are retained for SSE mode fallback only.
 
-- **Prompt file per scenario**: When running `--all`, create a separate prompt file for each scenario (use `${EVAL_ID}-${SCENARIO_ID}` in the filename) since each scenario has a different prompt.
+- **Prompt file per scenario**: `run-batch.sh` handles this automatically (naming: `/tmp/recce-eval-prompt-${EVAL_ID}-${SCENARIO_ID}.txt`). If running manually, create a separate prompt file for each scenario.
 
 - **v2 project cleanup**: When `--version v2`, clean up `WORK_DIR` at the end of the Run Flow. Always guard with a `$TMPDIR` prefix check before `rm -rf` to avoid accidental deletion outside temp.
 
@@ -637,9 +576,10 @@ bash run-case.sh --id ch3-phantom-filter --variant with-plugin \
 
 ### Scripts
 
+- **`scripts/run-batch.sh`** — Batch eval runner: renders prompts, runs interleaved loop (baseline→score→with-plugin→score per run per scenario), writes `batch-summary.json`. Background-capable. Encapsulates Steps 5-7 from the original orchestration.
 - **`scripts/list-scenarios.sh`** — List scenarios for a version. Single `yq eval-all` call. Outputs pipe-delimited rows.
-- **`scripts/run-case.sh`** — Atomic runner: setup state, invoke `claude -p`, capture output, teardown, write per-run JSON. Outputs KEY=VALUE lines.
-- **`scripts/score-deterministic.sh`** — jq-based scoring against ground truth. Reads and updates per-run JSON in-place. Outputs KEY=VALUE lines.
+- **`scripts/run-case.sh`** — Atomic runner: setup state, invoke `claude -p`, capture output, teardown, write per-run JSON. Outputs KEY=VALUE lines. Called by `run-batch.sh`.
+- **`scripts/score-deterministic.sh`** — jq-based scoring against ground truth. Reads and updates per-run JSON in-place. Outputs KEY=VALUE lines. Called by `run-batch.sh`.
 - **`scripts/setup-v2-project.sh`** — Clone a dbt project repo to a temp dir and bootstrap (venv, dbt deps, seed). Used by v2 scenarios only. Outputs `PROJECT_DIR=<path>` and `WORK_DIR=<path>`.
 - **`scripts/start-eval-mcp.sh`** — Start Recce MCP server on eval-specific port (default 8085). Retained for SSE mode fallback only.
 - **`scripts/stop-eval-mcp.sh`** — Stop eval MCP server. Retained for SSE mode fallback only.
