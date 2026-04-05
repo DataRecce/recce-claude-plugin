@@ -186,6 +186,19 @@ if [ "$DRY_RUN" = "false" ] && [ "$SKIP_SETUP" = "false" ]; then
             # With-plugin gets both prod (clean) and dev (buggy) schemas so
             # Recce MCP tools (value_diff, profile_diff) can compare data.
             BASE_TARGET="prod"
+            if [ "$VARIANT" = "baseline" ]; then
+                # Drop stale prod schema from prior with-plugin runs.
+                # In batch mode, interleaved execution (baseline → with-plugin
+                # per scenario) leaves prod schema in the shared DuckDB file.
+                # Without this cleanup, baseline gets a free comparison target.
+                python3 -c "
+import os, duckdb
+db_path = os.environ.get('JAFFLE_SHOP_DB_PATH', 'data/jaffel-shop.duckdb')
+db = duckdb.connect(db_path)
+db.execute('DROP SCHEMA IF EXISTS prod CASCADE')
+db.close()
+" 2>/dev/null || true
+            fi
             if [ "$VARIANT" = "with-plugin" ]; then
                 dbt run --target "$BASE_TARGET" --full-refresh --quiet
                 dbt docs generate --target-path target-base --target "$BASE_TARGET" --quiet 2>/dev/null || true
