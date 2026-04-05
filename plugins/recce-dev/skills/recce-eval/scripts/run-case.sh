@@ -208,9 +208,18 @@ db.close()
             # the buggy code — otherwise value_diff sees 0 changed rows because
             # the stored data was computed before the patch was applied.
             # Try --3way first (handles whitespace mismatches), fall back to
-            # plain apply for patches that create new files (no base in index).
-            git apply --reverse --3way "$PATCH_FILE" 2>/dev/null \
-                || git apply --reverse "$PATCH_FILE"
+            # plain apply only for patches that create new files (no base in index).
+            GIT_APPLY_STDERR=$(mktemp)
+            if git apply --reverse --3way "$PATCH_FILE" 2>"$GIT_APPLY_STDERR"; then
+                rm -f "$GIT_APPLY_STDERR"
+            elif grep -q "does not exist in index" "$GIT_APPLY_STDERR"; then
+                rm -f "$GIT_APPLY_STDERR"
+                git apply --reverse "$PATCH_FILE"
+            else
+                cat "$GIT_APPLY_STDERR" >&2
+                rm -f "$GIT_APPLY_STDERR"
+                exit 1
+            fi
             dbt run --target "$TARGET" --full-refresh --quiet
             dbt docs generate --target "$TARGET" --quiet 2>/dev/null || true
             # Run dbt test BEFORE MCP starts (avoids DuckDB lock conflict).

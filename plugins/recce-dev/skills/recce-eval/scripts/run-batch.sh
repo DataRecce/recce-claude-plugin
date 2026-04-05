@@ -71,12 +71,16 @@ for cmd in yq jq python3; do
     fi
 done
 
-IFS=',' read -ra SCENARIO_FILES <<< "$SCENARIOS"
-for f in "${SCENARIO_FILES[@]}"; do
+IFS=',' read -ra SCENARIO_FILES_RAW <<< "$SCENARIOS"
+SCENARIO_FILES=()
+for f in "${SCENARIO_FILES_RAW[@]}"; do
+    f="${f#"${f%%[![:space:]]*}"}"  # trim leading whitespace
+    f="${f%"${f##*[![:space:]]}"}"  # trim trailing whitespace
     if [ ! -f "$f" ]; then
         echo "ERROR: Scenario file not found: $f" >&2
         exit 1
     fi
+    SCENARIO_FILES+=("$f")
 done
 
 mkdir -p "$BATCH_DIR"
