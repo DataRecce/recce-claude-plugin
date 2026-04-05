@@ -237,6 +237,104 @@ where subtotal > 0
 
 ---
 
+## data-007: Supply Cost Breakdown — Hidden Fan-out Cascade
+
+**GitHub Issue**: [#4 — Add Supply Cost Analysis and Perishable Inventory Tracking](https://github.com/DataRecce/jaffle-shop-simulator/issues/4)
+
+**Story**: Purchasing Manager requests perishable vs non-perishable supply cost breakdown per order item. A teammate modifies the `order_supplies_summary` CTE in `order_items.sql` to add `is_perishable_supply` to the GROUP BY.
+
+**Init state (buggy PR)**:
+```sql
+-- order_items.sql — order_supplies_summary CTE
+select
+    product_id,
+    is_perishable_supply,
+    sum(supply_cost) as supply_cost
+from supplies
+group by 1, 2
+```
+
+**The bug**: Adding `is_perishable_supply` to GROUP BY changes the grain from 1 row/product to 2 rows/product (perishable + non-perishable). The downstream `LEFT JOIN` fans out every order_item into 2 rows. This cascades:
+- `order_items`: row count approximately doubles
+- `orders.order_cost`: UNCHANGED (sum of split costs = original total)
+- `orders.count_order_items`: DOUBLED
+- `orders.count_food_items`: DOUBLED (dashboard column!)
+- `orders.count_drink_items`: DOUBLED (dashboard column!)
+- `orders.order_items_subtotal`: DOUBLED (sum of duplicated product_price)
+- `customers`: UNCHANGED (uses order-level columns, not order_items)
+
+**What we expect the agent to find**:
+- Issue found: **yes** — data drift
+- Root cause: grain change in order_supplies_summary fans out the join
+- Impacted: `order_items`, `orders`
+- Not impacted: `stg_orders`, `customers`, `products`, `supplies`
+- Dashboard impact: **yes** (count_food_items, count_drink_items doubled)
+- Detection requires: **data comparison**
+
+**Difficulty**: hard — the grain change looks innocent (adding a dimension), but cascades through orders into dashboard columns
+
+---
+
+## data-008: Numeric Precision Refactor — Zero-Change False Positive Trap
+
+**GitHub Issue**: [#2 — Add Tax Summary Report and Cost Accounting Breakdown](https://github.com/DataRecce/jaffle-shop-simulator/issues/2)
+
+**Story**: Data Engineer wraps all three `cents_to_dollars()` calls in `stg_orders.sql` with `round(..., 2)` for "defensive precision."
+
+**Init state (buggy PR)**:
+```sql
+-- stg_orders.sql
+round({{ cents_to_dollars('subtotal') }}, 2) as subtotal,
+round({{ cents_to_dollars('tax_paid') }}, 2) as tax_paid,
+round({{ cents_to_dollars('order_total') }}, 2) as order_total,
+```
+
+**The bug**: There is NO bug. The `cents_to_dollars` macro already casts to `numeric(16, 2)`. Applying `round(x, 2)` to a value that is already `numeric(16, 2)` is a complete no-op — zero rows change, zero values change across the entire DAG.
+
+**What we expect the agent to find**:
+- Issue found: **no** — the change is a no-op
+- Root cause: round() on already-rounded numeric is redundant
+- Impacted: none
+- Not impacted: `stg_orders`, `orders`, `customers`, `order_items`, `products`
+- Dashboard impact: **no**
+- Detection requires: **data comparison** (to confirm zero change, not just code reasoning)
+
+**Difficulty**: medium — the agent must resist the trap of reporting impact based on DAG reasoning alone (stg_orders is root → everything downstream "could" be affected)
+
+---
+
+## data-009: Date Truncation Change — Month Grain Collapses Daily Timeline
+
+**GitHub Issue**: [#9 — Optimize Date Granularity for Monthly Reporting](https://github.com/DataRecce/jaffle-shop-simulator/issues/9)
+
+**Story**: Analytics Engineer changes `date_trunc` in `stg_orders.sql` from `'day'` to `'month'` to "reduce cardinality and improve query performance."
+
+**Init state (buggy PR)**:
+```sql
+-- stg_orders.sql
+{{ dbt.date_trunc('month','ordered_at') }} as ordered_at
+```
+
+**The bug**: `ordered_at` loses daily granularity — all orders in the same month collapse to the 1st of the month. This propagates through the entire DAG:
+- `orders.ordered_at` — month-level (dashboard column!)
+- `orders.customer_order_number` — ROW_NUMBER by month becomes non-deterministic
+- `order_items.ordered_at` — month-level
+- `customers.first_ordered_at` / `last_ordered_at` — month-level only
+
+Financial columns (subtotal, tax_paid, order_total) are completely unchanged. Row counts are identical — impact is purely value-level on date columns.
+
+**What we expect the agent to find**:
+- Issue found: **yes** — data drift
+- Root cause: date_trunc changed from day to month, collapsing daily granularity
+- Impacted: `stg_orders`, `orders`, `order_items`, `customers`
+- Not impacted: `products`, `supplies`, `locations`
+- Dashboard impact: **yes** (ordered_at is a dashboard column)
+- Detection requires: **data comparison**
+
+**Difficulty**: medium — the agent must correctly scope impact to date columns only and avoid false positives on financial metrics
+
+---
+
 ## Summary Matrix
 
 | ID | Bug Type | Modified/New | Difficulty | Detection | Dashboard? | Affected Rows |
@@ -247,4 +345,7 @@ where subtotal > 0
 | data-004 | Count ratio vs cost ratio | New `supply_analysis` | medium | data comparison | no | all rows |
 | data-005 | current_date on historical data | New `customer_segments` | easy | data comparison | no | all rows |
 | data-006 | Tax instead of COGS in formula | New `financial_orders` | easy | data comparison | no | all rows |
+| data-007 | Grain fan-out cascades to dashboard | Modified `order_items` | hard | data comparison | yes | all rows (doubled) |
+| data-008 | No-op precision change (false positive trap) | Modified `stg_orders` | medium | data comparison | no | 0 |
+| data-009 | Date grain collapse (day→month) | Modified `stg_orders` | medium | data comparison | yes | 658,657 |
 | code-001 | Wrong filter column (spec deviation) | Modified `stg_orders` | hard | code review | no | 4,155 |

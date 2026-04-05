@@ -1,0 +1,69 @@
+id: data-008-precision-noop
+name: "Numeric Precision Refactor — Zero-Change False Positive Trap"
+description: "stg_orders wraps cents_to_dollars with round(x, 2) — macro already outputs numeric(16,2) so data is identical, but code diff touches root staging model"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/2
+layer: review
+difficulty: medium
+stakeholder: data-engineering
+case_type: no_problem
+
+story: |
+  A Data Engineer noticed that the `cents_to_dollars` macro returns `::numeric(16, 2)` but
+  wanted to make the precision "explicit and defensive" by wrapping all three money columns
+  in `stg_orders.sql` with `round(..., 2)`.
+
+  The PR description says: "Add explicit rounding to money columns for precision safety —
+  ensures no floating point drift in downstream aggregations."
+
+  The change modifies `stg_orders.sql`, which is the ROOT staging model feeding into
+  `orders`, `customers`, and every downstream mart. A code-only reviewer seeing a change
+  to the root financial staging model would reasonably flag this as high-risk and report
+  potential impact on all downstream models.
+
+  However, `cents_to_dollars` already casts to `numeric(16, 2)`. Applying `round(x, 2)` to
+  a value that is already `numeric(16, 2)` is a complete no-op — zero rows change, zero
+  values change, zero downstream impact. The correct assessment is: no issue found.
+
+  This scenario tests whether the agent can use data comparison to CONFIRM safety rather
+  than relying on DAG reasoning alone (which would produce false positives).
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-008-precision-noop.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Data Engineer (P3)"
+    stakeholder_request: "Add explicit rounding to money columns in stg_orders for precision safety"
+    pr_description: "Wrap cents_to_dollars output with round(x, 2) in stg_orders — defensive precision for downstream financial aggregations"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: false
+  issue_type: no_issue
+  root_cause_keywords: ["no-op", "round", "numeric", "precision", "already", "identical", "no change", "zero"]
+  impacted_models: []
+  not_impacted_models: ["stg_orders", "orders", "customers", "order_items", "products"]
+  dashboard_impact: false
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent verifies through DATA comparison that all downstream models have zero value changes"
+  - "Agent recognizes that round(numeric(16,2), 2) is a no-op — the macro already handles precision"
+  - "Agent does NOT report false positives on orders, customers, or other downstream models"
+  - "Agent correctly concludes issue_found: false — no data impact despite code change to root model"
+  - "Agent correctly identifies dashboard_impact as false"
+  - "Agent avoids the trap of DAG-based reasoning alone (stg_orders is root → everything must be impacted)"
+
+teardown:
+  restore_files: ["models/staging/stg_orders.sql"]

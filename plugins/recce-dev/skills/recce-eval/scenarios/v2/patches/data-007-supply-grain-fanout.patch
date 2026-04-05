@@ -1,0 +1,26 @@
+diff --git a/models/marts/order_items.sql b/models/marts/order_items.sql
+--- a/models/marts/order_items.sql
++++ b/models/marts/order_items.sql
+@@ -29,13 +29,12 @@
+
+     select
+         product_id,
+-        is_perishable_supply,
+
+         sum(supply_cost) as supply_cost
+
+     from supplies
+
+-    group by 1, 2
++    group by 1
+
+ ),
+
+@@ -51,7 +50,6 @@
+         products.is_food_item,
+         products.is_drink_item,
+
+-        order_supplies_summary.is_perishable_supply,
+         order_supplies_summary.supply_cost
+
+     from order_items
