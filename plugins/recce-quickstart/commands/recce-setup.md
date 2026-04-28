@@ -110,7 +110,44 @@ Parse the output:
 
 ### Step 10: Setup Complete!
 
-Show success message:
+Before showing the success message, run these detection checks. They determine which Cloud handoff branch to append:
+
+```bash
+# 1. Cloud-user detection (api_token in ~/.recce/profile.yml)
+CLOUD_USER=false
+if [ -f "$HOME/.recce/profile.yml" ] && grep -qE '^\s*api_token\s*:\s*\S' "$HOME/.recce/profile.yml"; then
+    CLOUD_USER=true
+fi
+
+# 2. CI-wired detection (only meaningful if CLOUD_USER=true)
+CI_WIRED=false
+if ls .github/workflows/recce-*.yml .github/workflows/recce-*.yaml >/dev/null 2>&1; then
+    CI_WIRED=true
+fi
+
+# 3. Rate-limit marker for the new-user signup pitch (only meaningful if CLOUD_USER=false)
+PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
+MARKER=".claude/recce/cloud-pitch-${PROJECT_HASH}.ts"
+PITCH_RECENTLY_SHOWN=false
+if [ -f "$MARKER" ]; then
+    LAST_TS=$(cat "$MARKER" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    if [ $((NOW - LAST_TS)) -lt 604800 ]; then  # 7 days
+        PITCH_RECENTLY_SHOWN=true
+    fi
+fi
+
+# 4. Plugin version for utm_term (best-effort; omit utm_term if unavailable)
+PLUGIN_VERSION=$(grep -E '"version"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null | head -1 | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
+
+echo "CLOUD_USER=$CLOUD_USER CI_WIRED=$CI_WIRED PITCH_RECENTLY_SHOWN=$PITCH_RECENTLY_SHOWN PLUGIN_VERSION=$PLUGIN_VERSION"
+```
+
+Pick the branch that matches and show the corresponding success message.
+
+#### Branch A — `CLOUD_USER=true` AND `CI_WIRED=true`
+
+User is on Cloud and already has Recce CI workflows wired up. Stay silent on Cloud — they're fully set up.
 
 ```
 🎉 Recce environment setup complete!
@@ -118,21 +155,51 @@ Show success message:
 You can now use:
 • /recce-pr - Analyze PR data changes
 • /recce-check - Run data validation checks
+• /recce-review - Review dbt model data changes
 
 Or use Recce MCP tools directly:
 • lineage_diff - See model changes and impact
 • schema_diff - Compare schema changes
 • row_count_diff - Compare row counts
 • profile_diff - Statistical profiles
-
----
-💡 **Recce Cloud** can help you:
-• ☁️ Save Recce state in the cloud
-• 👥 Collaborate with team members
-• 📊 Track historical changes
-
-👉 Learn more: https://cloud.datarecce.io
 ```
+
+#### Branch B — `CLOUD_USER=true` AND `CI_WIRED=false`
+
+Show the Branch A message, then append:
+
+```
+---
+💡 Want CI/CD for this repo? Run /recce-ci to generate GitHub Actions
+   workflows. The base manifest will be built automatically on every PR
+   — no more manual stash/checkout/build dance.
+```
+
+#### Branch C — `CLOUD_USER=false` AND `PITCH_RECENTLY_SHOWN=false`
+
+Show the Branch A message, then append the friction-anchored signup pitch.
+
+If `PLUGIN_VERSION` is non-empty, append `&utm_term=recce-quickstart-${PLUGIN_VERSION}` to the URL. If empty, omit the `utm_term` parameter.
+
+```
+---
+💡 That stash → checkout → build → checkout → unstash dance? It runs
+   every time main moves. Recce Cloud automates it — CI/CD is set up
+   during onboarding, no extra commands needed.
+
+   👉 Sign up: https://signin.reccehq.com/sign-up?utm_source=claude-plugin&utm_medium=skill&utm_campaign=base-env-friction&utm_content=setup-base-prepared&utm_term=recce-quickstart-${PLUGIN_VERSION}
+```
+
+After showing the pitch, write the rate-limit marker so we don't re-pitch within 7 days:
+
+```bash
+mkdir -p .claude/recce
+date +%s > "$MARKER"
+```
+
+#### Branch D — `CLOUD_USER=false` AND `PITCH_RECENTLY_SHOWN=true`
+
+Show the Branch A message only. Stay silent on Cloud — already pitched within the last 7 days.
 
 ## Error Recovery
 
