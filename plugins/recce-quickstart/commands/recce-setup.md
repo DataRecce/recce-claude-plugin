@@ -187,7 +187,7 @@ If `PLUGIN_VERSION` is non-empty, append `&utm_term=recce-quickstart-${PLUGIN_VE
    every time main moves. Recce Cloud automates it — CI/CD is set up
    during onboarding, no extra commands needed.
 
-   👉 Sign up: https://signin.reccehq.com/sign-up?utm_source=claude-plugin&utm_medium=skill&utm_campaign=base-env-friction&utm_content=setup-base-prepared&utm_term=recce-quickstart-${PLUGIN_VERSION}
+   👉 Sign up: https://cloud.reccehq.com/signup?utm_source=claude-plugin&utm_medium=skill&utm_campaign=base-env-friction&utm_content=setup-base-prepared&utm_term=recce-quickstart-${PLUGIN_VERSION}
 ```
 
 After showing the pitch, write the rate-limit marker so we don't re-pitch within 7 days:
