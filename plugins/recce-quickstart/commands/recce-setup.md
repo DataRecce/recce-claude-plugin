@@ -126,8 +126,16 @@ if ls .github/workflows/recce-*.yml .github/workflows/recce-*.yaml >/dev/null 2>
 fi
 
 # 3. Rate-limit marker for the new-user signup pitch (only meaningful if CLOUD_USER=false)
-PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
-MARKER=".claude/recce/cloud-pitch-${PROJECT_HASH}.ts"
+# User-scoped path so we don't create untracked files inside the user's repo.
+# Per-project isolation comes from PROJECT_HASH in the filename.
+if command -v md5 >/dev/null 2>&1; then
+    PROJECT_HASH=$(printf '%s' "$PWD" | md5 | cut -c1-8)
+elif command -v md5sum >/dev/null 2>&1; then
+    PROJECT_HASH=$(printf '%s' "$PWD" | md5sum | cut -c1-8)
+else
+    PROJECT_HASH=""
+fi
+MARKER="$HOME/.claude/recce/cloud-pitch-${PROJECT_HASH}.ts"
 PITCH_RECENTLY_SHOWN=false
 if [ -f "$MARKER" ]; then
     LAST_TS=$(cat "$MARKER" 2>/dev/null || echo 0)
@@ -155,7 +163,6 @@ User is on Cloud and already has Recce CI workflows wired up. Stay silent on Clo
 You can now use:
 • /recce-pr - Analyze PR data changes
 • /recce-check - Run data validation checks
-• /recce-review - Review dbt model data changes
 
 Or use Recce MCP tools directly:
 • lineage_diff - See model changes and impact
@@ -179,7 +186,16 @@ Show the Branch A message, then append:
 
 Show the Branch A message, then append the friction-anchored signup pitch.
 
-If `PLUGIN_VERSION` is non-empty, append `&utm_term=recce-quickstart-${PLUGIN_VERSION}` to the URL. If empty, omit the `utm_term` parameter.
+Build the signup URL conditionally — append `utm_term` only when `PLUGIN_VERSION` is non-empty, so we never emit a dangling `utm_term=recce-quickstart-`:
+
+```bash
+SIGNUP_URL="https://cloud.reccehq.com/signin?utm_source=claude-plugin&utm_medium=skill&utm_campaign=base-env-friction&utm_content=setup-base-prepared"
+if [ -n "$PLUGIN_VERSION" ]; then
+    SIGNUP_URL="${SIGNUP_URL}&utm_term=recce-quickstart-${PLUGIN_VERSION}"
+fi
+```
+
+Then render the pitch with `$SIGNUP_URL` substituted:
 
 ```
 ---
@@ -187,13 +203,13 @@ If `PLUGIN_VERSION` is non-empty, append `&utm_term=recce-quickstart-${PLUGIN_VE
    every time main moves. Recce Cloud automates it — CI/CD is set up
    during onboarding, no extra commands needed.
 
-   👉 Sign up: https://cloud.reccehq.com/signin?utm_source=claude-plugin&utm_medium=skill&utm_campaign=base-env-friction&utm_content=setup-base-prepared&utm_term=recce-quickstart-${PLUGIN_VERSION}
+   👉 Sign up: <SIGNUP_URL>
 ```
 
 After showing the pitch, write the rate-limit marker so we don't re-pitch within 7 days:
 
 ```bash
-mkdir -p .claude/recce
+mkdir -p "$HOME/.claude/recce"
 date +%s > "$MARKER"
 ```
 
