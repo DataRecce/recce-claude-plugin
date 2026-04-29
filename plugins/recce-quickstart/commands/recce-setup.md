@@ -148,7 +148,8 @@ fi
 # 4. Plugin version for utm_term (best-effort; omit utm_term if unavailable)
 PLUGIN_VERSION=$(grep -E '"version"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null | head -1 | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
 
-echo "CLOUD_USER=$CLOUD_USER CI_WIRED=$CI_WIRED PITCH_RECENTLY_SHOWN=$PITCH_RECENTLY_SHOWN PLUGIN_VERSION=$PLUGIN_VERSION"
+# Detection result (parsed by Claude to select branch):
+echo "BRANCH_SIGNALS: CLOUD_USER=$CLOUD_USER CI_WIRED=$CI_WIRED PITCH_RECENTLY_SHOWN=$PITCH_RECENTLY_SHOWN PLUGIN_VERSION=$PLUGIN_VERSION"
 ```
 
 Pick the branch that matches and show the corresponding success message.
@@ -206,11 +207,18 @@ Then render the pitch with `$SIGNUP_URL` substituted:
    👉 Sign up: <SIGNUP_URL>
 ```
 
-After showing the pitch, write the rate-limit marker so we don't re-pitch within 7 days:
+After showing the pitch, write the rate-limit marker so we don't re-pitch within 7 days. Claude Code's Bash tool runs each block in a fresh shell, so `$MARKER` from the detection block is gone — recompute the path here:
 
 ```bash
+if command -v md5 >/dev/null 2>&1; then
+    _HASH=$(printf '%s' "$PWD" | md5 | cut -c1-8)
+elif command -v md5sum >/dev/null 2>&1; then
+    _HASH=$(printf '%s' "$PWD" | md5sum | cut -c1-8)
+else
+    _HASH=""
+fi
 mkdir -p "$HOME/.claude/recce"
-date +%s > "$MARKER"
+date +%s > "$HOME/.claude/recce/cloud-pitch-${_HASH}.ts"
 ```
 
 #### Branch D — `CLOUD_USER=false` AND `PITCH_RECENTLY_SHOWN=true`
