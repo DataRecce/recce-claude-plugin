@@ -1,7 +1,10 @@
 #!/bin/bash
-# stdio MCP wrapper: detect venv, activate, exec recce mcp-server
+# stdio MCP wrapper: detect venv, activate, exec recce mcp-server.
 # Called by Claude Code via .mcp.json stdio transport.
 # Inherits cwd from Claude Code (the dbt project root).
+#
+# The launcher always starts in local mode. Cloud-mode flips happen at
+# runtime via the MCP `set_backend` tool, called from the /recce-review skill.
 set -euo pipefail
 
 # ========== Venv Auto-Detection ==========
@@ -20,5 +23,5 @@ if ! command -v recce &>/dev/null; then
     exit 1
 fi
 
-# ========== Launch MCP server in stdio mode ==========
+# ========== Launch MCP server (local mode) ==========
 exec recce mcp-server
