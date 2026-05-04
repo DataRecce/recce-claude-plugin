@@ -8,7 +8,7 @@ The recce plugin automatically tracks dbt model file changes and triggers progre
 
 ## Components
 
-- **Skill:** `/recce-review` — triggers the data review workflow; dispatches the recce-reviewer agent with tracked model context. Also resolves a Recce Cloud session ID from a GitHub PR and guides relaunching MCP in cloud mode when invoked with a PR URL.
+- **Skill:** `/recce-review` — triggers the data review workflow; dispatches the recce-reviewer agent with tracked model context. Also accepts a GitHub PR URL, GitLab MR URL (incl. self-hosted), Recce Cloud session/launch URL, or bare session UUID, and flips the running MCP server into cloud mode in-session via `set_backend` — no restart, no `/mcp` reconnect.
 - **Agent:** `recce-reviewer` — runs progressive diff analysis (lineage, row count, schema) and produces a risk-assessed summary
 - **Hooks:**
   - `SessionStart` — detects dbt project environment and starts the Recce MCP server if prerequisites are met
@@ -45,8 +45,13 @@ running server via the `set_backend` MCP tool — no reconnect, no restart.
 
 ### Workflow
 
-1. In Claude Code, run `/recce-review <PR_URL>` (or `/recce-review` and paste the URL when prompted).
-2. The skill scans the PR comments via `gh` for a `cloud.reccehq.com/sessions/<id>` link (falls back to prompting), and checks for Recce Cloud credentials in `~/.recce/profile.yml` (`api_token`) or `$RECCE_API_TOKEN`. If neither is present, it instructs you to run `recce connect-to-cloud` (browser-based OAuth that writes the token back to `~/.recce/profile.yml`).
+1. In Claude Code, run `/recce-review <URL_OR_UUID>` (or `/recce-review` and paste the URL when prompted). Accepted inputs:
+   - **GitHub PR URL** or PR number — `gh` CLI fetches comments
+   - **GitLab MR URL** (incl. self-hosted) — `glab` CLI **or** `GITLAB_TOKEN` env var
+   - **Recce Cloud session URL** — `<host>/sessions/<UUID>` (any host: `cloud.reccehq.com`, `staging.cloud.reccehq.com`, `localhost:3000`, etc.)
+   - **Recce Cloud launch URL** — `<host>/launch/<UUID>` (same host flexibility)
+   - **Bare session UUID**
+2. For PR/MR inputs, the skill scans comments for a `<host>/(sessions|launch)/<UUID>` link (falls back to prompting if none found). For Cloud URL or bare-UUID inputs, the session ID is used directly. The skill then checks for Recce Cloud credentials in `~/.recce/profile.yml` (`api_token`) or `$RECCE_API_TOKEN`. If neither is present, it offers to run `recce connect-to-cloud` inline (browser-based OAuth that writes the token back to `~/.recce/profile.yml`); on decline or timeout it falls back to manual instructions.
 3. The skill calls `set_backend(mode="cloud", session_id=<id>)` on the running `recce` MCP server, verifies via `get_server_info`, and continues straight into the review. Metadata tools (lineage / schema / model / select / cll) work immediately. Data-path tools (row count, profile, value diff, query, etc.) may return HTTP 405 for ~30 seconds on a cold session — the reviewer agent retries 405 up to 5×10 s before giving up, so cold-start latency is absorbed transparently in most cases.
 4. To return to local mode: `/recce-review local` (the skill calls `set_backend(mode="local", project_dir=<cwd>)`).
 
@@ -63,5 +68,5 @@ running server via the `set_backend` MCP tool — no reconnect, no restart.
 - **Browser callback hangs in `recce connect-to-cloud`** — the command spins up a short-lived loopback HTTP server on a random port to receive the OAuth callback. Make sure your firewall allows loopback connections and that the browser is on this machine. If you are SSH'd into a remote box, run `recce connect-to-cloud` locally and copy `~/.recce/profile.yml` over, or set `RECCE_API_TOKEN` directly on the remote.
 - **Spawning / not connected** — if `/mcp` shows `recce` as failed at startup, the local-mode launch is broken (typically missing venv or `target/manifest.json`). Fix the local boot first; cloud flips happen on top of an already-connected server.
 - **Cloud instance still warming up (HTTP 405 on diff tools)** — Recce Cloud spins the instance for a session on demand; the first data-path call after a flip can take 10–30 seconds. Metadata tools (`lineage_diff`, `schema_diff`, `get_model`, `get_cll`, `select_nodes`) are unaffected — they are served from artifacts and return immediately. Data-path tools (row count, profile, value diff, query, etc.) return 405 until the instance is ready; the reviewer agent retries 405 transparently for up to ~40 seconds. If it gives up, wait ~30 seconds and re-run `/recce-review` (without the PR URL — the cloud flip is already in effect). Persistent warm-up failures usually mean the session itself is stuck; check it at `https://cloud.reccehq.com/sessions/<SESSION_ID>`.
-- **PR comment parse failure** — the skill could not find a `cloud.reccehq.com/sessions/<uuid>` link in the PR comments. Ask the PR author to push artifacts to Recce Cloud, or share the session UUID directly so you can paste it into the skill prompt.
+- **PR/MR comment parse failure** — the skill could not find a `<host>/(sessions|launch)/<UUID>` link in the PR/MR comments. Ask the PR author to push artifacts to Recce Cloud, or share the session UUID (or full session/launch URL) directly so you can paste it into the skill prompt.
 - **Stuck in cloud mode** — call `mcp__plugin_recce_recce__set_backend(mode="local", project_dir="<cwd>")` directly (or run `/recce-review local`) to flip back. No reconnect required.
