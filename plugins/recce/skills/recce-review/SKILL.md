@@ -272,13 +272,16 @@ Check if the agent's output contains `## Data Review Summary`.
 
 **If YES** (successful review):
 
-Run:
+The cleanup is **mode-gated**, mirroring Step 1:
 
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/clear-tracked-models.sh
-```
+- **Cloud mode (Step 0.5 succeeded)** — do **not** run `clear-tracked-models.sh`. The local tracked-changes file reflects the reviewer's own un-reviewed local edits, which are unrelated to the cloud session that was just reviewed. Erasing it would silence the pre-commit guard for those un-reviewed local edits.
+- **Local mode** — run:
 
-The script removes the project-scoped tracked-changes file (`rm -f`, so it is a no-op if the file is absent) and prints `CLEARED=<path>`. This clears tracked changes so the pre-commit guard no longer warns about already-reviewed models.
+  ```bash
+  bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/clear-tracked-models.sh
+  ```
+
+  The script removes the project-scoped tracked-changes file (`rm -f`, so it is a no-op if the file is absent) and prints `CLEARED=<path>`. This clears tracked changes so the pre-commit guard no longer warns about already-reviewed models.
 
 **If NO** (agent error or incomplete review):
 

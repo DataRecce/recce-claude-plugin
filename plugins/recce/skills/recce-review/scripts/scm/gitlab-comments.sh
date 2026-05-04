@@ -52,7 +52,13 @@ API_PATH="projects/$ENC_PROJECT/merge_requests/$IID/notes?per_page=100"
 # Note: stderr is propagated (not silenced) so glab/curl auth and HTTP
 # errors are visible to the caller instead of being masked as a confusing
 # `jq` parse error on empty/non-JSON input.
-if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then
+#
+# Auth check is host-specific (`glab auth status --hostname "$HOST"`) so a
+# user authenticated to gitlab.com but pasting a self-hosted MR URL falls
+# through to the GITLAB_TOKEN branch instead of getting trapped in a
+# guaranteed-to-fail `glab api --hostname` call. (`set -euo pipefail` would
+# otherwise terminate the script before the curl fallback could run.)
+if command -v glab >/dev/null 2>&1 && glab auth status --hostname "$HOST" >/dev/null 2>&1; then
     glab api --hostname "$HOST" "$API_PATH" \
         | jq -r '.[].body'
     exit 0
