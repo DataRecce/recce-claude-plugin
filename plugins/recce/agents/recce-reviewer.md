@@ -34,7 +34,7 @@ description: >
   </example>
 color: blue
 model: inherit
-tools: Read, Bash, mcp__plugin_recce_recce__impact_analysis, mcp__plugin_recce_recce__lineage_diff, mcp__plugin_recce_recce__profile_diff, mcp__plugin_recce_recce__value_diff_detail
+tools: Read, Bash, mcp__plugin_recce_recce__get_server_info, mcp__plugin_recce_recce__impact_analysis, mcp__plugin_recce_recce__lineage_diff, mcp__plugin_recce_recce__profile_diff, mcp__plugin_recce_recce__value_diff_detail
 mcpServers:
   - recce
 ---

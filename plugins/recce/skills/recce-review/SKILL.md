@@ -114,7 +114,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/gitlab-comments.sh "<
 Both scripts print one comment/note body per record on stdout. Search those bodies for a Recce Cloud session URL of the form `<scheme>://<host>/(sessions|launch)/<UUID>`. Production comments use `cloud.reccehq.com`, but other hosts (`staging.cloud.reccehq.com`, `localhost:3000`) and the `/launch/` path variant are also valid — accept any host and either path. `<UUID>` is `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`.
 
 - Exactly one match — show it and confirm with the user.
-- Multiple distinct matches — list with author/timestamp; ask the user to choose. Prefer the latest comment from the Recce Cloud bot (force-pushed PRs/MRs may have multiple).
+- Multiple distinct matches — list each match with the surrounding comment body so the user can identify which session is the relevant one (typically the most recent Recce Cloud bot comment after a force-push). Ask the user to choose. The fetcher scripts return only comment bodies, not author/timestamp metadata — disambiguation is done by visible content.
 - No match — tell the user: "No Recce Cloud session URL found in PR/MR comments. Run `recce-cloud list --type pr` to find an existing session, or `recce-cloud upload` from the PR/MR branch to create one — then paste the session ID (UUID) here." Wait for input and validate against the UUID regex.
 
 ### 0.4 Verify Recce Cloud authentication

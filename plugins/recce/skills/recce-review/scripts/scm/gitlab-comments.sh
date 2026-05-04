@@ -17,7 +17,7 @@
 # Stderr:  parse / auth / HTTP errors.
 # Exit:    0 on success; 2 on usage / parse error; non-zero on API failure.
 
-set -eu
+set -euo pipefail
 
 URL="${1:-}"
 if [ -z "$URL" ]; then
@@ -49,8 +49,11 @@ fi
 API_PATH="projects/$ENC_PROJECT/merge_requests/$IID/notes?per_page=100"
 
 # --- Fetch via glab if available, else fall back to curl + token ---
+# Note: stderr is propagated (not silenced) so glab/curl auth and HTTP
+# errors are visible to the caller instead of being masked as a confusing
+# `jq` parse error on empty/non-JSON input.
 if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then
-    glab api --hostname "$HOST" "$API_PATH" 2>/dev/null \
+    glab api --hostname "$HOST" "$API_PATH" \
         | jq -r '.[].body'
     exit 0
 fi
