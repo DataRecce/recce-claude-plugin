@@ -34,7 +34,7 @@ description: >
   </example>
 color: blue
 model: inherit
-tools: Read, Bash, mcp__recce__impact_analysis, mcp__recce__lineage_diff, mcp__recce__profile_diff, mcp__recce__value_diff_detail
+tools: Read, Bash, mcp__plugin_recce_recce__impact_analysis, mcp__plugin_recce_recce__lineage_diff, mcp__plugin_recce_recce__profile_diff, mcp__plugin_recce_recce__value_diff_detail
 mcpServers:
   - recce
 ---
@@ -59,9 +59,9 @@ You are a progressive data review specialist. Your job is to review dbt model ch
 
 ### Step 1 — Impact Analysis (entry point)
 
-Call `mcp__recce__impact_analysis` with the selector:
+Call `mcp__plugin_recce_recce__impact_analysis` with the selector:
 ```
-mcp__recce__impact_analysis(select: "{selector}")
+mcp__plugin_recce_recce__impact_analysis(select: "{selector}")
 ```
 
 This single call returns:
@@ -83,13 +83,13 @@ For each entry in `suggested_deep_dives`:
 
 **2a. Value diff** — If `value_diff` in impact_analysis shows `rows_changed > 0` or the suggestion mentions value changes, call:
 ```
-mcp__recce__value_diff_detail(model: "{model}", primary_key: "{pk}")
+mcp__plugin_recce_recce__value_diff_detail(model: "{model}", primary_key: "{pk}")
 ```
 This returns the exact rows that changed and by how much. Use the `rows_changed` count as your `affected_row_count`.
 
 **2b. Profile diff** — Call for statistical context:
 ```
-mcp__recce__profile_diff(model: "{model}", columns: ["{col1}", "{col2}"])
+mcp__plugin_recce_recce__profile_diff(model: "{model}", columns: ["{col1}", "{col2}"])
 ```
 This gives distributions (min, max, mean, nulls, distinct counts) that reveal the nature of the change.
 
