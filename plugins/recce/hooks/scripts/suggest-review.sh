@@ -17,7 +17,11 @@ if ! echo "$COMMAND" | grep -qE 'dbt (run|build|test)'; then
 fi
 
 # Compute project-scoped hash from cwd
-PROJECT_HASH=$(printf '%s' "${CWD:-$PWD}" | md5 2>/dev/null | cut -c1-8 || printf '%s' "${CWD:-$PWD}" | md5sum | cut -c1-8)
+if command -v md5 >/dev/null 2>&1; then
+    PROJECT_HASH=$(printf '%s' "${CWD:-$PWD}" | md5 | cut -c1-8)
+else
+    PROJECT_HASH=$(printf '%s' "${CWD:-$PWD}" | md5sum | cut -c1-8)
+fi
 CHANGES_FILE="/tmp/recce-changed-${PROJECT_HASH}.txt"
 
 # Check if there are tracked model changes

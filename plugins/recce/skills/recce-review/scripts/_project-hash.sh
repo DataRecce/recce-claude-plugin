@@ -13,6 +13,14 @@
 # Hash scheme matches plugins/recce/hooks/scripts/track-changes.sh so the
 # tracked file written by the hook is the same one this skill reads/clears.
 
-RECCE_PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 \
-    || printf '%s' "$PWD" | md5sum | cut -c1-8)
+# Use an explicit `command -v md5` branch instead of `md5 ... || md5sum ...`.
+# The pipeline form returns `cut`'s exit status (which is 0 on empty input),
+# so on Linux without `md5` the `||` fallback never fires and the hash
+# silently becomes empty -- causing all projects to collide on
+# `/tmp/recce-changed-.txt`.
+if command -v md5 >/dev/null 2>&1; then
+    RECCE_PROJECT_HASH=$(printf '%s' "$PWD" | md5 | cut -c1-8)
+else
+    RECCE_PROJECT_HASH=$(printf '%s' "$PWD" | md5sum | cut -c1-8)
+fi
 RECCE_CHANGES_FILE="/tmp/recce-changed-${RECCE_PROJECT_HASH}.txt"
