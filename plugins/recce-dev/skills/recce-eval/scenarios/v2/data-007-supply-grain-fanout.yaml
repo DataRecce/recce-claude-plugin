@@ -1,0 +1,72 @@
+id: data-007-supply-grain-fanout
+name: "Supply Cost Breakdown — Hidden Fan-out Cascade"
+description: "order_items supply summary adds is_perishable_supply to GROUP BY — grain change fans out join, doubling count columns through orders mart into dashboard"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/4
+layer: review
+difficulty: hard
+stakeholder: purchasing
+case_type: problem_exists
+
+story: |
+  The Purchasing Manager (P2) requested a breakdown of perishable vs non-perishable supply
+  costs per order item, to better understand spoilage risk in the supply chain.
+
+  A teammate modified the `order_supplies_summary` CTE in `order_items.sql` to include
+  `is_perishable_supply` in the GROUP BY and SELECT. This splits each product's supply cost
+  into two rows: one for perishable supplies, one for non-perishable supplies.
+
+  The code change looks reasonable — adding a dimension to an aggregation. But it changes
+  the grain of `order_supplies_summary` from 1 row per product to 2 rows per product.
+  The downstream LEFT JOIN in the `joined` CTE now produces 2 rows per order_item (one for
+  each perishable category). This fan-out cascades:
+
+  - `order_items`: row count approximately doubles
+  - `orders.order_cost`: UNCHANGED (sum of split costs = original total)
+  - `orders.count_order_items`: DOUBLED (counts duplicated rows)
+  - `orders.count_food_items`: DOUBLED (dashboard column!)
+  - `orders.count_drink_items`: DOUBLED (dashboard column!)
+  - `orders.order_items_subtotal`: DOUBLED (sum of duplicated product_price)
+  - `customers`: UNCHANGED (aggregates use order-level columns from stg_orders, not order_items)
+
+  The bug is a classic grain mismatch hidden behind an innocent-looking GROUP BY change.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-007-supply-grain-fanout.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Purchasing Manager (P2)"
+    stakeholder_request: "Add perishable vs non-perishable supply cost breakdown per order item for spoilage risk analysis"
+    pr_description: "Add is_perishable_supply dimension to order_items supply cost aggregation — splits supply_cost into perishable and non-perishable components"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["grain", "fan-out", "group by", "is_perishable_supply", "duplicate", "count", "order_supplies_summary", "double"]
+  impacted_models: ["order_items", "orders"]
+  not_impacted_models: ["stg_orders", "customers", "products", "supplies"]
+  dashboard_impact: true
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies the grain change in order_supplies_summary (1 row/product → 2 rows/product)"
+  - "Agent recognizes the fan-out cascade: order_items rows doubled → orders count columns doubled"
+  - "Agent notes that order_cost (sum of supply_cost) is UNCHANGED despite the fan-out — sum of parts equals the original total"
+  - "Agent identifies that count_food_items and count_drink_items are DOUBLED — these are Executive Dashboard columns"
+  - "Agent correctly identifies that customers model is NOT impacted"
+  - "Agent correctly identifies dashboard_impact as true (count_food_items, count_drink_items)"
+
+teardown:
+  restore_files: ["models/marts/order_items.sql"]

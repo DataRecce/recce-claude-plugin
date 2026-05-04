@@ -73,13 +73,15 @@ This single call returns:
 **Interpret `data_impact` for each model:**
 - `confirmed`: value_diff verified actual data changes — prioritize for root cause investigation
 - `none`: value_diff verified NO data changes — safe, note briefly in summary
-- `null` (or absent): couldn't run value_diff (views, no PK) — unknown, use profile_diff to assess
+- `potential`: value_diff was skipped (views, downstream models, no PK) — **MUST follow up** using the model's `next_action` before classifying as impacted or not_impacted. Do NOT put `potential` models in `not_impacted` without investigation.
 
 If `impacted_models` is empty: output the "No impact detected" summary (see Section 4) and STOP.
 
 ### Step 2 — Follow-up Investigation
 
-For each entry in `suggested_deep_dives`:
+**Priority order**: Models with `data_impact: potential` and a `next_action` field take priority over `suggested_deep_dives`. Follow every `next_action` — these are models where impact is unknown and classification depends on your investigation.
+
+Then, for remaining entries in `suggested_deep_dives`:
 
 **2a. Value diff** — If `value_diff` in impact_analysis shows `rows_changed > 0` or the suggestion mentions value changes, call:
 ```
@@ -95,7 +97,7 @@ This gives distributions (min, max, mean, nulls, distinct counts) that reveal th
 
 - If `columns` is null in the suggestion: call `profile_diff` on the whole model (omit `columns` parameter).
 - On any MCP error: record "tool skipped for {model}: {error reason}" and continue.
-- Limit to the first 3 suggested deep dives to control cost.
+- Always follow ALL `next_action` items from `potential` models. For additional `suggested_deep_dives` beyond that, limit to 3 to control cost.
 
 ### Step 3 — Root Cause Diagnosis
 

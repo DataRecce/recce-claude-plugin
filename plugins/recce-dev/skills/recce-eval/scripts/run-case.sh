@@ -153,13 +153,12 @@ cleanup() {
             f="${f#"${f%%[![:space:]]*}"}"  # trim leading whitespace
             f="${f%"${f##*[![:space:]]}"}"  # trim trailing whitespace
             if [ -n "$f" ] && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-                # For tracked files, unstage then restore from git.
-                # For untracked files (created by reverse-applying "deleted file"
-                # patches), remove them.
-                if git ls-files --error-unmatch "$f" &>/dev/null 2>&1; then
-                    git restore --staged -- "$f" 2>/dev/null || true
+                git restore --staged -- "$f" 2>/dev/null || true
+                if git show HEAD:"$f" &>/dev/null 2>&1; then
+                    # File exists in HEAD — restore to HEAD state
                     git checkout -- "$f" 2>/dev/null || true
                 else
+                    # File doesn't exist in HEAD (created by patch) — remove
                     rm -f "$f" 2>/dev/null || true
                 fi
             fi
@@ -180,21 +179,47 @@ if [ "$DRY_RUN" = "false" ] && [ "$SKIP_SETUP" = "false" ]; then
                 echo "ERROR: Patch file not found: $PATCH_FILE" >&2
                 exit 1
             fi
-            # Build base state in a SEPARATE schema so Recce can compare data.
-            # DuckDB uses one file with multiple schemas. Without a separate base
-            # schema, value_diff compares dev against itself → 0 differences.
-            # 1. Build clean state in both dev (current) and prod (base) schemas
-            # 2. Capture base artifacts from prod
-            # 3. Apply patch and rebuild dev only
-            # 4. Recce compares dev (buggy) vs prod (clean) for actual data diffs
+            # Build base state only for with-plugin variant.
+            # Baseline gets NO comparison target — it must reason from code +
+            # single-schema data alone. This mirrors reality: without Recce,
+            # a developer has no pre-built before/after comparison.
+            # With-plugin gets both prod (clean) and dev (buggy) schemas so
+            # Recce MCP tools (value_diff, profile_diff) can compare data.
             BASE_TARGET="prod"
-            dbt run --target "$BASE_TARGET" --full-refresh --quiet
-            dbt docs generate --target-path target-base --target "$BASE_TARGET" --quiet 2>/dev/null || true
+            if [ "$VARIANT" = "baseline" ]; then
+                # Drop stale prod schema from prior with-plugin runs.
+                # In batch mode, interleaved execution (baseline → with-plugin
+                # per scenario) leaves prod schema in the shared DuckDB file.
+                # Without this cleanup, baseline gets a free comparison target.
+                python3 -c "
+import os, duckdb
+db_path = os.environ.get('JAFFLE_SHOP_DB_PATH', 'data/jaffel-shop.duckdb')
+db = duckdb.connect(db_path)
+db.execute('DROP SCHEMA IF EXISTS prod CASCADE')
+db.close()
+" 2>/dev/null || true
+            fi
+            if [ "$VARIANT" = "with-plugin" ]; then
+                dbt run --target "$BASE_TARGET" --full-refresh --quiet
+                dbt docs generate --target-path target-base --target "$BASE_TARGET" --quiet 2>/dev/null || true
+            fi
             # Now apply patch (introduces the bug) and rebuild current state.
             # Use --full-refresh so incremental models reprocess ALL rows with
             # the buggy code — otherwise value_diff sees 0 changed rows because
             # the stored data was computed before the patch was applied.
-            git apply --reverse --3way "$PATCH_FILE"
+            # Try --3way first (handles whitespace mismatches), fall back to
+            # plain apply only for patches that create new files (no base in index).
+            GIT_APPLY_STDERR=$(mktemp)
+            if git apply --reverse --3way "$PATCH_FILE" 2>"$GIT_APPLY_STDERR"; then
+                rm -f "$GIT_APPLY_STDERR"
+            elif grep -q "does not exist in index" "$GIT_APPLY_STDERR"; then
+                rm -f "$GIT_APPLY_STDERR"
+                git apply --reverse "$PATCH_FILE"
+            else
+                cat "$GIT_APPLY_STDERR" >&2
+                rm -f "$GIT_APPLY_STDERR"
+                exit 1
+            fi
             dbt run --target "$TARGET" --full-refresh --quiet
             dbt docs generate --target "$TARGET" --quiet 2>/dev/null || true
             # Run dbt test BEFORE MCP starts (avoids DuckDB lock conflict).

@@ -1,0 +1,78 @@
+id: data-009-date-grain-month
+name: "Date Truncation Change — Month Grain Collapses Daily Timeline"
+description: "stg_orders changes date_trunc from day to month — ordered_at loses daily granularity across entire DAG, but financial columns are unchanged"
+github_issue: https://github.com/DataRecce/jaffle-shop-simulator/issues/9
+layer: review
+difficulty: medium
+stakeholder: analytics
+case_type: problem_exists
+
+story: |
+  An Analytics Engineer proposed changing the date truncation in `stg_orders.sql` from
+  `day` to `month` to "reduce cardinality and improve query performance for monthly
+  reporting dashboards."
+
+  The PR modifies one line in `stg_orders.sql`:
+  - Before: `date_trunc('day', ordered_at)`
+  - After: `date_trunc('month', ordered_at)`
+
+  The change compiles fine and all dbt tests pass. The PR description argues this is a
+  harmless optimization since "most reports aggregate to monthly anyway."
+
+  However, `stg_orders` is the ROOT staging model for the entire orders pipeline. The
+  `ordered_at` column propagates through:
+  - `orders.ordered_at` — now month-level (dashboard column!)
+  - `orders.customer_order_number` — ROW_NUMBER ordered by month becomes non-deterministic
+    for orders within the same month
+  - `order_items.ordered_at` — joined from stg_orders, now month-level
+  - `customers.first_ordered_at` — now month-level only (loses day precision)
+  - `customers.last_ordered_at` — now month-level only (loses day precision)
+
+  Critically, financial columns (subtotal, tax_paid, order_total, order_cost) are
+  COMPLETELY UNCHANGED. The agent must correctly scope the impact to date/time columns
+  only and avoid false positives on financial metrics.
+
+  Row counts are identical across all models — no rows added or removed. The impact is
+  purely in value changes to the ordered_at column and its derivatives.
+
+environment:
+  repo: DataRecce/jaffle-shop-simulator
+  ref: eval-base
+  adapter: duckdb
+
+setup:
+  strategy: git_patch
+  patch_reverse_file: scenarios/v2/patches/data-009-date-grain-month.patch
+  skip_context: false
+
+prompt:
+  template: prompts/review.md
+  vars:
+    stakeholder_name: "Analytics Engineer (P3)"
+    stakeholder_request: "Optimize date granularity in stg_orders from daily to monthly for reporting performance"
+    pr_description: "Change date_trunc from day to month in stg_orders — reduces ordered_at cardinality for faster monthly aggregations"
+
+headless:
+  max_budget_usd: 5.00
+  output_format: json
+
+ground_truth:
+  issue_found: true
+  issue_type: data_drift
+  root_cause_keywords: ["date_trunc", "month", "day", "ordered_at", "granularity", "precision", "cardinality"]
+  impacted_models: ["stg_orders", "orders", "order_items", "customers"]
+  not_impacted_models: ["products", "supplies", "locations"]
+  dashboard_impact: true
+  detection_requires: data_comparison
+
+judge_criteria:
+  - "Agent identifies that ordered_at loses daily granularity — collapses to month-level across the DAG"
+  - "Agent correctly identifies dashboard_impact as true (ordered_at is a dashboard column)"
+  - "Agent correctly identifies that financial columns (subtotal, tax_paid, order_total) are UNCHANGED"
+  - "Agent correctly scopes impacted_models to those that use ordered_at: stg_orders, orders, order_items, customers"
+  - "Agent does NOT falsely report products, supplies, or locations as impacted"
+  - "Agent notes that customer_order_number becomes non-deterministic for same-month orders"
+  - "Agent recognizes row counts are unchanged — the impact is value-level, not row-level"
+
+teardown:
+  restore_files: ["models/staging/stg_orders.sql"]

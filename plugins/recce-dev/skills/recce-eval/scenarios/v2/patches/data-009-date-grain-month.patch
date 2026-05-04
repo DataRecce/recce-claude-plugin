@@ -1,0 +1,12 @@
+diff --git a/models/staging/stg_orders.sql b/models/staging/stg_orders.sql
+--- a/models/staging/stg_orders.sql
++++ b/models/staging/stg_orders.sql
+@@ -24,7 +24,7 @@
+         {{ cents_to_dollars('order_total') }} as order_total,
+ 
+         ---------- timestamps
+-        {{ dbt.date_trunc('month','ordered_at') }} as ordered_at
++        {{ dbt.date_trunc('day','ordered_at') }} as ordered_at
+ 
+     from source
+ 
