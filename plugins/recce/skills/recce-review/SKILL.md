@@ -130,17 +130,34 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/check-recce-auth.sh
 The script prints exactly one of `AUTH=env`, `AUTH=file`, or `AUTH=missing`. It does not print or transmit the token itself — it only reports which source supplied it.
 
 - `AUTH=env` or `AUTH=file` — proceed to Step 0.5.
-- `AUTH=missing` — tell the user, verbatim, then **stop**:
+- `AUTH=missing` — offer to run the OAuth flow inline. Ask the user, verbatim:
 
-  > Recce Cloud credentials not found in `~/.recce/profile.yml` and `RECCE_API_TOKEN` is not set. Please run:
+  > Recce Cloud credentials not found in `~/.recce/profile.yml` and `RECCE_API_TOKEN` is not set.
   >
-  > ```
-  > recce connect-to-cloud
-  > ```
-  >
-  > This opens a browser for the OAuth flow; on success it writes `api_token` back into `~/.recce/profile.yml`. Then re-run `/recce-review` with the same PR/MR.
+  > Would you like me to run `recce connect-to-cloud` now? It opens your browser for the OAuth flow and writes `api_token` back into `~/.recce/profile.yml` on success. (Typically ~30s. The command starts a short-lived local HTTP server on a random port to receive the OAuth callback — make sure no firewall blocks loopback callbacks and that the browser it opens is on this machine. On a headless/remote shell, the command will print the URL and wait; you can open that URL on your host machine to complete the flow.)
 
-  > Note: `recce connect-to-cloud` starts a short-lived local HTTP server on a random port to receive the OAuth callback — make sure no firewall blocks loopback callbacks and that the browser it opens is on this machine.
+  Then handle the user's reply:
+
+  **If the user says yes** — run the command via Bash with a generous timeout (the user must click through the OAuth flow in a browser):
+
+  ```bash
+  recce connect-to-cloud
+  ```
+
+  Pass `timeout: 600000` (10 minutes) to the Bash tool so the command isn't killed mid-flow. Stream the command's stdout to the user — if it prints a URL ("Please visit ..."), the user may need to open it manually.
+
+  After the command exits (regardless of how), re-run the auth probe:
+
+  ```bash
+  bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/check-recce-auth.sh
+  ```
+
+  - If it now prints `AUTH=env` or `AUTH=file` — proceed to Step 0.5.
+  - If it still prints `AUTH=missing` — tell the user: "OAuth flow did not complete (canceled, timed out, or the callback was blocked). You can run `recce connect-to-cloud` manually and re-run `/recce-review` with the same PR/MR." Then **stop**.
+
+  **If the user says no, or declines** — tell the user, verbatim, then **stop**:
+
+  > To authenticate later, run `recce connect-to-cloud` (this opens a browser for the OAuth flow and writes `api_token` back into `~/.recce/profile.yml`), then re-run `/recce-review` with the same PR/MR.
 
 ### 0.5 Flip the running MCP server into cloud mode
 
