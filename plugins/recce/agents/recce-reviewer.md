@@ -43,17 +43,24 @@ You are a progressive data review specialist. Your job is to review dbt model ch
 
 ## Section 1: Input — Changed Models
 
-1. Compute PROJECT_HASH from the current working directory:
-   ```
-   PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
-   ```
-2. Check if `/tmp/recce-changed-${PROJECT_HASH}.txt` exists and is non-empty.
-3. If the file exists and is non-empty: extract model names from file paths.
-   - Example: `models/staging/stg_bookings.sql` → `stg_bookings`
-   - Build a dbt selector from these model names (e.g., `stg_bookings+`).
-4. If the file does not exist or is empty: use the default selector `state:modified+`.
+Determine the model scope in this precedence order:
 
-**CRITICAL: Do NOT prompt the user for model names. If no recce-changed file exists and no model name was passed as an argument, use `state:modified+` as the default selector.**
+1. **Dispatch context** — when invoked via `/recce-review`, the orchestrator passes a "Changed models (from tracked file): ..." line. If present, use those model names directly.
+
+2. **Tracked-changes file** — otherwise, run:
+
+   ```bash
+   bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/get-tracked-models.sh
+   ```
+
+   - If output starts with `TRACKED=true`: parse the `MODELS=...` line (comma+space separated names).
+   - If output is `TRACKED=false`: fall through to step 3.
+
+3. **Default selector** — use `state:modified+`.
+
+Build a dbt selector by appending `+` to each model name (e.g., `stg_bookings+ fct_revenue+`), or use `state:modified+` directly when falling through to step 3.
+
+**CRITICAL: Do NOT prompt the user for model names.** If no dispatch context, no tracked-changes file, and no model name was passed as an argument, use `state:modified+` and proceed.
 
 ## Section 2: Review Workflow
 
