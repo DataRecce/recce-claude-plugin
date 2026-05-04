@@ -4,14 +4,14 @@ description: >
   Review dbt model data changes using Recce. Triggers when: user asks to review
   data changes, check data impact, run recce review, validate model changes
   before committing, review a Recce Cloud PR session, connect MCP to a cloud
-  session, or pastes a GitHub PR URL for cloud-mode review.
+  session, or pastes a GitHub PR / GitLab MR URL for cloud-mode review.
 ---
 
 # /recce-review — Data Review Orchestration
 
 This skill orchestrates tracked-model handoff, sub-agent dispatch, post-review cleanup, and risk-based next-step suggestions.
 
-It also handles **cloud-mode flips from a PR**: when invoked with a GitHub PR URL/number, the skill resolves a Recce Cloud session ID from the PR, verifies cloud authentication, and flips the running MCP server into cloud mode by calling its `set_backend` tool — no reconnect, no restart.
+It also handles **cloud-mode flips from a PR/MR**: when invoked with a PR URL (GitHub) or MR URL (GitLab, including self-hosted), the skill resolves a Recce Cloud session ID from the PR/MR comments, verifies cloud authentication, and flips the running MCP server into cloud mode by calling its `set_backend` tool — no reconnect, no restart.
 
 Claude Code launches `recce mcp-server` (stdio) at session start in **local mode** and the same server stays alive for the whole session. Mode switching happens **inside** that running server via MCP tool calls.
 
@@ -19,29 +19,74 @@ Follow these steps in order.
 
 ---
 
-## Step 0: Cloud-mode PR resolution (only if user provided a PR URL or asked for cloud review)
+## Step 0: Cloud-mode PR/MR resolution (only if user provided a PR/MR URL or asked for cloud review)
 
-> Skip this step if the user did not provide a PR URL/number and did not mention "cloud", "cloud session", or "Recce Cloud".
+> Skip this step if the user did not provide a PR/MR URL and did not mention "cloud", "cloud session", or "Recce Cloud".
 
-### 0.1 Resolve the PR reference
+### 0.1 Resolve the PR/MR reference
 
-If the user provided a GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<n>`) or a PR number, use that. Otherwise ask: "Which PR should I review? Paste a GitHub PR URL or number."
+The skill supports GitHub PRs and GitLab MRs (including self-hosted GitLab). If the user provided one of:
 
-### 0.2 Verify `gh` CLI
+- GitHub PR URL: `https://github.com/<owner>/<repo>/pull/<n>` (or just the PR number when the working directory is already a GitHub repo)
+- GitLab MR URL: `https://<host>/<group>[/<subgroup>...]/<project>/-/merge_requests/<iid>` (works for `gitlab.com` and self-hosted hosts)
+
+…use that. Otherwise ask: "Which PR/MR should I review? Paste a GitHub PR URL, GitLab MR URL, or PR number."
+
+### 0.2 Detect the SCM and verify access
+
+First identify which source-control host owns the URL:
 
 ```bash
-command -v gh && gh auth status >/dev/null 2>&1 && echo "GH=ready" || echo "GH=unavailable"
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/detect.sh "<PR_OR_MR_URL>"
 ```
 
-If `GH=unavailable`, tell the user: "GitHub CLI is not authenticated. Run `gh auth login` and re-run /recce-review." Stop.
+The script prints exactly one of `SCM=github`, `SCM=gitlab`, `SCM=bitbucket`, or `SCM=unknown`. Detection is path-based (recognizes `/pull/`, `/-/merge_requests/`, `/pull-requests/`) so it works for self-hosted hosts.
 
-### 0.3 Parse the session ID from PR comments
+Then run the matching readiness check:
+
+**If `SCM=github`:**
 
 ```bash
-gh pr view <PR_REF> --json number,url,comments --jq '.comments[].body'
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/github-ready.sh
 ```
 
-Search the comment bodies for a Recce Cloud session URL of the form:
+The script prints `GITHUB=ready` (with `GITHUB_VIA=cli`) or `GITHUB=unavailable`. If unavailable, tell the user: "GitHub CLI is not authenticated. Run `gh auth login` and re-run /recce-review." Stop.
+
+**If `SCM=gitlab`:**
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/gitlab-ready.sh
+```
+
+GitLab access works via either the `glab` CLI **or** a `GITLAB_TOKEN` environment variable (either is sufficient; both work for self-hosted GitLab). The script prints `GITLAB=ready` (with `GITLAB_VIA=cli` when `glab auth status` succeeds, otherwise `GITLAB_VIA=token`) or `GITLAB=unavailable`.
+
+If unavailable, tell the user: "No GitLab credentials found. Either run `glab auth login` (for self-hosted, use `glab auth login --hostname <host>`) or export `GITLAB_TOKEN=<your-personal-access-token>` (with `read_api` scope), then re-run /recce-review."
+
+Stop on unavailable.
+
+**If `SCM=bitbucket` or `SCM=unknown`:** tell the user the URL's source-control host is not yet supported by this skill (Bitbucket support is planned). Stop.
+
+### 0.3 Fetch PR/MR comments and parse the session ID
+
+Run the comments fetcher matching the detected SCM:
+
+**If `SCM=github`:**
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/github-comments.sh "<PR_REF>"
+```
+
+`<PR_REF>` is the PR URL or PR number.
+
+**If `SCM=gitlab`:**
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/gitlab-comments.sh "<MR_URL>"
+```
+
+`<MR_URL>` must be the full URL (the script parses host, project path, and IID from it). The script prefers `glab api` when available (which already knows about self-hosted host config), falling back to `curl` against `https://<host>/api/v4` with `GITLAB_TOKEN`.
+
+Both scripts print one comment/note body per record on stdout. Search those bodies for a Recce Cloud session URL of the form:
 
 ```
 https://cloud.reccehq.com/sessions/<SESSION_ID>
@@ -50,8 +95,8 @@ https://cloud.reccehq.com/sessions/<SESSION_ID>
 where `<SESSION_ID>` is a UUID (`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`).
 
 - Exactly one match — show it and confirm with the user.
-- Multiple distinct matches — list with author/timestamp; ask the user to choose. Prefer the latest comment from the Recce Cloud bot (force-pushed PRs may have multiple).
-- No match — tell the user: "No Recce Cloud session URL found in PR comments. Run `recce-cloud list --type pr` to find an existing session, or `recce-cloud upload` from the PR branch to create one — then paste the session ID (UUID) here." Wait for input and validate against the UUID regex.
+- Multiple distinct matches — list with author/timestamp; ask the user to choose. Prefer the latest comment from the Recce Cloud bot (force-pushed PRs/MRs may have multiple).
+- No match — tell the user: "No Recce Cloud session URL found in PR/MR comments. Run `recce-cloud list --type pr` to find an existing session, or `recce-cloud upload` from the PR/MR branch to create one — then paste the session ID (UUID) here." Wait for input and validate against the UUID regex.
 
 ### 0.4 Verify Recce Cloud authentication
 
@@ -60,14 +105,10 @@ Recce Cloud credentials live in **`~/.recce/profile.yml`** (key: `api_token`) or
 Run:
 
 ```bash
-if [ -n "${RECCE_API_TOKEN:-}" ]; then
-    echo "AUTH=env"
-elif [ -f "$HOME/.recce/profile.yml" ] && grep -qE '^[[:space:]]*api_token[[:space:]]*:[[:space:]]*[^[:space:]]' "$HOME/.recce/profile.yml"; then
-    echo "AUTH=file"
-else
-    echo "AUTH=missing"
-fi
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/check-recce-auth.sh
 ```
+
+The script prints exactly one of `AUTH=env`, `AUTH=file`, or `AUTH=missing`. It does not print or transmit the token itself — it only reports which source supplied it.
 
 - `AUTH=env` or `AUTH=file` — proceed to Step 0.5.
 - `AUTH=missing` — tell the user, verbatim, then **stop**:
@@ -78,7 +119,7 @@ fi
   > recce connect-to-cloud
   > ```
   >
-  > This opens a browser for the OAuth flow; on success it writes `api_token` back into `~/.recce/profile.yml`. Then re-run `/recce-review` with the same PR.
+  > This opens a browser for the OAuth flow; on success it writes `api_token` back into `~/.recce/profile.yml`. Then re-run `/recce-review` with the same PR/MR.
 
   > Note: `recce connect-to-cloud` starts a short-lived local HTTP server on a random port to receive the OAuth callback — make sure no firewall blocks loopback callbacks and that the browser it opens is on this machine.
 
@@ -86,9 +127,9 @@ fi
 
 Call the `set_backend` MCP tool on the `recce` server:
 
-> `mcp__recce__set_backend(mode="cloud", session_id="<SESSION_ID>")`
+> `mcp__plugin_recce_recce__set_backend(mode="cloud", session_id="<SESSION_ID>")`
 
-Then call `mcp__recce__get_server_info` and verify the response reports the cloud backend with the matching `session_id`.
+Then call `mcp__plugin_recce_recce__get_server_info` and verify the response reports the cloud backend with the matching `session_id`.
 
 `set_backend` returns quickly. The MCP server begins serving cloud-mode requests immediately, but the **Recce Cloud instance behind the session may still be warming up** (cold-start ~30 seconds). During warmup:
 
@@ -112,7 +153,7 @@ Outcomes for the flip itself:
 
 - **`set_backend` fails with a missing/expired token error** — tell the user:
 
-  > The `recce` MCP server rejected the cloud flip with an authentication error. Run `recce connect-to-cloud` to refresh the token, then re-run `/recce-review` with the same PR. (`recce connect-to-cloud` opens a browser for the OAuth flow and writes `api_token` back into `~/.recce/profile.yml`.)
+  > The `recce` MCP server rejected the cloud flip with an authentication error. Run `recce connect-to-cloud` to refresh the token, then re-run `/recce-review` with the same PR/MR. (`recce connect-to-cloud` opens a browser for the OAuth flow and writes `api_token` back into `~/.recce/profile.yml`.)
 
   Stop.
 
@@ -124,7 +165,7 @@ Outcomes for the flip itself:
 
 - **`set_backend` fails for another reason** — surface the error message verbatim and stop. Do **not** silently fall back to local mode.
 
-> To return to local mode later: call `mcp__recce__set_backend(mode="local", project_dir="<absolute-project-path>")`. The skill exposes this as the user-visible action `/recce-review local` (no PR argument and an explicit "local" keyword) — handle it in Step 0 by skipping PR resolution and calling `set_backend(mode="local", ...)` directly.
+> To return to local mode later: call `mcp__plugin_recce_recce__set_backend(mode="local", project_dir="<absolute-project-path>")`. The skill exposes this as the user-visible action `/recce-review local` (no PR/MR argument and an explicit "local" keyword) — handle it in Step 0 by skipping PR/MR resolution and calling `set_backend(mode="local", ...)` directly.
 
 ---
 
@@ -133,16 +174,10 @@ Outcomes for the flip itself:
 Run:
 
 ```bash
-PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
-CHANGES_FILE="/tmp/recce-changed-${PROJECT_HASH}.txt"
-if [ -f "$CHANGES_FILE" ] && [ -s "$CHANGES_FILE" ]; then
-    echo "TRACKED=true"
-    echo "MODEL_COUNT=$(wc -l < "$CHANGES_FILE" | tr -d ' ')"
-    echo "MODELS=$(while IFS= read -r f; do basename "$f" .sql; done < "$CHANGES_FILE" | paste -sd ', ' -)"
-else
-    echo "TRACKED=false"
-fi
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/get-tracked-models.sh
 ```
+
+The script reads the project-scoped tracked-changes file written by the PostToolUse hook (`track-changes.sh`) and prints either `TRACKED=false`, or `TRACKED=true` followed by `MODEL_COUNT=<n>` and `MODELS=<comma+space separated names>`.
 
 Parse the output:
 - If `TRACKED=true` — record the `MODELS` value (comma-separated model names). Use these in Step 2.
@@ -166,10 +201,10 @@ Include in the dispatch context:
 
 **Context passthrough:** If the user's request includes any of the following, include it in the dispatch message so the reviewer can validate findings against intent:
 - **Stakeholder request** (who asked for the change and what they asked for)
-- **PR description** (what the change claims to do)
+- **PR/MR description** (what the change claims to do)
 - **Change rationale** (why the change was made)
 
-Format: `Context: [stakeholder] requested '[request]'. PR says: '[description]'.`
+Format: `Context: [stakeholder] requested '[request]'. PR/MR says: '[description]'.`
 
 This enables the reviewer's context validation step (Step 4 in the agent workflow).
 
@@ -192,11 +227,10 @@ Check if the agent's output contains `## Data Review Summary`.
 Run:
 
 ```bash
-PROJECT_HASH=$(printf '%s' "$PWD" | md5 2>/dev/null | cut -c1-8 || printf '%s' "$PWD" | md5sum | cut -c1-8)
-rm -f "/tmp/recce-changed-${PROJECT_HASH}.txt"
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/clear-tracked-models.sh
 ```
 
-This clears tracked changes so the pre-commit guard no longer warns about already-reviewed models.
+The script removes the project-scoped tracked-changes file (`rm -f`, so it is a no-op if the file is absent) and prints `CLEARED=<path>`. This clears tracked changes so the pre-commit guard no longer warns about already-reviewed models.
 
 **If NO** (agent error or incomplete review):
 
