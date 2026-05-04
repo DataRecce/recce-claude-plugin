@@ -4,14 +4,21 @@ description: >
   Review dbt model data changes using Recce. Triggers when: user asks to review
   data changes, check data impact, run recce review, validate model changes
   before committing, review a Recce Cloud PR session, connect MCP to a cloud
-  session, or pastes a GitHub PR / GitLab MR URL for cloud-mode review.
+  session, pastes a GitHub PR / GitLab MR URL, or pastes a Recce Cloud
+  session/launch URL for cloud-mode review.
 ---
 
 # /recce-review — Data Review Orchestration
 
 This skill orchestrates tracked-model handoff, sub-agent dispatch, post-review cleanup, and risk-based next-step suggestions.
 
-It also handles **cloud-mode flips from a PR/MR**: when invoked with a PR URL (GitHub) or MR URL (GitLab, including self-hosted), the skill resolves a Recce Cloud session ID from the PR/MR comments, verifies cloud authentication, and flips the running MCP server into cloud mode by calling its `set_backend` tool — no reconnect, no restart.
+It also handles **cloud-mode flips** from any of:
+
+- a **PR URL** (GitHub) or **MR URL** (GitLab, incl. self-hosted) — the skill fetches PR/MR comments and extracts the Recce Cloud session ID
+- a **Recce Cloud session URL** (`.../sessions/<UUID>`) or **launch URL** (`.../launch/<UUID>`) — the skill extracts the session ID directly, no SCM access required (useful for any Cloud host: production, staging, localhost dev)
+- a **bare session ID** (UUID)
+
+In all cases the skill verifies cloud authentication and flips the running MCP server into cloud mode by calling its `set_backend` tool — no reconnect, no restart.
 
 Claude Code launches `recce mcp-server` (stdio) at session start in **local mode** and the same server stays alive for the whole session. Mode switching happens **inside** that running server via MCP tool calls.
 
@@ -19,20 +26,38 @@ Follow these steps in order.
 
 ---
 
-## Step 0: Cloud-mode PR/MR resolution (only if user provided a PR/MR URL or asked for cloud review)
+## Step 0: Cloud-mode resolution (only if user provided a relevant URL or asked for cloud review)
 
-> Skip this step if the user did not provide a PR/MR URL and did not mention "cloud", "cloud session", or "Recce Cloud".
+> Skip this step if the user did not provide a PR/MR URL, a Cloud session/launch URL, a bare UUID, and did not mention "cloud", "cloud session", or "Recce Cloud".
 
-### 0.1 Resolve the PR/MR reference
+### 0.1 Classify the input and resolve the session ID
 
-The skill supports GitHub PRs and GitLab MRs (including self-hosted GitLab). If the user provided one of:
+Examine the user's input and pick the matching path. The session-ID UUID format used below is `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`.
 
-- GitHub PR URL: `https://github.com/<owner>/<repo>/pull/<n>` (or just the PR number when the working directory is already a GitHub repo)
-- GitLab MR URL: `https://<host>/<group>[/<subgroup>...]/<project>/-/merge_requests/<iid>` (works for `gitlab.com` and self-hosted hosts)
+**Path A — Recce Cloud URL (fast path, no SCM access needed):**
 
-…use that. Otherwise ask: "Which PR/MR should I review? Paste a GitHub PR URL, GitLab MR URL, or PR number."
+If the input matches either of these path shapes (any host — `cloud.reccehq.com`, `staging.cloud.reccehq.com`, `localhost:3000`, etc.):
+
+- `<scheme>://<host>/launch/<UUID>`
+- `<scheme>://<host>/sessions/<UUID>`
+
+…extract the UUID, set `SESSION_ID` to it, and **skip directly to Step 0.4**. The session ID under `/launch/` and `/sessions/` is the same identifier consumed by `set_backend(session_id=...)`.
+
+**Path B — Bare UUID:**
+
+If the input is just a UUID matching the regex above, set `SESSION_ID` to it and **skip directly to Step 0.4**.
+
+**Path C — PR/MR URL:**
+
+If the input is a GitHub PR URL (`https://github.com/<owner>/<repo>/pull/<n>`), a GitHub PR number (when the working directory is already a GitHub repo), or a GitLab MR URL (`https://<host>/<group>[/<subgroup>...]/<project>/-/merge_requests/<iid>`, works for `gitlab.com` and self-hosted hosts), continue to Step 0.2.
+
+**Path D — Nothing matched:**
+
+Ask: "Which session should I review? Paste a Recce Cloud session URL (e.g., `https://cloud.reccehq.com/launch/<UUID>`), a GitHub PR URL, a GitLab MR URL, or a session UUID."
 
 ### 0.2 Detect the SCM and verify access
+
+> Steps 0.2 and 0.3 run **only for Path C** (PR/MR URL). If you arrived here from Path A or Path B in 0.1 with a `SESSION_ID` already in hand, skip to Step 0.4.
 
 First identify which source-control host owns the URL:
 
@@ -86,13 +111,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/scm/gitlab-comments.sh "<
 
 `<MR_URL>` must be the full URL (the script parses host, project path, and IID from it). The script prefers `glab api` when available (which already knows about self-hosted host config), falling back to `curl` against `https://<host>/api/v4` with `GITLAB_TOKEN`.
 
-Both scripts print one comment/note body per record on stdout. Search those bodies for a Recce Cloud session URL of the form:
-
-```
-https://cloud.reccehq.com/sessions/<SESSION_ID>
-```
-
-where `<SESSION_ID>` is a UUID (`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`).
+Both scripts print one comment/note body per record on stdout. Search those bodies for a Recce Cloud session URL of the form `<scheme>://<host>/(sessions|launch)/<UUID>`. Production comments use `cloud.reccehq.com`, but other hosts (`staging.cloud.reccehq.com`, `localhost:3000`) and the `/launch/` path variant are also valid — accept any host and either path. `<UUID>` is `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`.
 
 - Exactly one match — show it and confirm with the user.
 - Multiple distinct matches — list with author/timestamp; ask the user to choose. Prefer the latest comment from the Recce Cloud bot (force-pushed PRs/MRs may have multiple).
