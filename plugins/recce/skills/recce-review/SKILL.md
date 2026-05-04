@@ -171,6 +171,16 @@ Outcomes for the flip itself:
 
 ## Step 1: Determine Model Scope
 
+The model scope source depends on the active backend.
+
+### 1A. Cloud mode (Step 0.5 succeeded)
+
+**Skip `get-tracked-models.sh` entirely.** The tracked-changes file captures the *local* user's SQL edits via the PostToolUse hook — it is unrelated to what the cloud session contains. A reviewer who happens to have unrelated local edits would otherwise have those misidentified as the PR/MR's changes.
+
+In cloud mode, set the model scope to the dbt selector `state:modified+`. The MCP server resolves this against the cloud session's stored manifests (base vs. head), so it returns the PR/MR author's actual changes regardless of the reviewer's local working tree. Skip to Step 2.
+
+### 1B. Local mode (Step 0 was skipped, or no cloud flip occurred)
+
 Run:
 
 ```bash
@@ -183,19 +193,21 @@ Parse the output:
 - If `TRACKED=true` — record the `MODELS` value (comma-separated model names). Use these in Step 2.
 - If `TRACKED=false` — no tracked changes file exists. Do **not** abort. Do **not** ask the user for model names. The agent will use `state:modified+` as a fallback selector.
 
-> Note: cloud-mode reviewers usually have no local edits, so `TRACKED=false` is normal — the agent will resolve the changed nodes from the cloud session via `state:modified+`.
-
 ---
 
 ## Step 2: Dispatch Review Agent
 
 Use the `agent:` tool to dispatch `recce-reviewer`. The MCP server is owned by Claude Code (stdio child of `.mcp.json`); if it is not connected, the agent's tool calls will fail and Claude Code will surface the error in `/mcp`. The skill does not start or health-check MCP itself.
 
-**If tracked models were found (Step 1 returned TRACKED=true):**
+**If cloud mode (Step 1A):**
+Include in the dispatch context:
+> "Active backend is cloud (session `<SESSION_ID>`). Use `state:modified+` as the selector. The MCP server resolves this against the cloud session's stored manifests. Do **not** read the local tracked-changes file — local edits, if any, are unrelated to the PR/MR being reviewed."
+
+**If local mode and tracked models were found (Step 1B returned TRACKED=true):**
 Include in the dispatch context:
 > "Changed models (from tracked file): {MODELS}. Focus review on these models using selector: {model1}+ {model2}+ (one per model from the list)."
 
-**If no tracked models (Step 1 returned TRACKED=false):**
+**If local mode and no tracked models (Step 1B returned TRACKED=false):**
 Include in the dispatch context:
 > "No tracked changes file found. Use state:modified+ as the default selector to review all modified models."
 

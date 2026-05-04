@@ -45,9 +45,11 @@ You are a progressive data review specialist. Your job is to review dbt model ch
 
 Determine the model scope in this precedence order:
 
-1. **Dispatch context** — when invoked via `/recce-review`, the orchestrator passes a "Changed models (from tracked file): ..." line. If present, use those model names directly.
+1. **Dispatch context** — when invoked via `/recce-review`, the orchestrator passes either a "Changed models (from tracked file): ..." line or an "Active backend is cloud ..." line. If present, follow it directly:
+   - "Changed models" → use those model names.
+   - "Active backend is cloud" → use `state:modified+` and **skip step 2 entirely**. The local tracked-changes file is unrelated to a cloud session and reading it can mislead the review (a reviewer's unrelated local edits would otherwise be treated as the PR/MR's changes).
 
-2. **Tracked-changes file** — otherwise, run:
+2. **Tracked-changes file (local mode only)** — if no dispatch context was provided, first verify the active backend is local. Call `mcp__plugin_recce_recce__get_server_info`. If the response reports `mode=cloud`, **skip this step** and fall through to step 3 with `state:modified+`. Otherwise:
 
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/get-tracked-models.sh
