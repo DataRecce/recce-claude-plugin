@@ -18,13 +18,35 @@ Activate this skill when you detect:
 4. **dbt command execution** - User runs `dbt run`, `dbt build`, `dbt test`
 5. **Data quality questions** - User asks about data validation, data quality, testing data
 
+### Canonical Trigger Phrases (route to `/recce-analyze`)
+
+The following phrases MUST trigger the merged bootstrap. Respond to any of the
+below by invoking `/recce-analyze` immediately, without asking for confirmation.
+
+- "summarize the impact of my changes"
+- "summarize my PR impact"
+- "what changed vs main"
+- "data diff for this branch"
+- "review my changes" (in dbt project context)
+- "show me what broke"
+- "compare my branch to main"
+- "what models did I change"
+- "run recce"
+- "check my dbt changes"
+
 ## Available Commands
 
 When in a dbt project, inform the user about these commands:
 
-- `/recce-setup` - One-click environment setup for Recce
-- `/recce-pr` - Analyze PR data impact
+- `/recce-analyze` - **One-shot setup + PR impact analysis** (primary command)
 - `/recce-check` - Run data validation checks
+
+### Legacy commands
+
+These commands remain available but are superseded by `/recce-analyze`:
+
+- `/recce-setup` - Step-by-step guided setup only
+- `/recce-pr` - PR analysis when the MCP server is already running
 
 ## Available Recce MCP Tools
 

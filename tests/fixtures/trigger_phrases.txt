@@ -1,0 +1,10 @@
+summarize the impact of my changes
+summarize my PR impact
+what changed vs main
+data diff for this branch
+review my changes
+show me what broke
+compare my branch to main
+what models did I change
+run recce
+check my dbt changes

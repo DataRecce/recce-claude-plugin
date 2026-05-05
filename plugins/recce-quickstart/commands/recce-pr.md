@@ -7,6 +7,9 @@ args:
     required: false
 ---
 
+> **Deprecated (as of 003-pre-pr-one-sentence):** Use `/recce-analyze` for setup + analysis
+> in one command. `/recce-pr` remains available if the MCP server is already running.
+
 # Recce PR Analysis
 
 Analyze the data impact of a Pull Request using Recce MCP tools.
