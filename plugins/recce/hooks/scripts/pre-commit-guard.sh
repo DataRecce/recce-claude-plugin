@@ -30,7 +30,8 @@ fi
 
 # Count and list changed models
 MODEL_COUNT=$(wc -l < "$CHANGES_FILE" | tr -d ' ')
-MODEL_NAMES=$(while IFS= read -r f; do basename "$f" .sql; done < "$CHANGES_FILE" | paste -sd ', ' -)
+MODEL_NAMES=$(while IFS= read -r f; do basename "$f" .sql; done < "$CHANGES_FILE" \
+    | awk 'NR==1{printf "%s",$0; next} {printf ", %s",$0} END{print ""}')
 
 MSG="${MODEL_COUNT} model change(s) not yet reviewed: ${MODEL_NAMES}. Consider running /recce-review before committing."
 
