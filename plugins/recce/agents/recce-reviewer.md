@@ -74,37 +74,39 @@ mcp__plugin_recce_recce__impact_analysis(select: "{selector}")
 ```
 
 This single call returns:
-- **impacted_models**: each with `change_status`, `materialized`, `row_count`, `schema_changes`, `value_diff`, `data_impact`
-- **not_impacted_models**: models confirmed NOT in the impact path
-- **suggested_deep_dives**: models worth investigating further, with specific columns
+- **confirmed_impacted_models**: each with `change_status`, `materialized`, `row_count`, `schema_changes`, `value_diff`, `data_impact`, `affected_row_count`, and a per-model `next_action`
+- **confirmed_not_impacted_models**: models confirmed NOT in the impact path
+- **max_affected_row_count**: largest `affected_row_count` across impacted models
 - **errors**: any non-fatal issues encountered
+
+Each impacted model carries its own `next_action` (or `null`). When non-null it has the shape `{tool, columns, reason, priority}` — only models with `next_action != null` need further tool calls.
 
 **Interpret `data_impact` for each model:**
 - `confirmed`: value_diff verified actual data changes — prioritize for root cause investigation
 - `none`: value_diff verified NO data changes — safe, note briefly in summary
 - `null` (or absent): couldn't run value_diff (views, no PK) — unknown, use profile_diff to assess
 
-If `impacted_models` is empty: output the "No impact detected" summary (see Section 4) and STOP.
+If `confirmed_impacted_models` is empty: output the "No impact detected" summary (see Section 4) and STOP.
 
 ### Step 2 — Follow-up Investigation
 
-For each entry in `suggested_deep_dives`:
+For each model in `confirmed_impacted_models` where `next_action` is not null, follow the per-model action (`{tool, columns, reason, priority}`):
 
-**2a. Value diff** — If `value_diff` in impact_analysis shows `rows_changed > 0` or the suggestion mentions value changes, call:
+**2a. Value diff** — For models with `data_impact: confirmed` and `value_diff.rows_changed > 0`, call:
 ```
 mcp__plugin_recce_recce__value_diff_detail(model: "{model}", primary_key: "{pk}")
 ```
 This returns the exact rows that changed and by how much. Use the `rows_changed` count as your `affected_row_count`.
 
-**2b. Profile diff** — Call for statistical context:
+**2b. Profile diff** — When `next_action.tool == "profile_diff"`, call:
 ```
-mcp__plugin_recce_recce__profile_diff(model: "{model}", columns: ["{col1}", "{col2}"])
+mcp__plugin_recce_recce__profile_diff(model: "{model}", columns: {next_action.columns})
 ```
 This gives distributions (min, max, mean, nulls, distinct counts) that reveal the nature of the change.
 
-- If `columns` is null in the suggestion: call `profile_diff` on the whole model (omit `columns` parameter).
+- If `next_action.columns` is null: call `profile_diff` on the whole model (omit `columns` parameter).
 - On any MCP error: record "tool skipped for {model}: {error reason}" and continue.
-- Limit to the first 3 suggested deep dives to control cost.
+- Prioritize by `next_action.priority` (high → medium → low) and limit to the first 3 follow-ups to control cost.
 
 ### Step 3 — Root Cause Diagnosis
 
@@ -161,7 +163,7 @@ Models with `value_diff: null` have unknown data impact. This happens for:
 - Downstream-only models (not directly modified)
 - Models without a primary key (no PK Join possible)
 
-For modified models with `value_diff: null`, `suggested_deep_dives` will include a `profile_diff` suggestion (R4 rule). Follow up to get data signals.
+For modified models with `value_diff: null`, `data_impact` will be `potential` and `next_action` will include a `profile_diff` suggestion (R4 rule). Follow up to get data signals.
 
 ## Section 4: Summary Format
 
@@ -178,7 +180,7 @@ Produce the final summary using this exact template:
 |-------|--------|-------------|-----------|--------|---------------|
 | {model} | {modified/downstream} | {confirmed/none/unknown} | {delta or "No change" or "view — skipped"} | {changes or "No change"} | {rows_changed or "N/A"} |
 
-**Not impacted:** {comma-separated list from not_impacted_models}
+**Not impacted:** {comma-separated list from confirmed_not_impacted_models}
 
 ### Root Cause
 {For each model with data_impact: confirmed, explain the causal chain:}
