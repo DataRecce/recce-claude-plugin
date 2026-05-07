@@ -63,22 +63,70 @@ Present the detected configuration to the user and confirm before proceeding.
 recce check-base --format json
 ```
 
+**Fallback:** If `recce check-base` exits non-zero, prints non-JSON, or returns
+an unknown `recommendation`, tell the user the installed `recce` CLI does not
+support `check-base` yet and recommend upgrading. Then fall back to the
+**Full base build** path below using the safe stash dance.
+
 Parse the JSON response and branch on `recommendation`:
 
 | `recommendation` | Action |
 |---|---|
-| `reuse` | Skip artifact generation — base artifacts are fresh. |
-| `docs_generate` | Warn user about staleness; run `dbt docs generate --target-path target-base` to refresh. Emit: _"⚠️ Base artifacts are stale. Refreshing with dbt docs generate…"_ (AC-3) |
+| `reuse` | Skip artifact generation — base artifacts are fresh (fast path). |
+| `docs_generate` | Refresh base catalog from the **base branch** (see below). |
 | `full_build` | Run the full base build (see below). |
 
-**Full base build** (only for `full_build`):
+**Confirmation gate (REQUIRED before any branch-mutating step):** If the
+recommendation is `docs_generate` or `full_build`, before running anything,
+print a one-line summary of what will happen — base branch name, target
+branch name, expected runtime — and ask the user to confirm with `y/N`. Only
+proceed on explicit `y`. This is the safety stop the trigger-phrase entry
+point relies on.
+
+**Stale-base warning (`docs_generate` only):** Emit verbatim:
+_"⚠️ Base artifacts are stale. Refreshing with dbt docs generate…"_ (AC-3)
+
+**Safe stash dance (used by both `docs_generate` and `full_build`):**
+
+The naive `git stash; git checkout; …; git checkout; git stash pop` sequence
+is unsafe — a clean tree creates no stash entry, untracked files block
+checkout, and a mid-flight failure strands the user on the base branch with
+their stash unrestored. Use the named-stash + trap pattern instead:
+
 ```bash
-git stash
+set -e
+STASH_MSG="recce-analyze-$(date +%s)"
+TARGET_BRANCH="$(git branch --show-current)"
+
+# Cleanup runs whether the script succeeds or fails.
+cleanup() {
+  # Always return to the user's branch first.
+  git checkout "$TARGET_BRANCH" >/dev/null 2>&1 || true
+  # Pop only if our named stash still exists.
+  STASH_REF="$(git stash list | grep -F "$STASH_MSG" | head -n1 | cut -d: -f1)"
+  if [ -n "$STASH_REF" ]; then
+    git stash pop "$STASH_REF" || {
+      echo "⚠️  Stash $STASH_REF could not be popped cleanly. Resolve manually: git stash list"
+    }
+  fi
+}
+trap cleanup EXIT
+
+# Stash with --include-untracked so untracked files don't block checkout.
+# Capture whether a stash was actually created (clean tree → no entry).
+git stash push --include-untracked -m "$STASH_MSG" || true
+
 git checkout <base-branch>
-dbt build --target-path target-base
-git checkout <target-branch>
-git stash pop
 ```
+
+Then, on the base branch, run the appropriate build:
+
+- `docs_generate`: `dbt docs generate --target-path target-base`
+- `full_build`: `dbt build --target-path target-base`
+
+The `trap` then restores the user to `<target-branch>` and pops the named
+stash. If `git stash pop` reports conflicts, tell the user — do not silently
+swallow.
 
 ---
 
@@ -169,3 +217,15 @@ Common issues:
 - Database connection errors: check `profiles.yml`.
 - Missing artifacts: re-run the relevant artifact generation step.
 - Port conflicts: set `RECCE_MCP_PORT` to a different port.
+
+If the safe stash dance reports an unpopped stash on exit (the `cleanup`
+trap message), recover with:
+
+```bash
+git stash list                       # find the recce-analyze-<ts> entry
+git stash pop stash@{<n>}            # pop by exact index
+```
+
+If `recce check-base` is unavailable (older recce versions), upgrade with
+`pip install -U recce` or fall back to running `dbt build --target-path
+target-base` from the base branch via the safe stash dance.

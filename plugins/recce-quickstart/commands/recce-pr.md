@@ -21,7 +21,9 @@ First, verify Recce MCP Server is running:
 Run: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-mcp.sh`
 
 - If `STATUS=RUNNING`: Continue with analysis.
-- If `STATUS=NOT_RUNNING`: Tell the user to run `/recce-setup` first.
+- If `STATUS=NOT_RUNNING`: Tell the user to run `/recce-analyze` (or
+  `/recce-setup` if they prefer the legacy step-by-step flow) to start
+  the MCP server first.
 
 ## Get PR Information
 

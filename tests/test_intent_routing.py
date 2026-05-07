@@ -27,10 +27,17 @@ def _load_phrases() -> list[str]:
     ]
 
 
-def test_fixture_has_ten_phrases():
-    """Fixture must contain exactly 10 canonical trigger phrases."""
+def test_fixture_phrase_count():
+    """
+    Fixture must contain exactly 8 canonical trigger phrases (M4 v2).
+
+    The original 10-phrase set included two ambiguous phrases — "review my
+    changes" and "show me what broke" — that collide with non-Recce intents
+    (general code review, test-failure triage). They were removed in
+    response to PR #26 review feedback to narrow the auto-trigger surface.
+    """
     phrases = _load_phrases()
-    assert len(phrases) == 10, f"Expected 10 phrases, got {len(phrases)}: {phrases}"
+    assert len(phrases) == 8, f"Expected 8 phrases, got {len(phrases)}: {phrases}"
 
 
 def test_all_phrases_trigger_merged_command():
