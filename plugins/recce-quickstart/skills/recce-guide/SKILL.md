@@ -18,13 +18,36 @@ Activate this skill when you detect:
 4. **dbt command execution** - User runs `dbt run`, `dbt build`, `dbt test`
 5. **Data quality questions** - User asks about data validation, data quality, testing data
 
+### Canonical Trigger Phrases (route to `/recce-analyze`)
+
+The following phrases SHOULD route to the merged bootstrap. When you detect
+one in a dbt project, propose `/recce-analyze` to the user. The command
+itself confirms intent before any branch-mutating step (Step 3), so you do
+not need a separate Y/N prompt before invocation — but you MUST NOT skip
+the in-command confirmation by editing or shortcutting the procedure.
+
+- "summarize the impact of my changes"
+- "summarize my PR impact"
+- "what changed vs main"
+- "data diff for this branch"
+- "compare my branch to main"
+- "what models did I change"
+- "run recce"
+- "check my dbt changes"
+
 ## Available Commands
 
 When in a dbt project, inform the user about these commands:
 
-- `/recce-setup` - One-click environment setup for Recce
-- `/recce-pr` - Analyze PR data impact
+- `/recce-analyze` - **One-shot setup + PR impact analysis** (primary command)
 - `/recce-check` - Run data validation checks
+
+### Legacy commands
+
+These commands remain available but are superseded by `/recce-analyze`:
+
+- `/recce-setup` - Step-by-step guided setup only
+- `/recce-pr` - PR analysis when the MCP server is already running
 
 ## Available Recce MCP Tools
 
@@ -60,7 +83,7 @@ When Recce MCP Server is running (check with `bash ${CLAUDE_PLUGIN_ROOT}/scripts
 ```
 I notice this is a dbt project! I can help you with data validation using Recce.
 
-Try `/recce-setup` to get started, or ask me about:
+Try `/recce-analyze` for one-shot setup + PR impact analysis, or ask me about:
 • Comparing data changes between branches
 • Validating PR data impact
 • Running data quality checks
