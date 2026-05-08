@@ -249,10 +249,29 @@ def test_agents_md_has_error_recovery_section():
 # ---------------------------------------------------------------------------
 
 
+def _exec_lines(body: str) -> str:
+    """Drop blank lines and comment-only lines so substring assertions
+    cannot pass on documentation comments alone.
+
+    Round-3 review found the round-2 test passed on `AGENTS.md` even when
+    the only dbt references inside the trap fence were `# docs_generate:
+    dbt docs generate ...` comments — comments that an agent running the
+    block verbatim would never execute. Filtering to executable lines
+    forces the substring check to find a real command (or the explicit
+    `<chosen build command>` placeholder), not just a `#`-prefixed hint.
+    """
+    return "\n".join(
+        line
+        for line in body.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
+
+
 def test_build_inside_trap_scope():
     """
     Round-2 ISSUE 1: the dbt build command MUST appear inside the same
-    fenced bash block as ``trap cleanup EXIT``.
+    fenced bash block as ``trap cleanup EXIT`` — and as an EXECUTABLE
+    line, not as a comment that an agent might never substitute.
 
     Each fenced bash block is an isolated subprocess (per
     ``recce-setup.md:212-213``). When the block ends, the trap fires and
@@ -261,6 +280,13 @@ def test_build_inside_trap_scope():
     fence therefore writes target-branch SQL into ``target-base/`` and the
     MCP diff tools return empty diffs (silent wrong-answer). This test
     fails on that exact structural defect.
+
+    Round-3 review tightened the scan: ``_exec_lines`` strips comments and
+    blanks before the substring check so the AGENTS.md
+    "comments-inside-fence-with-no-executable-line" variant of the
+    round-2 ISSUE 1 cannot regress past the test (the round-2 version
+    passed against that variant because ``# dbt docs generate …`` matched
+    the substring).
     """
     for label, text in [
         ("recce-analyze.md", _command_text()),
@@ -272,22 +298,67 @@ def test_build_inside_trap_scope():
             if "trap cleanup EXIT" not in body:
                 continue
             found_trap_fence = True
+            exec_text = _exec_lines(body)
             assert (
-                "dbt docs generate" in body
-                or "dbt build" in body
-                or "<chosen build command>" in body
+                "dbt docs generate" in exec_text
+                or "dbt build" in exec_text
+                or "<chosen build command>" in exec_text
             ), (
-                f"{label}: the bash block containing `trap cleanup EXIT` "
-                "must also contain a dbt command (or the explicit "
-                "<chosen build command> placeholder). Otherwise the trap "
-                "fires before the build runs and target-branch SQL gets "
-                "written into target-base/."
+                f"{label}: trap-protected fence must contain an "
+                "EXECUTABLE dbt command or the `<chosen build command>` "
+                "placeholder. Comments documenting which command to run "
+                "do not satisfy — Codex/Claude running the block "
+                "verbatim would no-op."
             )
             break
         assert found_trap_fence, (
             f"{label}: no fenced bash block containing `trap cleanup EXIT` "
             "found — the safe stash dance must be wrapped in a trap."
         )
+
+
+def test_build_inside_trap_scope_catches_pre_fix_agents_variant():
+    """
+    Empirical proof that the tightened ``test_build_inside_trap_scope``
+    catches the pre-fix AGENTS.md variant of round-2 ISSUE 1.
+
+    Constructs the exact fence body that lived in AGENTS.md before the
+    round-2 fix — comment-only dbt references, no executable build line —
+    and asserts the executable-line filter rejects it. Round-3 review
+    flagged that the round-2 test passed against this body because the
+    raw substring check matched ``# docs_generate: dbt docs generate
+    --target-path target-base``. With ``_exec_lines`` filtering the
+    comments out, only ``git stash push …`` and ``git checkout
+    <base-branch>`` survive — neither contains a dbt command nor the
+    placeholder, so the assertion is expected to fail.
+    """
+    pre_fix_agents_fence_body = """
+set -e
+STASH_MSG="recce-analyze-$(date +%s)"
+TARGET_BRANCH="$(git branch --show-current)"
+
+cleanup() {
+  git checkout "$TARGET_BRANCH" >/dev/null 2>&1 || true
+  STASH_REF="$(git stash list | grep -F "$STASH_MSG" | head -n1 | cut -d: -f1)"
+  if [ -n "$STASH_REF" ]; then
+    git stash pop "$STASH_REF" || \
+      echo "⚠️  Stash $STASH_REF could not be popped cleanly. Run: git stash list"
+  fi
+}
+trap cleanup EXIT
+
+git stash push --include-untracked -m "$STASH_MSG" || true
+git checkout <base-branch>
+# docs_generate:  dbt docs generate --target-path target-base
+# full_build:     dbt build         --target-path target-base
+"""
+    exec_text = _exec_lines(pre_fix_agents_fence_body)
+    assert "dbt docs generate" not in exec_text
+    assert "dbt build" not in exec_text
+    assert "<chosen build command>" not in exec_text
+    # Sanity: the surviving lines should be the executable ones only.
+    assert "git stash push --include-untracked" in exec_text
+    assert "git checkout <base-branch>" in exec_text
 
 
 def test_timing_threshold_parity_claude_codex():
