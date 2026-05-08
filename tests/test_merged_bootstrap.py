@@ -239,3 +239,90 @@ def test_agents_md_has_error_recovery_section():
     assert "Error Recovery" in agents, (
         "AGENTS.md is missing an Error Recovery section (parity with recce-analyze.md)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Round-2 review tests — added in response to PR #26 round-2 review
+# (issuecomment-4386104070). The first asserts the trap-scope defect cannot
+# silently regress; the next two close the test-coverage gaps the reviewer
+# flagged as NOTEs.
+# ---------------------------------------------------------------------------
+
+
+def test_build_inside_trap_scope():
+    """
+    Round-2 ISSUE 1: the dbt build command MUST appear inside the same
+    fenced bash block as ``trap cleanup EXIT``.
+
+    Each fenced bash block is an isolated subprocess (per
+    ``recce-setup.md:212-213``). When the block ends, the trap fires and
+    returns the user to the target branch *before* any build command in a
+    later, separate shell can run on the base branch. A build outside the
+    fence therefore writes target-branch SQL into ``target-base/`` and the
+    MCP diff tools return empty diffs (silent wrong-answer). This test
+    fails on that exact structural defect.
+    """
+    for label, text in [
+        ("recce-analyze.md", _command_text()),
+        ("AGENTS.md", _agents_text()),
+    ]:
+        found_trap_fence = False
+        for block in re.finditer(r"```bash\s*(.*?)```", text, re.DOTALL):
+            body = block.group(1)
+            if "trap cleanup EXIT" not in body:
+                continue
+            found_trap_fence = True
+            assert (
+                "dbt docs generate" in body
+                or "dbt build" in body
+                or "<chosen build command>" in body
+            ), (
+                f"{label}: the bash block containing `trap cleanup EXIT` "
+                "must also contain a dbt command (or the explicit "
+                "<chosen build command> placeholder). Otherwise the trap "
+                "fires before the build runs and target-branch SQL gets "
+                "written into target-base/."
+            )
+            break
+        assert found_trap_fence, (
+            f"{label}: no fenced bash block containing `trap cleanup EXIT` "
+            "found — the safe stash dance must be wrapped in a trap."
+        )
+
+
+def test_timing_threshold_parity_claude_codex():
+    """
+    Round-2 NOTE 1: the 120 s timing threshold (AC-2) is referenced in
+    both files, but no test pinned them together — a future edit could
+    drift one to e.g. 180 s and CI would not notice. Anchored regex
+    requires "120 s" (with optional whitespace) so incidental "120 lines"
+    in prose does not satisfy the assertion.
+    """
+    for label, text in [
+        ("recce-analyze.md", _command_text()),
+        ("AGENTS.md", _agents_text()),
+    ]:
+        assert re.search(r"\b120\s*s\b", text), (
+            f"{label}: missing the canonical 120 s timing threshold "
+            "(AC-2). Drift from the parity file will surface different "
+            "fast-path semantics to Claude vs Codex users."
+        )
+
+
+def test_confirmation_gate_parity_claude_codex():
+    """
+    Round-2 NOTE 2: the Y/N confirmation gate is the central safety stop
+    that the trigger-phrase entry point relies on. Without a parity test,
+    a future refactor could remove it from one file and CI would not
+    notice. Both files must mention "Confirmation gate" in their
+    instructions.
+    """
+    for label, text in [
+        ("recce-analyze.md", _command_text()),
+        ("AGENTS.md", _agents_text()),
+    ]:
+        assert "Confirmation gate" in text, (
+            f"{label}: missing the 'Confirmation gate' safety stop. "
+            "The trigger-phrase entry point relies on this gate to "
+            "prevent unattended `git checkout` / `dbt build` runs."
+        )

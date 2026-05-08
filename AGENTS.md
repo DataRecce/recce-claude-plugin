@@ -77,6 +77,13 @@ is unsafe (clean tree creates no stash entry; untracked files block checkout;
 mid-flight failure strands the user on the base branch). Use the named-stash
 + trap pattern:
 
+**The dbt build MUST run inside this same fenced block.** Each fenced
+shell block is an isolated subprocess; when the block exits, the `trap`
+returns the user to `$TARGET_BRANCH`. Running the build in a *separate*
+shell after this block writes target-branch SQL into `target-base/` and
+produces empty diffs. Substitute the command chosen in Step 3 in place
+of `<chosen build command>` below — do not split it out.
+
 ```bash
 set -e
 STASH_MSG="recce-analyze-$(date +%s)"
@@ -94,8 +101,12 @@ trap cleanup EXIT
 
 git stash push --include-untracked -m "$STASH_MSG" || true
 git checkout <base-branch>
-# docs_generate:  dbt docs generate --target-path target-base
-# full_build:     dbt build         --target-path target-base
+
+# Run ONE based on Step 3 recommendation (substitute below):
+# - docs_generate: dbt docs generate --target-path target-base
+# - full_build:    dbt build         --target-path target-base
+<chosen build command>
+# trap fires on script exit → returns to $TARGET_BRANCH and pops stash.
 ```
 
 **Step 4 — Target artifacts:**

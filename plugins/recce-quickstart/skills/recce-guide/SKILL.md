@@ -101,11 +101,11 @@ between your base and current environments.
 ```
 I can help analyze this PR's impact on your data.
 
-Use `/recce-pr` to see:
-• Which models changed
-• Schema modifications
-• Row count differences
-• Downstream impact
+Use `/recce-analyze` to see:
+• Impact summary
+• Lineage changes
+• Schema changes
+• Row count changes
 ```
 
 ## Recce Cloud Value Propositions

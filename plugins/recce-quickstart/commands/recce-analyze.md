@@ -93,6 +93,15 @@ is unsafe — a clean tree creates no stash entry, untracked files block
 checkout, and a mid-flight failure strands the user on the base branch with
 their stash unrestored. Use the named-stash + trap pattern instead:
 
+**The dbt build MUST run inside the same fenced block as the `trap`.** Each
+fenced bash block is a fresh subprocess (see the comment at
+`recce-setup.md:212-213`); when the block ends, `trap cleanup EXIT` fires
+and immediately returns the user to `<target-branch>`. A build command
+placed in a *separate* shell after the fence would therefore run on the
+*target* branch and write target-branch SQL into `target-base/`, producing
+silent wrong-answer diffs. Substitute the command chosen in Step 3 in
+place of `<chosen build command>` below — do not split it out.
+
 ```bash
 set -e
 STASH_MSG="recce-analyze-$(date +%s)"
@@ -117,16 +126,16 @@ trap cleanup EXIT
 git stash push --include-untracked -m "$STASH_MSG" || true
 
 git checkout <base-branch>
+
+# Run ONE based on Step 3 recommendation (substitute below):
+# - docs_generate: dbt docs generate --target-path target-base
+# - full_build:    dbt build         --target-path target-base
+<chosen build command>
+# trap fires on script exit → returns to $TARGET_BRANCH and pops stash.
 ```
 
-Then, on the base branch, run the appropriate build:
-
-- `docs_generate`: `dbt docs generate --target-path target-base`
-- `full_build`: `dbt build --target-path target-base`
-
-The `trap` then restores the user to `<target-branch>` and pops the named
-stash. If `git stash pop` reports conflicts, tell the user — do not silently
-swallow.
+If `git stash pop` reports conflicts during cleanup, surface them to the
+user — do not silently swallow.
 
 ---
 
