@@ -3,6 +3,9 @@ name: recce-setup
 description: Guided setup for Recce environment in a dbt project
 ---
 
+> **Deprecated (as of 003-pre-pr-one-sentence):** Use `/recce-analyze` for one-shot
+> setup + analysis. `/recce-setup` remains available for step-by-step setup only.
+
 # Recce Setup - Guided Environment Configuration
 
 You are helping the user set up Recce in their dbt project. Follow these steps in order, checking each prerequisite before proceeding.

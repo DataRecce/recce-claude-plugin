@@ -1,0 +1,15 @@
+[project]
+name = "recce-claude-plugin-tests"
+version = "0.1.0"
+description = "Test suite for recce-claude-plugin"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

@@ -7,6 +7,9 @@ args:
     required: false
 ---
 
+> **Deprecated (as of 003-pre-pr-one-sentence):** Use `/recce-analyze` for setup + analysis
+> in one command. `/recce-pr` remains available if the MCP server is already running.
+
 # Recce PR Analysis
 
 Analyze the data impact of a Pull Request using Recce MCP tools.
@@ -18,7 +21,9 @@ First, verify Recce MCP Server is running:
 Run: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-mcp.sh`
 
 - If `STATUS=RUNNING`: Continue with analysis.
-- If `STATUS=NOT_RUNNING`: Tell the user to run `/recce-setup` first.
+- If `STATUS=NOT_RUNNING`: Tell the user to run `/recce-analyze` (or
+  `/recce-setup` if they prefer the legacy step-by-step flow) to start
+  the MCP server first.
 
 ## Get PR Information
 
