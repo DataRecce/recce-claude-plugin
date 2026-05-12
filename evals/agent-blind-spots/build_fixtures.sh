@@ -24,13 +24,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURES_DIR="${SCRIPT_DIR}/fixtures"
 TMP_DIR="${SCRIPT_DIR}/.tmp"
 JSG_DIR="${TMP_DIR}/jaffle_shop_golden"
+SOURCES_DIR="${TMP_DIR}/sources"
 VENV_DIR="${TMP_DIR}/.venv"
 PROFILES_DIR="${TMP_DIR}/profiles"
 
 JSG_REPO="DataRecce/jaffle_shop_golden"
 JSG_URL="https://github.com/${JSG_REPO}.git"
 
-mkdir -p "${TMP_DIR}" "${PROFILES_DIR}"
+mkdir -p "${TMP_DIR}" "${PROFILES_DIR}" "${SOURCES_DIR}"
 
 # ---- Step 1: clone / fetch the source repo ---------------------------------
 if [[ ! -d "${JSG_DIR}/.git" ]]; then
@@ -206,6 +207,17 @@ build_fixture() {
         "${artifacts}/manifest-after.json" \
         "${artifacts}/compiled-after" \
         "${artifacts}/catalog-after.json"
+
+    # Materialize a per-fixture worktree at the head SHA so eval runners can
+    # read the head-SHA source for THIS fixture without the working tree
+    # state being clobbered by the next iteration of the build loop.
+    # The shared JSG_DIR is build-script scratch only and must not be read
+    # by eval runners (see RUBRIC.md Tier-0 contract).
+    local source_dir="${SOURCES_DIR}/${slug}"
+    if [[ -d "${source_dir}" ]]; then
+        git -C "${JSG_DIR}" worktree remove --force "${source_dir}" 2>/dev/null || rm -rf "${source_dir}"
+    fi
+    git -C "${JSG_DIR}" worktree add --quiet --detach "${source_dir}" "${head_sha}"
 
     # PR #20 intermediate snapshot — keyed on the well-known SHA in commits.txt.
     if [[ "${slug}" == "pr44-promotion-flags" ]]; then

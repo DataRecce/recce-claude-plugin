@@ -6,14 +6,14 @@ Agent-only verdict for the fixture below. **Frozen at commit**: once this file l
 
 - PR: <https://github.com/DataRecce/jaffle_shop_golden/pull/20>
 - Title: `PR44 — Add promotion payment flag + customer has-promotion flag`
-- Verification class: `schema-expansion`
+- Verification class: `schema-expansion + (intermediate row-filter accident)`
 
 ## Agent run
 
 - Agent: `<TBD by eval run>`
 - Model: `<TBD by eval run — provider/model-id as reported by agent runtime>`
 - Date captured: `<TBD by eval run — YYYY-MM-DD>`
-- Inputs available to agent: dbt manifest, compiled SQL pre/post, git diff. **No Recce, no warehouse access.**
+- Inputs available to agent: per the Tier-0 runtime contract in `../../RUBRIC.md` — `diff.patch`, `manifest-before.json` / `manifest-after.json`, `compiled-before/` / `compiled-after/`, `catalog-before.json` / `catalog-after.json`, plus read access to the head-SHA source tree at `../../.tmp/sources/pr44-promotion-flags/`. **No Recce, no warehouse access, no `dbt parse`/`compile`/`docs generate` (regenerating the artifacts violates the frozen-input contract).**
 
 ## Prompt given to agent
 

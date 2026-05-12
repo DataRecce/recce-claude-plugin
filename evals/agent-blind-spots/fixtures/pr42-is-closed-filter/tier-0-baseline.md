@@ -13,7 +13,7 @@ Agent-only verdict for the fixture below. **Frozen at commit**: once this file l
 - Agent: `<TBD by eval run>`
 - Model: `<TBD by eval run — provider/model-id as reported by agent runtime>`
 - Date captured: `<TBD by eval run — YYYY-MM-DD>`
-- Inputs available to agent: dbt manifest, compiled SQL pre/post, git diff. **No Recce, no warehouse access.**
+- Inputs available to agent: per the Tier-0 runtime contract in `../../RUBRIC.md` — `diff.patch`, `manifest-before.json` / `manifest-after.json`, `compiled-before/` / `compiled-after/`, `catalog-before.json` / `catalog-after.json`, plus read access to the head-SHA source tree at `../../.tmp/sources/pr42-is-closed-filter/`. **No Recce, no warehouse access, no `dbt parse`/`compile`/`docs generate` (regenerating the artifacts violates the frozen-input contract).**
 
 ## Prompt given to agent
 

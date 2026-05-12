@@ -70,8 +70,9 @@ Pinned versions for reproducibility:
 ## Reproducing or extending
 
 - Add a fixture: create `fixtures/<slug>/{README.md,tier-0-baseline.md,commits.txt,diff.patch}` and re-run `build_fixtures.sh`. The script reads `commits.txt` to discover the SHAs to build against.
-- The script's only required system dependency is `uv` (and `git`). Everything else is installed into `evals/agent-blind-spots/.tmp/.venv/` from pinned versions in the script.
-- Eval-baseline assets are **warehouse-free** — the local-dbt-only artifacts (manifest, compiled SQL, git diff) are the canonical inputs to a Tier-0 baseline run.
+- Required system tools: `uv`, `git`. Everything else is installed into `evals/agent-blind-spots/.tmp/.venv/` from pinned versions in the script.
+- **GitHub access**: `DataRecce/jaffle_shop_golden` is a **private** repo. The first run clones it over HTTPS, which requires either (a) a credential helper with access to the repo, or (b) running `gh auth setup-git` once so `git clone https://github.com/...` uses your `gh` token. Subsequent runs only `git fetch`, so the credential only matters on first clone. If you hit a "Repository not found / authentication failed" error, that's the cause.
+- Eval-baseline assets are **warehouse-free** — the local-dbt-only artifacts (manifest, compiled SQL, catalog, git diff) plus the per-fixture head-SHA source tree at `.tmp/sources/<slug>/` are the canonical Tier-0 inputs.
 
 ## `commits.txt` format
 
