@@ -52,17 +52,22 @@ To make Tier-0 baselines reproducible across runs, the agent receives **the same
 - `fixtures/<id>/artifacts/manifest-before.json`, `manifest-after.json` — dbt manifests pre/post
 - `fixtures/<id>/artifacts/compiled-before/`, `compiled-after/` — compiled SQL trees pre/post
 - `fixtures/<id>/artifacts/catalog-before.json`, `catalog-after.json` — schema-only (row/col stats are zero in this fixture set; documented in the fixtures README)
-- Read access to the dbt project source at the head SHA (the `.tmp/jaffle_shop_golden/` checkout left by the build script)
+- Read access to the dbt project source at the head SHA — materialized **per fixture** by `build_fixtures.sh` at `evals/agent-blind-spots/.tmp/sources/<id>/`. The shared clone at `.tmp/jaffle_shop_golden/` is build-script scratch; do NOT read from it because the build loop leaves it at the last fixture's SHA.
 
-**Generic tools allowed at Tier 0:** file read, grep / ripgrep, `jq`, `git log` / `git diff` / `git show` against the head-SHA checkout. Anything the agent could plausibly run on a developer's laptop without Recce installed.
+**Generic tools allowed at Tier 0:** file read, grep / ripgrep, `jq`, `git log` / `git diff` / `git show` against the per-fixture source tree at `.tmp/sources/<id>/`. Anything the agent could plausibly run on a developer's laptop without Recce installed *and without regenerating any frozen Tier-0 input*.
 
-**Explicitly NOT allowed at Tier 0:** Recce CLI, Recce MCP, any `/recce-*` skill (including `/recce-verify`), warehouse access, `dbt run`, `dbt test`, live SQL execution, comparison against a base/prod environment beyond what is already in the artifacts above.
+**Explicitly NOT allowed at Tier 0:** Recce CLI, Recce MCP, any `/recce-*` skill (including `/recce-verify`), warehouse access, `dbt run`, `dbt test`, `dbt parse`, `dbt compile`, `dbt docs generate`, live SQL execution, or any other command that regenerates the manifest/compiled/catalog artifacts. The artifacts under `fixtures/<id>/artifacts/` are the **frozen Tier-0 inputs**; regenerating them lets the agent reach beyond the captured snapshot (e.g., picking up later upstream-package changes) and breaks reproducibility across runs. Also not allowed: comparison against a base/prod environment beyond what is already in the artifacts above.
 
-**Prompt shape** — eval runners may adapt wording; the *capabilities* above are the contract:
+**Prompt shape** — eval runners write the actual prompt and **MUST record it verbatim** in the Tier-0 baseline's "Prompt given to agent" section, including any agent-specific framing. To keep baselines comparable across runs:
 
-> "Review this dbt PR. The inputs above are available. Decide catch / miss / partial per the rubric, recommend approve / request-changes / abstain, and write verdict + verbatim reasoning into `tier-0-baseline.md`."
+- The prompt MUST describe the inputs above without paraphrasing what each contains (re-describing the inputs primes the agent in ways that vary between runners).
+- The prompt MUST ask for catch / miss / partial and approve / request-changes / abstain in those terms.
+- The prompt MUST NOT add steering language toward humility ("be cautious about flagging issues", "only flag when you're confident") OR aggression ("find as many issues as possible", "be thorough"). Use neutral framing; "review this PR" is enough.
+- Agent-specific scaffolding (file-access mode, tool whitelisting, system prompt) is allowed but must be recorded in the baseline's Notes section so the delta is interpretable.
 
-Agent-specific implementations (Claude Code, Codex, …) MAY add scaffolding (file-access mode, tool whitelisting) but MUST NOT add Recce capabilities or anything beyond the generic-tools list. Any deviation must be recorded in the Tier-0 baseline's Notes section so the delta is interpretable.
+A reference shape that satisfies the constraints:
+
+> "Review this dbt PR. The inputs listed in the Tier-0 runtime contract are available. Decide catch / miss / partial per the rubric, recommend approve / request-changes / abstain, and write verdict + verbatim reasoning into `tier-0-baseline.md`."
 
 ## Per-fixture artifact
 

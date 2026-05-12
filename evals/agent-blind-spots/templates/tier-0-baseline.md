@@ -13,7 +13,7 @@ Agent-only verdict for the fixture below. **Frozen at commit**: once this file l
 - Agent: `<Claude Code | Codex | other>`
 - Model: `<provider/model-id — record exactly as reported by the agent runtime>`
 - Date captured: `<YYYY-MM-DD>`
-- Inputs available to agent: dbt manifest, compiled SQL pre/post, git diff. **No Recce, no warehouse access.**
+- Inputs available to agent: per the Tier-0 runtime contract in `RUBRIC.md` — `diff.patch`, `manifest-before.json` / `manifest-after.json`, `compiled-before/` / `compiled-after/`, `catalog-before.json` / `catalog-after.json`, plus read access to the per-fixture head-SHA source tree at `.tmp/sources/<fixture-id>/`. **No Recce, no warehouse access, no `dbt parse`/`compile`/`docs generate` (regenerating the artifacts violates the frozen-input contract).**
 
 ## Prompt given to agent
 

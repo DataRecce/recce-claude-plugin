@@ -2,7 +2,9 @@
 
 Action-prioritized shortlist of backend gaps revealed by the eval. **Target ≤5 entries.** This is a discipline against the broader capability backlog bleeding back in; it is not an ordinal performance score.
 
-If after a receipts-style review you have ≥6 genuinely independent blockers that cannot be subsumed under each other or deferred to a later iteration, exceed the target and add one line at the top of the entries section: `Target exceeded because <reason>.` "Genuinely independent" is the bar — if two entries share a fix, they are one entry.
+Before exceeding the target, **each candidate entry MUST name its "Cheapest fix" explicitly**, and entries that name the same fix collapse to a single entry. Symptoms are not entries: "row count delta", "duplicate key", "null distribution", "CLL delta", "lineage delta", and "semantic delta" all caused by "no base-environment comparison" are ONE entry, not six. The "Cheapest fix" field is the deduplication key.
+
+If after naming fixes you still have ≥6 distinct fixes that genuinely cannot be subsumed or deferred, exceed the target and add one line at the top of the entries section: `Target exceeded because <reason>; each entry below names a distinct fix in its "Cheapest fix" field — verify by reading them as a vertical column.` Reviewers should be able to skim the Cheapest-fix column and see no duplicates.
 
 Items not promoted to this report are explicitly NOT in scope for v1 backend additions; they remain in the broader capability backlog as reference for future iterations.
 
