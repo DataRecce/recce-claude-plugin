@@ -11,7 +11,7 @@ Frozen agent-only verdict for the fixture below. Captured **before** scoring wit
 ## Agent run
 
 - Agent: `<Claude Code | Codex | other>`
-- Model: `<model-id, e.g. claude-opus-4-7>`
+- Model: `<provider/model-id — record exactly as reported by the agent runtime>`
 - Date captured: `<YYYY-MM-DD>`
 - Inputs available to agent: dbt manifest, compiled SQL pre/post, git diff. **No Recce, no warehouse access.**
 

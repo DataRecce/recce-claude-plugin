@@ -4,7 +4,7 @@ Qualitative case-study eval for the `/recce-verify` skill v1.
 
 ## What this is
 
-Six PR fixtures from `DataRecce/jaffle_shop_golden` exercising distinct verification classes (semantic, row-grain, refactor, type, schema expansion, multi-model). Each fixture is scored on three dimensions: binary catch, confidence tier, and counterfactual delta against a frozen agent-only baseline. Output is a gap report (≤5 entries) that gates v1 backend additions.
+Six PR fixtures from `DataRecce/jaffle_shop_golden` exercising distinct verification classes (semantic, row-grain, refactor, type, schema expansion, multi-model). Each fixture produces one structured case study viewed through three lenses (binary catch, primary evidence tier, counterfactual delta against a frozen agent-only baseline) — these are observation axes, not metrics; **do not aggregate them**. Output is an action-prioritized gap report (target ≤5 entries, with an overflow path) that gates v1 backend additions.
 
 ## Why qualitative, not quantitative
 
@@ -23,7 +23,7 @@ evals/agent-blind-spots/
 │       └── artifacts/          ← manifest snapshots, compiled SQL pre/post, diff
 ├── templates/
 │   ├── tier-0-baseline.md      ← per-fixture frozen baseline template
-│   └── gap-report.md           ← gap-report template (≤5 entries)
+│   └── gap-report.md           ← gap-report template (target ≤5 entries)
 └── runs/
     └── <YYYY-MM-DD>/
         ├── gap-report.md           ← filled gap report for the run
@@ -33,10 +33,10 @@ evals/agent-blind-spots/
 ## How to run
 
 1. Pick a fixture in `fixtures/`.
-2. If `tier-0-baseline.md` is missing, run the agent in Tier-0 mode (no Recce) and capture the verdict per the template. Commit before proceeding — the baseline must be frozen before scoring with Recce.
+2. If `tier-0-baseline.md` is missing, run the agent in Tier-0 mode (no Recce) and capture the verdict per the template. Get the baseline file reviewed and committed **before** the with-Recce run begins — once committed, the baseline is frozen and must not be edited to fit later evidence.
 3. Run the agent with `/recce-verify` available.
 4. Score the run in `runs/<YYYY-MM-DD>/<pr-id>-scoring.md` using `RUBRIC.md`.
-5. Once all six fixtures are scored, fill `runs/<YYYY-MM-DD>/gap-report.md` (≤5 entries, ranked).
+5. Once all six fixtures are scored, fill `runs/<YYYY-MM-DD>/gap-report.md` (action-prioritized; target ≤5 entries, exceed-with-rationale allowed).
 
 ## References
 
