@@ -35,6 +35,13 @@ mkdir -p "${TMP_DIR}" "${PROFILES_DIR}" "${SOURCES_DIR}"
 
 # ---- Step 1: clone / fetch the source repo ---------------------------------
 if [[ ! -d "${JSG_DIR}/.git" ]]; then
+    # Pre-flight auth: jaffle_shop_golden is private. Confirm the runner has
+    # access before the bare "Repository not found" git clone error.
+    if ! git ls-remote "${JSG_URL}" >/dev/null 2>&1; then
+        echo "Cannot reach ${JSG_REPO} (the repo is private)." >&2
+        echo "Run 'gh auth setup-git' once so git uses your gh token, or configure another credential helper." >&2
+        exit 1
+    fi
     echo "Cloning ${JSG_REPO} into ${JSG_DIR}..." >&2
     git clone "${JSG_URL}" "${JSG_DIR}"
 fi
@@ -43,6 +50,10 @@ fi
 echo "Fetching all branches + PR heads from ${JSG_REPO}..." >&2
 git -C "${JSG_DIR}" fetch --quiet origin
 git -C "${JSG_DIR}" fetch --quiet origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
+
+# Sweep orphan worktree registrations from prior runs where the user
+# rm -rf'd .tmp/sources/<slug>/ without `git worktree remove`. Idempotent.
+git -C "${JSG_DIR}" worktree prune
 
 # ---- Step 2: venv with pinned versions -------------------------------------
 if [[ ! -d "${VENV_DIR}" ]]; then
