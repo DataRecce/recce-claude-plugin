@@ -42,6 +42,28 @@ Order the three catch values as `catch > partial > miss` (closer to ground truth
 
 The baseline file is **frozen at commit**: once it lands on the branch, the with-Recce run can begin, and the baseline must not be edited even if later evidence suggests it should be revised. Without this control, results conflate model variance with Recce signal. Baseline format → see `templates/tier-0-baseline.md`.
 
+## Tier-0 agent runtime contract
+
+To make Tier-0 baselines reproducible across runs, the agent receives **the same raw material Recce ingests, minus Recce's structured surfacing**. This isolates "what Recce contributes" from "what the agent could have figured out from artifacts alone." A weaker Tier-0 setup (e.g., diff-only, no artifacts) would understate the agent's solo capability and overstate Recce's signal.
+
+**Inputs per fixture** (populated by `build_fixtures.sh`):
+
+- `fixtures/<id>/diff.patch` — source-model diff between base and head
+- `fixtures/<id>/artifacts/manifest-before.json`, `manifest-after.json` — dbt manifests pre/post
+- `fixtures/<id>/artifacts/compiled-before/`, `compiled-after/` — compiled SQL trees pre/post
+- `fixtures/<id>/artifacts/catalog-before.json`, `catalog-after.json` — schema-only (row/col stats are zero in this fixture set; documented in the fixtures README)
+- Read access to the dbt project source at the head SHA (the `.tmp/jaffle_shop_golden/` checkout left by the build script)
+
+**Generic tools allowed at Tier 0:** file read, grep / ripgrep, `jq`, `git log` / `git diff` / `git show` against the head-SHA checkout. Anything the agent could plausibly run on a developer's laptop without Recce installed.
+
+**Explicitly NOT allowed at Tier 0:** Recce CLI, Recce MCP, any `/recce-*` skill (including `/recce-verify`), warehouse access, `dbt run`, `dbt test`, live SQL execution, comparison against a base/prod environment beyond what is already in the artifacts above.
+
+**Prompt shape** — eval runners may adapt wording; the *capabilities* above are the contract:
+
+> "Review this dbt PR. The inputs above are available. Decide catch / miss / partial per the rubric, recommend approve / request-changes / abstain, and write verdict + verbatim reasoning into `tier-0-baseline.md`."
+
+Agent-specific implementations (Claude Code, Codex, …) MAY add scaffolding (file-access mode, tool whitelisting) but MUST NOT add Recce capabilities or anything beyond the generic-tools list. Any deviation must be recorded in the Tier-0 baseline's Notes section so the delta is interpretable.
+
 ## Per-fixture artifact
 
 Each fixture's scoring lives in `runs/<YYYY-MM-DD>/<pr-id>-scoring.md` with this structure:
