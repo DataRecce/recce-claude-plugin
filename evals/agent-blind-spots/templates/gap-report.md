@@ -22,6 +22,7 @@ These are reasons you give in prose, not a score you compute. If you find yourse
 ### 1. `<gap-name>`
 
 - Fixtures where this blocked the agent: `<pr-id, pr-id, ...>`
+- Receipts: `<runs/<YYYY-MM-DD>/<pr-id>-scoring.md, ...>` — the per-fixture scoring entries that surfaced the gap
 - What the gap is, in plain terms: `<one sentence — no Recce-internal jargon>`
 - Cheapest fix: `<skill-side prompt change | MCP tool addition | honest single-env degradation — pick one>`
 - Why this fix beats the other two: `<one sentence>`

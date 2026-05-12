@@ -30,13 +30,17 @@ Which capability tier produced the **decisive** piece of evidence the agent cite
 
 ### 3. Counterfactual delta against frozen baseline
 
-Binary catch (lens 1) is recorded **for both** the Tier-0 baseline run and the with-Recce run. The case study's headline finding is the **delta** between those two binary-catch values, not the absolute with-Recce value:
+Binary catch (lens 1) is recorded **for both** the Tier-0 baseline run and the with-Recce run. The case study's headline finding is the **delta** between those two binary-catch values, not the absolute with-Recce value.
 
-- baseline `miss` → with-Recce `catch` = Recce shifted the verdict (positive signal)
-- baseline `catch` → with-Recce `catch` = Recce was not needed for this fixture (still useful — explains *what* Recce showed)
-- baseline `catch` → with-Recce `miss` = Recce misled the agent (rare but important — investigate Notes)
+Order the three catch values as `catch > partial > miss` (closer to ground truth → less close). Every baseline → with-Recce pair falls into one of three buckets:
 
-Freeze the Tier-0 baseline **before** running with Recce so it cannot be edited to fit the new evidence. Without this control, results conflate model variance with Recce signal. Baseline format → see `templates/tier-0-baseline.md`.
+| Delta bucket | Examples | What it means |
+|--------------|----------|---------------|
+| **Improvement** | `miss → catch`, `miss → partial`, `partial → catch` | Recce shifted the verdict toward ground truth. Positive signal — describe *what* evidence drove the shift. |
+| **Same** | `miss → miss`, `partial → partial`, `catch → catch` | No shift in verdict. Still useful — for `catch → catch`, record what Recce showed (validates redundancy or reveals Recce wasn't needed); for `miss → miss` or `partial → partial`, the agent ignored or didn't surface decisive evidence — feed back into the skill prompt. |
+| **Regression** | `catch → partial`, `catch → miss`, `partial → miss` | Recce misled the agent. Rare but important — investigate in Notes; this is a v1-release-blocker signal. |
+
+The baseline file is **frozen at commit**: once it lands on the branch, the with-Recce run can begin, and the baseline must not be edited even if later evidence suggests it should be revised. Without this control, results conflate model variance with Recce signal. Baseline format → see `templates/tier-0-baseline.md`.
 
 ## Per-fixture artifact
 
