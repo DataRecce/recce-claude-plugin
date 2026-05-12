@@ -1,0 +1,121 @@
+diff --git a/models/customers.sql b/models/customers.sql
+index 9aedd70..67dd22a 100644
+--- a/models/customers.sql
++++ b/models/customers.sql
+@@ -1,69 +1,16 @@
+-with customers as (
+-
+-    select * from {{ ref('stg_customers') }}
+-
+-),
+-
+-orders as (
+-
+-    select * from {{ ref('stg_orders') }}
+-
+-),
+-
+-payments as (
+-
+-    select * from {{ ref('stg_payments') }}
+-
+-),
+-
+-customer_orders as (
+-
+-        select
+-        customer_id,
+-
+-        min(order_date) as first_order,
+-        max(order_date) as most_recent_order,
+-        count(order_id) as number_of_orders
+-    from orders
+-
+-    group by customer_id
+-
+-),
+-
+-customer_payments as (
+-
+-    select
+-        orders.customer_id,
+-        sum(amount)::bigint as total_amount
+-
+-    from payments
+-
+-    left join orders on
+-         payments.order_id = orders.order_id
+-
+-    group by orders.customer_id
+-
+-),
+-
+-final as (
+-
+-    select
+-        customers.customer_id,
+-        customers.first_name,
+-        customers.last_name,
+-        customer_orders.first_order,
+-        customer_orders.most_recent_order,
+-        customer_orders.number_of_orders,
+-        customer_payments.total_amount as customer_lifetime_value
+-
+-    from customers
+-
+-    left join customer_orders
+-        on customers.customer_id = customer_orders.customer_id
+-
+-    left join customer_payments
+-        on  customers.customer_id = customer_payments.customer_id
+-
+-)
+-
+-select * from final
++select
++    customers.customer_id,
++    customers.first_name,
++    customers.last_name,
++    customer_orders.first_order,
++    customer_orders.most_recent_order,
++    customer_orders.number_of_orders,
++    customer_payments.total_amount as customer_lifetime_value
++
++from {{ ref('stg_customers') }} customers
++
++left join {{ ref('int_customer_orders') }} customer_orders
++    on customers.customer_id = customer_orders.customer_id
++
++left join {{ ref('int_customer_payments') }} customer_payments
++    on  customers.customer_id = customer_payments.customer_id
+diff --git a/models/int_customer_orders.sql b/models/int_customer_orders.sql
+new file mode 100644
+index 0000000..eec8bc8
+--- /dev/null
++++ b/models/int_customer_orders.sql
+@@ -0,0 +1,9 @@
++select
++    customer_id,
++
++    min(order_date) as first_order,
++    max(order_date) as most_recent_order,
++    count(order_id) as number_of_orders
++from {{ ref('stg_orders') }}
++
++group by customer_id
+diff --git a/models/int_customer_payments.sql b/models/int_customer_payments.sql
+new file mode 100644
+index 0000000..b36ac82
+--- /dev/null
++++ b/models/int_customer_payments.sql
+@@ -0,0 +1,10 @@
++select
++    orders.customer_id,
++    sum(amount)::bigint as total_amount
++
++from {{ ref('stg_payments') }} payments
++
++left join {{ ref('stg_orders') }} orders on
++     payments.order_id = orders.order_id
++
++group by orders.customer_id

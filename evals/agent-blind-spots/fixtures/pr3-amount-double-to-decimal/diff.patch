@@ -1,0 +1,13 @@
+diff --git a/models/staging/stg_payments.sql b/models/staging/stg_payments.sql
+index 28b8e8b..8900825 100644
+--- a/models/staging/stg_payments.sql
++++ b/models/staging/stg_payments.sql
+@@ -12,7 +12,7 @@ renamed as (
+         payment_method,
+ 
+         -- `amount` is currently stored in cents, so we convert it to dollars
+-        amount / 100 as amount
++        (amount / 100)::DECIMAL(10,2) amount
+ 
+     from source
+ 

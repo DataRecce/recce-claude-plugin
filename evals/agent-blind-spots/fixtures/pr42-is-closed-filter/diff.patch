@@ -1,0 +1,38 @@
+diff --git a/models/orders.sql b/models/orders.sql
+index cbb2934..5b0beee 100644
+--- a/models/orders.sql
++++ b/models/orders.sql
+@@ -36,6 +36,7 @@ final as (
+         orders.customer_id,
+         orders.order_date,
+         orders.status,
++        orders.is_closed,
+ 
+         {% for payment_method in payment_methods -%}
+ 
+@@ -50,7 +51,7 @@ final as (
+ 
+     left join order_payments
+         on orders.order_id = order_payments.order_id
+-
++    where is_closed = true
+ )
+ 
+ select * from final
+diff --git a/models/staging/stg_orders.sql b/models/staging/stg_orders.sql
+index ec77ac2..7d4eb7d 100644
+--- a/models/staging/stg_orders.sql
++++ b/models/staging/stg_orders.sql
+@@ -10,10 +10,9 @@ renamed as (
+         id as order_id,
+         user_id as customer_id,
+         order_date,
+-        status
+-
++        status,
++        status = 'completed' as is_closed
+     from source
+-
+ )
+ 
+ select * from renamed
