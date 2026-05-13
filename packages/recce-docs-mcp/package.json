@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc",
     "build:bundle": "bash scripts/build-bundle.sh",
+    "prepare": "npm run build",
     "postinstall": "npm run build",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
