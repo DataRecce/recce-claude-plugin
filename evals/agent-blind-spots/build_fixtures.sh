@@ -51,9 +51,9 @@ echo "Fetching all branches + PR heads from ${JSG_REPO}..." >&2
 git -C "${JSG_DIR}" fetch --quiet origin
 git -C "${JSG_DIR}" fetch --quiet origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
 
-# Sweep orphan worktree registrations from prior runs where the user
-# rm -rf'd .tmp/sources/<slug>/ without `git worktree remove`. Idempotent.
-git -C "${JSG_DIR}" worktree prune
+# Allow per-fixture clones below to fetch arbitrary SHAs from this local
+# cache (needed for `git fetch <local-cache> <sha>`). Idempotent.
+git -C "${JSG_DIR}" config uploadpack.allowAnySHA1InWant true
 
 # ---- Step 2: venv with pinned versions -------------------------------------
 if [[ ! -d "${VENV_DIR}" ]]; then
@@ -219,16 +219,43 @@ build_fixture() {
         "${artifacts}/compiled-after" \
         "${artifacts}/catalog-after.json"
 
-    # Materialize a per-fixture worktree at the head SHA so eval runners can
-    # read the head-SHA source for THIS fixture without the working tree
-    # state being clobbered by the next iteration of the build loop.
-    # The shared JSG_DIR is build-script scratch only and must not be read
-    # by eval runners (see RUBRIC.md Tier-0 contract).
+    # Materialize a per-fixture standalone repo at the head SHA so eval
+    # runners can read the head-SHA source for THIS fixture in isolation.
+    #
+    # Tier-0 frozen-input contract (RUBRIC.md): the agent must not see
+    # later commits on the same branch, other fixtures' SHAs, or any
+    # other ref from the upstream repo. A `git worktree add` off
+    # ${JSG_DIR} would share that cache's object database — `git log
+    # --all`, `git rev-parse origin/pr/<n>`, `git show <sibling-sha>`
+    # would all succeed inside the fixture. Instead, we initialise a
+    # fresh repo and fetch only the head SHA from the local cache, so
+    # the fixture's `.git` ends up structurally minimal: one commit, no
+    # remotes, no other refs reachable.
     local source_dir="${SOURCES_DIR}/${slug}"
-    if [[ -d "${source_dir}" ]]; then
-        git -C "${JSG_DIR}" worktree remove --force "${source_dir}" 2>/dev/null || rm -rf "${source_dir}"
+    # `fetch <local-cache> <sha>` needs the full 40-char SHA; the
+    # commits.txt entries are abbreviated. Resolve via the cache first.
+    local full_head
+    full_head="$(git -C "${JSG_DIR}" rev-parse "${head_sha}^{commit}")"
+    rm -rf "${source_dir}"
+    mkdir -p "${source_dir}"
+    git -C "${source_dir}" init --quiet
+    # Single-commit fetch from the local cache, landed into a named
+    # local ref (refs/fixture/head). No `git remote add` — leaving the
+    # repo with zero configured remotes means a stray `git fetch`
+    # inside the fixture cannot pull additional history.
+    git -C "${source_dir}" fetch --quiet --depth 1 --no-tags \
+        "${JSG_DIR}" "+${full_head}:refs/fixture/head"
+    git -C "${source_dir}" checkout --quiet --detach refs/fixture/head
+
+    # Tier-0 leak check: the fixture's reachable history (across all
+    # refs + HEAD) must contain only its own head commit. Anything
+    # larger means a ref or pack from the cache leaked through.
+    local reachable
+    reachable="$(git -C "${source_dir}" rev-list --all HEAD --count)"
+    if [[ "${reachable}" != "1" ]]; then
+        echo "FAIL ${slug} (Tier-0 leak: rev-list --all HEAD --count = ${reachable}, expected 1)" >&2
+        return 1
     fi
-    git -C "${JSG_DIR}" worktree add --quiet --detach "${source_dir}" "${head_sha}"
 
     # PR #20 intermediate snapshot — keyed on the well-known SHA in commits.txt.
     if [[ "${slug}" == "pr44-promotion-flags" ]]; then
