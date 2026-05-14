@@ -6,12 +6,16 @@
 #
 # What the workflow does:
 #   1. Mints a short-lived token from the recce-action-bot GitHub App
-#   2. Bumps packages/recce-docs-mcp/package.json by the chosen semver level,
-#      commits as the App, pushes to main
-#   3. Tests + builds
+#   2. Computes next version and bumps package.json + package-lock.json
+#      LOCALLY in the runner (no commit, no push yet)
+#   3. Tests + builds against the bumped version
 #   4. Publishes to npm via OIDC Trusted Publishing (provenance attested)
-#   5. Tags the commit as docs-mcp-v<new-version> and pushes the tag as the App
-#   6. Creates a GitHub Release with auto-generated notes
+#   5. ONLY after publish succeeds: commits the bump to main, tags
+#      docs-mcp-v<new-version>, pushes the tag, creates a GitHub Release
+#
+# Why this order: keeps main in sync with what is actually on npm. If any
+# step before publish fails (deps, tests, build, OIDC, npm), main is
+# untouched and a retry with the same bump produces the same version.
 #
 # Requires:
 #   - npm Trusted Publisher configured for @datarecce/docs-mcp pointing at
@@ -50,7 +54,7 @@ jobs:
       - name: Mint GitHub App token
         # Short-lived (1h) installation token from the recce-action-bot App.
         # Used for everything that needs to push to a protected main: the
-        # bump commit, the tag, and the GitHub Release.
+        # post-publish bump commit, the tag, and the GitHub Release.
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
@@ -64,6 +68,11 @@ jobs:
           ref: main
           token: ${{ steps.app-token.outputs.token }}
 
+      - name: Configure git identity for App
+        run: |
+          git config user.name "recce-action-bot[bot]"
+          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -75,15 +84,7 @@ jobs:
         # Node 20 ships with npm 10.x, so install a newer npm explicitly.
         run: npm install -g npm@latest
 
-      - name: Configure git identity for App
-        run: |
-          # GitHub Apps commit as <app-slug>[bot] <app-id>+<app-slug>[bot]@users.noreply.github.com
-          # The bot user id resolves once the app is installed; use the
-          # app-token step's installation id via the noreply email pattern.
-          git config user.name "recce-action-bot[bot]"
-          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
-
-      - name: Bump package.json and push to main
+      - name: Compute next version (local bump, no commit yet)
         id: bump
         env:
           BUMP: ${{ github.event.inputs.bump }}
@@ -91,22 +92,18 @@ jobs:
         run: |
           OLD_VERSION=$(node -p "require('./package.json').version")
           # `npm version <type>` writes the new version to package.json +
-          # package-lock.json and prints "v<new>" to stdout.
+          # package-lock.json and prints "v<new>" to stdout. With
+          # --no-git-tag-version it does NOT touch git — the files are only
+          # modified in the working tree. The commit/push happen later,
+          # after publish succeeds.
           NEW_VERSION=$(npm version "$BUMP" --no-git-tag-version | tr -d 'v')
           TAG="docs-mcp-v$NEW_VERSION"
-          echo "Bumping package.json: $OLD_VERSION -> $NEW_VERSION (bump=$BUMP)"
+          echo "Computed next version: $OLD_VERSION -> $NEW_VERSION (bump=$BUMP)"
 
-          # Sanity check: tag for the computed version must not already exist.
-          # `git tag -l` is plumbing-safe in a partially-fetched checkout
-          # (fetch-depth: 0 already covers us, but this is defensive).
           if [ -n "$(git tag -l "$TAG")" ]; then
             echo "ERROR: tag $TAG already exists. Was this version already released?"
             exit 1
           fi
-
-          git add package.json package-lock.json
-          git commit -m "chore(docs-mcp): bump to v$NEW_VERSION"
-          git push origin main
 
           echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -125,10 +122,21 @@ jobs:
 
       - name: Publish to npm
         # Auth happens via OIDC (Trusted Publisher). No NPM_TOKEN needed.
-        # --provenance is implied when publishing via Trusted Publishing, but
-        # passing it explicitly is harmless and keeps intent clear.
+        # If this step fails, main is untouched and the same `bump` input
+        # will produce the same version on retry.
         working-directory: packages/recce-docs-mcp
         run: npm publish --provenance --access public
+
+      - name: Commit version bump to main
+        # Runs only after publish succeeds. The bumped files were modified
+        # in the working tree back at the "Compute next version" step.
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new-version }}
+        working-directory: packages/recce-docs-mcp
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore(docs-mcp): bump to v$NEW_VERSION"
+          git push origin main
 
       - name: Create and push tag
         env:
