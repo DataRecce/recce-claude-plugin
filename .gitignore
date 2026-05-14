@@ -43,6 +43,10 @@ temp/
 *.tmp
 .worktrees/
 
+# DRC-3402 eval fixtures — regenerable artifacts (see evals/agent-blind-spots/fixtures/README.md)
+evals/agent-blind-spots/.tmp/
+evals/agent-blind-spots/fixtures/*/artifacts/
+
 # Coverage / editor logs
 .coverage
 .nvimlog

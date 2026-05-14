@@ -1,0 +1,4 @@
+bd407ac Fix Snowflake compatibility: use = operator and boolor_agg
+274e750 Fix equality operator in stg_payments.sql for Snowflake compatibility
+1500eb4 Remove where condition
+23b96ca Add promotion information

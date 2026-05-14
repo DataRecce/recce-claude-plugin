@@ -1,0 +1,46 @@
+diff --git a/models/customers.sql b/models/customers.sql
+index 9aedd70..9b440c2 100644
+--- a/models/customers.sql
++++ b/models/customers.sql
+@@ -34,7 +34,8 @@ customer_payments as (
+ 
+     select
+         orders.customer_id,
+-        sum(amount)::bigint as total_amount
++        sum(amount)::bigint as total_amount,
++        boolor_agg(is_promotion) as has_promoted_orders
+ 
+     from payments
+ 
+@@ -54,7 +55,8 @@ final as (
+         customer_orders.first_order,
+         customer_orders.most_recent_order,
+         customer_orders.number_of_orders,
+-        customer_payments.total_amount as customer_lifetime_value
++        customer_payments.total_amount as customer_lifetime_value,
++        customer_payments.has_promoted_orders
+ 
+     from customers
+ 
+@@ -63,7 +65,6 @@ final as (
+ 
+     left join customer_payments
+         on  customers.customer_id = customer_payments.customer_id
+-
+ )
+ 
+ select * from final
+diff --git a/models/staging/stg_payments.sql b/models/staging/stg_payments.sql
+index 28b8e8b..9977ba8 100644
+--- a/models/staging/stg_payments.sql
++++ b/models/staging/stg_payments.sql
+@@ -12,7 +12,8 @@ renamed as (
+         payment_method,
+ 
+         -- `amount` is currently stored in cents, so we convert it to dollars
+-        amount / 100 as amount
++        amount / 100 as amount,
++        payment_method = 'coupon' as is_promotion
+ 
+     from source
+ 
