@@ -1,0 +1,246 @@
+diff --git a/models/customer_segments.sql b/models/customer_segments.sql
+index 6cbda43..3e17d2d 100644
+--- a/models/customer_segments.sql
++++ b/models/customer_segments.sql
+@@ -3,6 +3,7 @@ SELECT
+     customer_id,
+     number_of_orders,
+     customer_lifetime_value,
++    net_customer_lifetime_value,
+     CASE 
+         WHEN number_of_orders > 10 THEN 'Frequent Buyer'
+         WHEN number_of_orders BETWEEN 5 AND 10 THEN 'Occasional Buyer'
+@@ -12,5 +13,10 @@ SELECT
+         WHEN customer_lifetime_value > 4000 THEN 'High Value'
+         WHEN customer_lifetime_value BETWEEN 1500 AND 4000 THEN 'Medium Value'
+         ELSE 'Low Value'
+-    END AS value_segment
++    END AS value_segment,
++    CASE 
++        WHEN net_customer_lifetime_value > 4000 THEN 'High Value'
++        WHEN net_customer_lifetime_value BETWEEN 1500 AND 4000 THEN 'Medium Value'
++        ELSE 'Low Value'
++    END AS net_value_segment
+ FROM {{ ref('customers') }}
+diff --git a/models/customers.sql b/models/customers.sql
+index 9aedd70..69a1918 100644
+--- a/models/customers.sql
++++ b/models/customers.sql
+@@ -34,12 +34,17 @@ customer_payments as (
+ 
+     select
+         orders.customer_id,
+-        sum(amount)::bigint as total_amount
++        sum(amount)::bigint as gross_amount, -- Includes coupon amount
++        sum(amount - coupon_amount)::bigint as net_amount, -- Excludes coupon amount
+ 
+     from payments
+ 
+     left join orders on
+          payments.order_id = orders.order_id
++        and orders.status = 'completed'
++
++    where payments.amount is not null -- Exclude incomplete payments
++        and payments.amount > 0 -- Exclude negative amounts
+ 
+     group by orders.customer_id
+ 
+@@ -54,7 +59,8 @@ final as (
+         customer_orders.first_order,
+         customer_orders.most_recent_order,
+         customer_orders.number_of_orders,
+-        customer_payments.total_amount as customer_lifetime_value
++        customer_payments.gross_amount as customer_lifetime_value, -- Gross CLV
++        customer_payments.net_amount as net_customer_lifetime_value -- Net CLV
+ 
+     from customers
+ 
+diff --git a/models/finance_revenue.sql b/models/finance_revenue.sql
+new file mode 100644
+index 0000000..0434bc8
+--- /dev/null
++++ b/models/finance_revenue.sql
+@@ -0,0 +1,31 @@
++ with payments as (
++    select * from {{ ref('stg_payments') }}
++),
++
++payments_revenue as (
++    select
++        order_id,
++        sum(amount) as gross_revenue,
++        sum(amount - coupon_amount) as net_revenue
++    from payments
++    group by order_id
++),
++
++orders as (
++    select * from {{ ref('stg_orders') }}
++),
++
++final as (  
++    select
++        orders.order_id,
++        orders.customer_id,
++        orders.order_date,
++        orders.status,
++        payments_revenue.gross_revenue,
++        payments_revenue.net_revenue
++    from orders
++    left join payments_revenue
++        on orders.order_id = payments_revenue.order_id
++)
++
++select * from final
+diff --git a/models/schema.yml b/models/schema.yml
+index 13345cb..30acf18 100644
+--- a/models/schema.yml
++++ b/models/schema.yml
+@@ -2,7 +2,7 @@ version: 2
+ 
+ models:
+   - name: customers
+-    description: This table has basic information about a customer, as well as some derived facts based on a customer's orders
++    description: This table has basic information about a customer, as well as some derived facts based on a customer's orders and payments, including both gross and profit-based customer lifetime value metrics
+ 
+     columns:
+       - name: customer_id
+@@ -26,11 +26,17 @@ models:
+       - name: number_of_orders
+         description: Count of the number of orders a customer has placed
+ 
++      - name: customer_lifetime_value
++        description: Total value of a customer's orders including coupon amounts
++
++      - name: net_customer_lifetime_value
++        description: Total value of a customer's orders excluding coupon amounts
++
+       - name: total_order_amount
+         description: Total value (AUD) of a customer's orders
+ 
+   - name: customer_segments
+-    description: This table categorizes customers based on their ordering behavior and value to the company, using derived metrics from their order history.
++    description: This table categorizes customers based on their ordering behavior and value to the company, using derived metrics from their order history and payment information.
+ 
+     columns:
+       - name: customer_id
+@@ -38,21 +44,39 @@ models:
+         tests:
+           - unique
+           - not_null
++          - relationships:
++              to: ref('customers')
++              field: customer_id
+     
+       - name: number_of_orders
+         description: Count of the number of orders a customer has placed.
++        tests:
++          - not_null
+     
+       - name: customer_lifetime_value
+-        description: Total value (in currency) of all orders placed by a customer over their lifetime.
++        description: Total value of all orders including coupon amounts.
++    
++      - name: net_customer_lifetime_value
++        description: Total value of all orders excluding coupon amounts.
+     
+       - name: order_frequency_segment
+         description: Categorization of customers based on how frequently they place orders.
++        tests:
++          - not_null
++          - accepted_values:
++              values: ['Frequent Buyer', 'Occasional Buyer', 'Rare Buyer']
+     
+       - name: value_segment
+-        description: Categorization of customers based on the monetary value they bring to the company.
++        description: Categorization of customers based on the gross monetary value they bring to the company.
+         tests:
+           - accepted_values:
+-              values:  ['High Value', 'Medium Value', 'Low Value']
++              values: ['High Value', 'Medium Value', 'Low Value']
++    
++      - name: net_value_segment
++        description: Categorization of customers based on the profit-based monetary value they bring to the company.
++        tests:
++          - accepted_values:
++              values: ['High Value', 'Medium Value', 'Low Value']
+ 
+   - name: customer_order_pattern
+     description: This table provides detailed insights into the ordering patterns of customers, including the frequency and recency of their orders.
+@@ -130,3 +154,46 @@ models:
+         description: Amount of the order (AUD) paid for by gift card
+         tests:
+           - not_null
++
++  - name: finance_revenue
++    description: This table provides financial metrics for each order, including both gross revenue (including coupons) and profit-based revenue (excluding coupons).
++
++    columns:
++      - name: order_id
++        description: This is a unique identifier for an order
++        tests:
++          - unique
++          - not_null
++          - relationships:
++              to: ref('stg_orders')
++              field: order_id
++
++      - name: customer_id
++        description: Foreign key to the customers table
++        tests:
++          - not_null
++          - relationships:
++              to: ref('customers')
++              field: customer_id
++
++      - name: order_date
++        description: Date (UTC) that the order was placed
++        tests:
++          - not_null
++
++      - name: status
++        description: Current status of the order
++        tests:
++          - not_null
++          - accepted_values:
++              values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
++
++      - name: gross_revenue
++        description: Total revenue including coupon amounts
++        tests:
++          - not_null
++
++      - name: net_revenue
++        description: Total revenue excluding coupon amounts
++        tests:
++          - not_null
+diff --git a/models/staging/schema.yml b/models/staging/schema.yml
+index c207e4c..adc0166 100644
+--- a/models/staging/schema.yml
++++ b/models/staging/schema.yml
+@@ -29,3 +29,11 @@ models:
+         tests:
+           - accepted_values:
+               values: ['credit_card', 'coupon', 'bank_transfer', 'gift_card']
++      - name: amount
++        description: Amount in dollars (converted from cents)
++        tests:
++          - not_null
++      - name: coupon_amount
++        description: Amount of the payment that was paid using a coupon (in dollars)
++        tests:
++          - not_null
+diff --git a/models/staging/stg_payments.sql b/models/staging/stg_payments.sql
+index 28b8e8b..65cef0b 100644
+--- a/models/staging/stg_payments.sql
++++ b/models/staging/stg_payments.sql
+@@ -12,7 +12,8 @@ renamed as (
+         payment_method,
+ 
+         -- `amount` is currently stored in cents, so we convert it to dollars
+-        amount / 100 as amount
++        amount / 100 as amount,
++        (payment_method = 'coupon')::int * (amount / 100) as coupon_amount
+ 
+     from source
+ 

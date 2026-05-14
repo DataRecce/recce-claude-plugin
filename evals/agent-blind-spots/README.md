@@ -16,11 +16,15 @@ N=6 PRs is too small for statistics. The eval is a **named-case narrative**, not
 evals/agent-blind-spots/
 ├── README.md            ← this file
 ├── RUBRIC.md            ← scoring rules; read before adding or scoring fixtures
-├── fixtures/            ← one directory per PR fixture (built in DRC-3402)
+├── build_fixtures.sh    ← rebuilds the gitignored artifacts/ per fixture (DRC-3402)
+├── fixtures/            ← one directory per PR fixture
+│   ├── README.md               ← fixture-set caveats + build instructions
 │   └── <pr-id-slug>/
 │       ├── README.md           ← what the PR does + expected verdicts
 │       ├── tier-0-baseline.md  ← frozen agent-only verdict (template in templates/)
-│       └── artifacts/          ← manifest snapshots, compiled SQL pre/post, diff
+│       ├── commits.txt         ← base + head SHAs read by build_fixtures.sh
+│       ├── diff.patch          ← small source-models diff base..head (committed)
+│       └── artifacts/          ← gitignored; produced by build_fixtures.sh
 ├── templates/
 │   ├── tier-0-baseline.md      ← per-fixture frozen baseline template
 │   └── gap-report.md           ← gap-report template (target ≤5 entries)
@@ -29,6 +33,14 @@ evals/agent-blind-spots/
         ├── gap-report.md           ← filled gap report for the run
         └── <pr-id>-scoring.md      ← per-fixture scoring per RUBRIC.md
 ```
+
+Before any eval run, build the gitignored artifacts:
+
+```bash
+cd evals/agent-blind-spots && ./build_fixtures.sh
+```
+
+See [`fixtures/README.md`](./fixtures/README.md) for the full per-fixture caveats (PR #16 merge head, PR #20 intermediate trap, PR #46 stress test, empty-DuckDB catalog stats, PR #14 older base) and pinned versions.
 
 ## How to run
 

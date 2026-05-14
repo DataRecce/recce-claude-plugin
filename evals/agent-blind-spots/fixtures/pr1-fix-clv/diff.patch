@@ -1,0 +1,12 @@
+diff --git a/models/customers.sql b/models/customers.sql
+index 9aedd70..61a8302 100644
+--- a/models/customers.sql
++++ b/models/customers.sql
+@@ -41,6 +41,7 @@ customer_payments as (
+     left join orders on
+          payments.order_id = orders.order_id
+ 
++    where orders.status = 'completed'
+     group by orders.customer_id
+ 
+ ),
