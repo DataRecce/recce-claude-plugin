@@ -74,15 +74,13 @@ jobs:
           git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
+        # Node 24 ships with npm 11+, which supports OIDC Trusted Publishing
+        # natively. Node 20 / 22 ship with npm 10.x and require a separate
+        # `npm install -g npm@latest` step.
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Upgrade npm for Trusted Publishing
-        # npm Trusted Publishing (OIDC auth, no token) requires npm >= 11.5.1.
-        # Node 20 ships with npm 10.x, so install a newer npm explicitly.
-        run: npm install -g npm@latest
 
       - name: Compute next version (local bump, no commit yet)
         id: bump
