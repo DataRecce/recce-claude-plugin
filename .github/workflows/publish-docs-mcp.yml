@@ -1,18 +1,17 @@
 # Publishes @datarecce/docs-mcp to npm.
 #
 # Manual trigger, fully automated bump + publish + tag + release. To release:
-#   Actions → "Publish docs-mcp" → Run workflow → enter version (e.g. 0.1.1)
-#   or: gh workflow run "Publish docs-mcp" -f version=0.1.1
+#   Actions → "Publish docs-mcp" → Run workflow → pick bump (patch/minor/major)
+#   or: gh workflow run "Publish docs-mcp" -f bump=patch
 #
 # What the workflow does:
-#   1. Validates the version input is valid semver
-#   2. Mints a short-lived token from the recce-action-bot GitHub App
-#   3. Bumps packages/recce-docs-mcp/package.json to the input version (if
-#      not already at that version) and pushes a commit to main as the App
-#   4. Tests + builds
-#   5. Publishes to npm via OIDC Trusted Publishing (provenance attested)
-#   6. Tags the commit as docs-mcp-v<version> and pushes the tag as the App
-#   7. Creates a GitHub Release with auto-generated notes
+#   1. Mints a short-lived token from the recce-action-bot GitHub App
+#   2. Bumps packages/recce-docs-mcp/package.json by the chosen semver level,
+#      commits as the App, pushes to main
+#   3. Tests + builds
+#   4. Publishes to npm via OIDC Trusted Publishing (provenance attested)
+#   5. Tags the commit as docs-mcp-v<new-version> and pushes the tag as the App
+#   6. Creates a GitHub Release with auto-generated notes
 #
 # Requires:
 #   - npm Trusted Publisher configured for @datarecce/docs-mcp pointing at
@@ -28,9 +27,15 @@ name: Publish docs-mcp
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version of @datarecce/docs-mcp to publish (e.g. 0.1.1). The workflow will bump package.json if needed.'
+      bump:
+        description: 'Semver bump applied to current package.json version'
         required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
@@ -42,14 +47,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate version input
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "ERROR: '$VERSION' is not a valid semver version (expected e.g. 0.1.1 or 1.0.0-rc.1)"
-            exit 1
-          fi
-
       - name: Mint GitHub App token
         # Short-lived (1h) installation token from the recce-action-bot App.
         # Used for everything that needs to push to a protected main: the
@@ -66,14 +63,6 @@ jobs:
           fetch-depth: 0
           ref: main
           token: ${{ steps.app-token.outputs.token }}
-
-      - name: Check tag does not already exist
-        run: |
-          TAG="docs-mcp-v${{ github.event.inputs.version }}"
-          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "ERROR: tag $TAG already exists. Either it was already released, or pick a different version."
-            exit 1
-          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -94,26 +83,33 @@ jobs:
           git config user.name "recce-action-bot[bot]"
           git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
 
-      - name: Bump package.json (if needed) and push to main
+      - name: Bump package.json and push to main
         id: bump
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
+          BUMP: ${{ github.event.inputs.bump }}
         working-directory: packages/recce-docs-mcp
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          if [ "$PKG_VERSION" = "$INPUT_VERSION" ]; then
-            echo "package.json already at v$INPUT_VERSION — skipping bump"
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          OLD_VERSION=$(node -p "require('./package.json').version")
+          # `npm version <type>` writes the new version to package.json +
+          # package-lock.json and prints "v<new>" to stdout.
+          NEW_VERSION=$(npm version "$BUMP" --no-git-tag-version | tr -d 'v')
+          TAG="docs-mcp-v$NEW_VERSION"
+          echo "Bumping package.json: $OLD_VERSION -> $NEW_VERSION (bump=$BUMP)"
+
+          # Sanity check: tag for the computed version must not already exist.
+          # `git tag -l` is plumbing-safe in a partially-fetched checkout
+          # (fetch-depth: 0 already covers us, but this is defensive).
+          if [ -n "$(git tag -l "$TAG")" ]; then
+            echo "ERROR: tag $TAG already exists. Was this version already released?"
+            exit 1
           fi
 
-          echo "Bumping package.json: $PKG_VERSION -> $INPUT_VERSION"
-          npm version "$INPUT_VERSION" --no-git-tag-version --allow-same-version
-
           git add package.json package-lock.json
-          git commit -m "chore(docs-mcp): bump to v$INPUT_VERSION"
+          git commit -m "chore(docs-mcp): bump to v$NEW_VERSION"
           git push origin main
-          echo "bumped=true" >> "$GITHUB_OUTPUT"
+
+          echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         working-directory: packages/recce-docs-mcp
@@ -136,16 +132,16 @@ jobs:
 
       - name: Create and push tag
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
+          NEW_VERSION: ${{ steps.bump.outputs.new-version }}
+          TAG: ${{ steps.bump.outputs.tag }}
         run: |
-          TAG="docs-mcp-v$INPUT_VERSION"
-          git tag -a "$TAG" -m "@datarecce/docs-mcp v$INPUT_VERSION"
+          git tag -a "$TAG" -m "@datarecce/docs-mcp v$NEW_VERSION"
           git push origin "$TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: docs-mcp-v${{ github.event.inputs.version }}
-          name: '@datarecce/docs-mcp v${{ github.event.inputs.version }}'
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: '@datarecce/docs-mcp v${{ steps.bump.outputs.new-version }}'
           generate_release_notes: true
           token: ${{ steps.app-token.outputs.token }}
