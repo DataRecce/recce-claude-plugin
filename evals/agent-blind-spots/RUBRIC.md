@@ -20,7 +20,9 @@ Did the agent reach the correct verdict — catch the intentional bug, or correc
 
 ### 2. Primary evidence tier (+ capability subset used)
 
-Which capability tier produced the **decisive** piece of evidence the agent cited in its verdict? If the agent cited evidence from multiple tiers, record the highest decisive tier and list secondary citations under Notes. Tiers are nested — a higher tier always has access to lower-tier inputs.
+Which capability tier produced the **decisive** piece of evidence the agent cited in its verdict? Tiers are nested — a higher tier always has access to lower-tier inputs.
+
+If the agent cited evidence from multiple tiers, record the higher tier as decisive (tier ordering `0 < 1 < 2` applies across tiers) and list secondary citations under Notes. Within Tier 1, the subsets `1a / 1b / 1c` are **not** ordered — they are orthogonal capability surfaces (and `1a` is computed via `1b`, so they're entangled). If the agent cited evidence from multiple Tier-1 subsets, mark the subset whose evidence appeared in the verdict sentence as **primary**, the rest as **supporting**; primary/supporting replaces "highest" within Tier 1.
 
 | Tier | Agent capability set |
 |------|----------------------|
@@ -41,6 +43,8 @@ Order the three catch values as `catch > partial > miss` (closer to ground truth
 | **Regression** | `catch → partial`, `catch → miss`, `partial → miss` | Recce misled the agent. Rare but important — investigate in Notes; this is a v1-release-blocker signal. |
 
 The baseline file is **frozen at commit**: once it lands on the branch, the with-Recce run can begin, and the baseline must not be edited even if later evidence suggests it should be revised. Without this control, results conflate model variance with Recce signal. Baseline format → see `templates/tier-0-baseline.md`.
+
+**Same-model contract.** The with-Recce run MUST use the same agent + model as the frozen Tier-0 baseline (the `Agent` and `Model` fields in `templates/tier-0-baseline.md`). If a model upgrade lands mid-eval, either re-capture the baseline (and re-commit it) or record the mismatch in the per-fixture artifact's Notes section and treat that fixture's delta as confounded. Without this constraint, the lens-3 delta conflates Recce signal with model drift.
 
 ## Tier-0 agent runtime contract
 
