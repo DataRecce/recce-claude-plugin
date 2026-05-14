@@ -12,8 +12,9 @@
 #   - Creates a GitHub Release
 #
 # Requires:
-#   - NPM_TOKEN secret (npm automation token with publish access to @datarecce)
-#   - id-token: write permission for provenance attestation
+#   - npm Trusted Publisher configured for @datarecce/docs-mcp pointing at
+#     this repo + workflow (no NPM_TOKEN needed — auth via OIDC)
+#   - id-token: write permission for OIDC + provenance attestation
 name: Publish docs-mcp
 
 on:
@@ -55,6 +56,11 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Upgrade npm for Trusted Publishing
+        # npm Trusted Publishing (OIDC auth, no token) requires npm >= 11.5.1.
+        # Node 20 ships with npm 10.x, so install a newer npm explicitly.
+        run: npm install -g npm@latest
+
       - name: Verify package.json version matches input
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
@@ -84,9 +90,10 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
+        # Auth happens via OIDC (Trusted Publisher). No NPM_TOKEN needed.
+        # --provenance is implied when publishing via Trusted Publishing, but
+        # passing it explicitly is harmless and keeps intent clear.
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create and push tag
         run: |
