@@ -1,8 +1,15 @@
-# Publishes @datarecce/docs-mcp to npm when a docs-mcp-v* tag is pushed.
+# Publishes @datarecce/docs-mcp to npm.
 #
-# Triggered by:
-#   scripts/release.sh (which creates and pushes the tag)
-#   or a manual `git tag docs-mcp-vX.Y.Z && git push origin docs-mcp-vX.Y.Z`
+# Manual-trigger only. To release:
+#   1. Land a PR that bumps packages/recce-docs-mcp/package.json to the target version.
+#   2. Run this workflow from the Actions tab (or `gh workflow run`) and provide
+#      the version number, e.g. "0.1.1".
+#
+# The workflow:
+#   - Verifies package.json on main matches the input version
+#   - Tags the commit as docs-mcp-v<version>
+#   - Publishes to npm with provenance attestation
+#   - Creates a GitHub Release
 #
 # Requires:
 #   - NPM_TOKEN secret (npm automation token with publish access to @datarecce)
@@ -10,13 +17,10 @@
 name: Publish docs-mcp
 
 on:
-  push:
-    tags:
-      - 'docs-mcp-v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Existing tag to publish (e.g. docs-mcp-v0.1.0)'
+      version:
+        description: 'Version of @datarecce/docs-mcp to publish (e.g. 0.1.1). Must already be set in package.json on the target branch.'
         required: true
 
 permissions:
@@ -32,10 +36,18 @@ jobs:
         working-directory: packages/recce-docs-mcp
 
     steps:
+      - name: Validate version input
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "ERROR: '$VERSION' is not a valid semver version (expected e.g. 0.1.1 or 1.0.0-rc.1)"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -43,23 +55,24 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Extract version from tag
-        id: version
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          VERSION="${TAG#docs-mcp-v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Tag: $TAG"
-          echo "Version: $VERSION"
-
-      - name: Verify package.json version matches tag
+      - name: Verify package.json version matches input
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${{ steps.version.outputs.version }}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "ERROR: package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+          INPUT_VERSION="${{ github.event.inputs.version }}"
+          if [ "$PKG_VERSION" != "$INPUT_VERSION" ]; then
+            echo "ERROR: package.json version ($PKG_VERSION) does not match input ($INPUT_VERSION)"
+            echo "Land a PR that bumps package.json first, then re-run this workflow."
             exit 1
           fi
+
+      - name: Check tag does not already exist
+        run: |
+          TAG="docs-mcp-v${{ github.event.inputs.version }}"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "ERROR: tag $TAG already exists. Either it was already released, or pick a different version."
+            exit 1
+          fi
+        working-directory: .
 
       - name: Install dependencies
         run: npm ci
@@ -75,9 +88,18 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Create and push tag
+        run: |
+          TAG="docs-mcp-v${{ github.event.inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "@datarecce/docs-mcp v${{ github.event.inputs.version }}"
+          git push origin "$TAG"
+        working-directory: .
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: '@datarecce/docs-mcp v${{ steps.version.outputs.version }}'
+          tag_name: docs-mcp-v${{ github.event.inputs.version }}
+          name: '@datarecce/docs-mcp v${{ github.event.inputs.version }}'
           generate_release_notes: true
