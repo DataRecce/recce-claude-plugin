@@ -6,16 +6,24 @@
 #
 # What the workflow does:
 #   1. Mints a short-lived token from the recce-action-bot GitHub App
-#   2. Computes next version and bumps package.json + package-lock.json
-#      LOCALLY in the runner (no commit, no push yet)
-#   3. Tests + builds against the bumped version
-#   4. Publishes to npm via OIDC Trusted Publishing (provenance attested)
-#   5. ONLY after publish succeeds: commits the bump to main, tags
-#      docs-mcp-v<new-version>, pushes the tag, creates a GitHub Release
+#   2. Computes next version, writes package.json + package-lock.json
+#   3. Commits the bump and pushes to main (rebases on top of any commits
+#      that landed while the runner was warming up)
+#   4. Tags docs-mcp-v<new-version> and pushes the tag
+#   5. Tests + builds against the bumped tree
+#   6. Publishes to npm via OIDC Trusted Publishing (provenance attested)
+#   7. Creates a GitHub Release
 #
-# Why this order: keeps main in sync with what is actually on npm. If any
-# step before publish fails (deps, tests, build, OIDC, npm), main is
-# untouched and a retry with the same bump produces the same version.
+# Why commit BEFORE publish: npm versions are immutable. If we publish first
+# and then the push to main fails, the version is stranded on npm with no
+# matching git commit, and re-running the workflow recomputes the same
+# version from the old package.json and fails at `npm publish`. By
+# committing first, the failure mode is "main advanced to a version we
+# didn't publish yet" — fully recoverable by re-running, since `bump=patch`
+# will compute the next number from the now-current package.json.
+#
+# Concurrency: this workflow is serialized so two runs cannot race on the
+# version bump. A queued run waits for the current one to finish.
 #
 # Requires:
 #   - npm Trusted Publisher configured for @datarecce/docs-mcp pointing at
@@ -45,6 +53,10 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: publish-docs-mcp
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Publish to npm
@@ -53,8 +65,8 @@ jobs:
     steps:
       - name: Mint GitHub App token
         # Short-lived (1h) installation token from the recce-action-bot App.
-        # Used for everything that needs to push to a protected main: the
-        # post-publish bump commit, the tag, and the GitHub Release.
+        # Used for everything that pushes to protected main: the bump
+        # commit, the tag, and the GitHub Release.
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
@@ -75,14 +87,13 @@ jobs:
 
       - name: Setup Node.js
         # Node 24 ships with npm 11+, which supports OIDC Trusted Publishing
-        # natively. Node 20 / 22 ship with npm 10.x and require a separate
-        # `npm install -g npm@latest` step.
+        # natively.
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Compute next version (local bump, no commit yet)
+      - name: Compute next version and bump package.json
         id: bump
         env:
           BUMP: ${{ github.event.inputs.bump }}
@@ -91,9 +102,8 @@ jobs:
           OLD_VERSION=$(node -p "require('./package.json').version")
           # `npm version <type>` writes the new version to package.json +
           # package-lock.json and prints "v<new>" to stdout. With
-          # --no-git-tag-version it does NOT touch git — the files are only
-          # modified in the working tree. The commit/push happen later,
-          # after publish succeeds.
+          # --no-git-tag-version it does NOT touch git — we manage the
+          # commit + scoped tag ourselves below.
           NEW_VERSION=$(npm version "$BUMP" --no-git-tag-version | tr -d 'v')
           TAG="docs-mcp-v$NEW_VERSION"
           echo "Computed next version: $OLD_VERSION -> $NEW_VERSION (bump=$BUMP)"
@@ -105,6 +115,44 @@ jobs:
 
           echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Commit bump and push to main (with rebase on race)
+        # Push the bump BEFORE the irreversible `npm publish`. If main has
+        # advanced since checkout, stash + pull --rebase + reapply + push.
+        # Concurrency:publish-docs-mcp keeps two workflow runs from racing
+        # each other; this rebase loop handles human commits to main that
+        # land between checkout and push.
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new-version }}
+        working-directory: packages/recce-docs-mcp
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore(docs-mcp): bump to v$NEW_VERSION"
+
+          # Up to 3 attempts to push; rebase if remote moved.
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              echo "Pushed bump on attempt $attempt"
+              exit 0
+            fi
+            echo "Push failed (attempt $attempt) — rebasing on origin/main"
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "ERROR: could not push bump commit after 3 attempts"
+          exit 1
+
+      - name: Create and push tag
+        # Tag the bump commit before publish so the git record exists
+        # even if publish fails. Re-running the workflow after a publish
+        # failure will fail fast at the "tag already exists" check above
+        # rather than producing a duplicate version.
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new-version }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git tag -a "$TAG" -m "@datarecce/docs-mcp v$NEW_VERSION"
+          git push origin "$TAG"
 
       - name: Install dependencies
         working-directory: packages/recce-docs-mcp
@@ -120,29 +168,11 @@ jobs:
 
       - name: Publish to npm
         # Auth happens via OIDC (Trusted Publisher). No NPM_TOKEN needed.
-        # If this step fails, main is untouched and the same `bump` input
-        # will produce the same version on retry.
+        # Bump commit + tag are already on main; if this step fails, the
+        # version is reserved in git and we can investigate without a
+        # stranded npm publish.
         working-directory: packages/recce-docs-mcp
         run: npm publish --provenance --access public
-
-      - name: Commit version bump to main
-        # Runs only after publish succeeds. The bumped files were modified
-        # in the working tree back at the "Compute next version" step.
-        env:
-          NEW_VERSION: ${{ steps.bump.outputs.new-version }}
-        working-directory: packages/recce-docs-mcp
-        run: |
-          git add package.json package-lock.json
-          git commit -m "chore(docs-mcp): bump to v$NEW_VERSION"
-          git push origin main
-
-      - name: Create and push tag
-        env:
-          NEW_VERSION: ${{ steps.bump.outputs.new-version }}
-          TAG: ${{ steps.bump.outputs.tag }}
-        run: |
-          git tag -a "$TAG" -m "@datarecce/docs-mcp v$NEW_VERSION"
-          git push origin "$TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
