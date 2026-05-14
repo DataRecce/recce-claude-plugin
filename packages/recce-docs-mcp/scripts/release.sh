@@ -33,9 +33,11 @@ cd "$PKG_DIR"
 
 echo "==> Pre-flight checks"
 
-if [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
-  echo "ERROR: working tree is not clean. Commit or stash changes first."
-  git -C "$REPO_ROOT" status --short
+# Only block on modifications to tracked files. Untracked files (local caches,
+# editor state, etc.) are fine since we use targeted `git add` for the release commit.
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ]; then
+  echo "ERROR: tracked files have uncommitted changes. Commit or stash first."
+  git -C "$REPO_ROOT" status --short --untracked-files=no
   exit 1
 fi
 
