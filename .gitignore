@@ -42,3 +42,21 @@ tmp/
 temp/
 *.tmp
 .worktrees/
+
+# Coverage / editor logs
+.coverage
+.nvimlog
+
+# Claude Code local state (eval runs, transcripts, etc.).
+# Note: `.claude-plugin/` is a different path and remains tracked.
+.claude/
+
+# Local recce config (project-specific, not for the marketplace repo)
+recce.yml
+
+# Bundled MCP runtime caches (rebuilt locally when the server runs)
+plugins/*/servers/recce-docs-mcp/cache/
+
+# Beads/Dolt server runtime state (machine-local PIDs, locks, DB files)
+.beads/dolt/
+.beads/dolt-server.*
