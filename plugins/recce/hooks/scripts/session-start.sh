@@ -65,7 +65,7 @@ else
     echo "MCP_READY=false"
     if [ "$RECCE_INSTALLED" != "true" ]; then
         echo "MCP_SKIP_REASON=recce not installed"
-        echo "FIX=Activate your venv or run: pip install recce"
+        echo "FIX=Activate your venv or run: pip install 'recce[mcp]'"
     elif [ "$TARGET_EXISTS" != "true" ]; then
         echo "MCP_SKIP_REASON=no target/manifest.json"
         echo "FIX=Run: dbt docs generate"
