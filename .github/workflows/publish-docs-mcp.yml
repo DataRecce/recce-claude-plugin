@@ -1,27 +1,36 @@
 # Publishes @datarecce/docs-mcp to npm.
 #
-# Manual-trigger only. To release:
-#   1. Land a PR that bumps packages/recce-docs-mcp/package.json to the target version.
-#   2. Run this workflow from the Actions tab (or `gh workflow run`) and provide
-#      the version number, e.g. "0.1.1".
+# Manual trigger, fully automated bump + publish + tag + release. To release:
+#   Actions → "Publish docs-mcp" → Run workflow → enter version (e.g. 0.1.1)
+#   or: gh workflow run "Publish docs-mcp" -f version=0.1.1
 #
-# The workflow:
-#   - Verifies package.json on main matches the input version
-#   - Tags the commit as docs-mcp-v<version>
-#   - Publishes to npm with provenance attestation
-#   - Creates a GitHub Release
+# What the workflow does:
+#   1. Validates the version input is valid semver
+#   2. Bumps packages/recce-docs-mcp/package.json to the input version (if
+#      not already at that version) and pushes a commit to main
+#   3. Tests + builds
+#   4. Publishes to npm via OIDC Trusted Publishing (provenance attested)
+#   5. Tags the commit as docs-mcp-v<version> and pushes the tag
+#   6. Creates a GitHub Release with auto-generated notes
 #
 # Requires:
 #   - npm Trusted Publisher configured for @datarecce/docs-mcp pointing at
 #     this repo + workflow (no NPM_TOKEN needed — auth via OIDC)
 #   - id-token: write permission for OIDC + provenance attestation
+#   - contents: write permission to push the bump commit + tag
+#   - main is branch-protected. Either:
+#       (a) add github-actions[bot] (or "GitHub Actions") to the bypass list
+#           in Settings → Branches → branch protection rule for main, OR
+#       (b) create a PAT (or GitHub App token) with admin/bypass rights and
+#           store it as the RELEASE_TOKEN secret.
+#     The workflow uses RELEASE_TOKEN if set, otherwise GITHUB_TOKEN.
 name: Publish docs-mcp
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version of @datarecce/docs-mcp to publish (e.g. 0.1.1). Must already be set in package.json on the target branch.'
+        description: 'Version of @datarecce/docs-mcp to publish (e.g. 0.1.1). The workflow will bump package.json if needed.'
         required: true
 
 permissions:
@@ -32,9 +41,6 @@ jobs:
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/recce-docs-mcp
 
     steps:
       - name: Validate version input
@@ -49,6 +55,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Use a fresh ref of the branch we'll push back to.
+          ref: main
+          # Prefer RELEASE_TOKEN (a PAT with bypass rights) when present, so
+          # we can push to a protected main. Falls back to GITHUB_TOKEN, which
+          # only works if github-actions[bot] is in the protection bypass list.
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Check tag does not already exist
+        run: |
+          TAG="docs-mcp-v${{ github.event.inputs.version }}"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "ERROR: tag $TAG already exists. Either it was already released, or pick a different version."
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -61,48 +81,57 @@ jobs:
         # Node 20 ships with npm 10.x, so install a newer npm explicitly.
         run: npm install -g npm@latest
 
-      - name: Verify package.json version matches input
+      - name: Bump package.json (if needed) and push to main
+        id: bump
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        working-directory: packages/recce-docs-mcp
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          INPUT_VERSION="${{ github.event.inputs.version }}"
-          if [ "$PKG_VERSION" != "$INPUT_VERSION" ]; then
-            echo "ERROR: package.json version ($PKG_VERSION) does not match input ($INPUT_VERSION)"
-            echo "Land a PR that bumps package.json first, then re-run this workflow."
-            exit 1
+          if [ "$PKG_VERSION" = "$INPUT_VERSION" ]; then
+            echo "package.json already at v$INPUT_VERSION — skipping bump"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Check tag does not already exist
-        run: |
-          TAG="docs-mcp-v${{ github.event.inputs.version }}"
-          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "ERROR: tag $TAG already exists. Either it was already released, or pick a different version."
-            exit 1
-          fi
-        working-directory: .
+          echo "Bumping package.json: $PKG_VERSION -> $INPUT_VERSION"
+          npm version "$INPUT_VERSION" --no-git-tag-version --allow-same-version
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore(docs-mcp): bump to v$INPUT_VERSION"
+          git push origin main
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
+        working-directory: packages/recce-docs-mcp
         run: npm ci
 
       - name: Test
+        working-directory: packages/recce-docs-mcp
         run: npm test
 
       - name: Build
+        working-directory: packages/recce-docs-mcp
         run: npm run build
 
       - name: Publish to npm
         # Auth happens via OIDC (Trusted Publisher). No NPM_TOKEN needed.
         # --provenance is implied when publishing via Trusted Publishing, but
         # passing it explicitly is harmless and keeps intent clear.
+        working-directory: packages/recce-docs-mcp
         run: npm publish --provenance --access public
 
       - name: Create and push tag
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          TAG="docs-mcp-v${{ github.event.inputs.version }}"
+          TAG="docs-mcp-v$INPUT_VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "@datarecce/docs-mcp v${{ github.event.inputs.version }}"
+          git tag -a "$TAG" -m "@datarecce/docs-mcp v$INPUT_VERSION"
           git push origin "$TAG"
-        working-directory: .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
