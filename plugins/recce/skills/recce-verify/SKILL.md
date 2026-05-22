@@ -13,7 +13,7 @@ description: >
 
 # /recce-verify — Single-Env Dev-Loop Verification
 
-This skill is the **lightweight pre-cursor** to `/recce-review`. It targets the dev-loop case: warehouse-connected dbt project, mid-edit, **no `target-base/` artifacts** and the user does not want to create them yet. The verifier produces a Tier-1 risk read using column lineage, AST/semantic analysis, and small targeted SQL probes against the current environment — no row-count or value diffs against a base.
+This skill is the **lightweight pre-cursor** to `/recce-review`. It targets the dev-loop case: warehouse-connected dbt project, mid-edit, **no fresh `target-base/` artifacts** (missing, stale, single-env mode, or unverified) and the user does not want to regenerate them yet. The verifier produces a Tier-1 risk read using column lineage, AST/semantic analysis, and small targeted SQL probes against the current environment — no row-count or value diffs against a base.
 
 If `target-base/` is fresh, this skill routes to `/recce-review` (which owns full diff-based review).
 
@@ -27,7 +27,7 @@ Call `mcp__plugin_recce_recce__get_server_info` and inspect `mode` + `base_statu
 
 - **`mode='cloud'`** — stop and tell the user: "Cloud session detected. Use `/recce-review` instead — it owns cloud-mode review."
 - **`mode='local'` and `base_status='fresh'`** — stop and tell the user, verbatim: "Base artifacts are fresh — use `/recce-review` instead for full diff-based review. `/recce-verify` is for the single-env dev-loop case."
-- **`mode='local'` and `base_status` in {`single_env`, `missing`, `stale_time`, `stale_sha`}** — proceed.
+- **`mode='local'` and `base_status` in {`single_env`, `missing`, `stale_time`, `stale_sha`, `unknown`}** — proceed. (`unknown` means the freshness check did not run — e.g., cloud mode or skipped — so the base cannot be trusted; treat as single-env for evidence purposes.)
 
 Do not start MCP, do not health-check it. The server is owned by Claude Code; if `get_server_info` fails the user will see it in `/mcp`.
 
@@ -81,7 +81,7 @@ If none of 1A/1B/1C yield models, tell the user, verbatim, and stop:
 
 Use the `agent:` tool to dispatch `recce-verifier`. Include in the dispatch context:
 
-> "Changed models: {model1, model2, ...}. Active backend is local single-env (`base_status={status}`). Use Tier-1 evidence only: `get_cll`, `analyze_model`, `get_model`, and targeted `query` probes against the current environment. Do NOT call any diff tool (`row_count_diff`, `value_diff`, `profile_diff`, `query_diff`, `top_k_diff`, `histogram_diff`, `schema_diff`, `impact_analysis`) — they degrade to current-vs-current in single-env and waste budget."
+> "Changed models: {model1, model2, ...}. Active backend is local (`base_status={status}`); treat as Tier-1 only because base artifacts are absent (`single_env`/`missing`), stale (`stale_time`/`stale_sha`), or unverified (`unknown`). Use Tier-1 evidence only: `select_nodes` (to resolve bare model names to dbt unique IDs before any other call), `get_cll`, `analyze_model`, `get_model`, `lineage_diff` (metadata only — `change_status` is partial in single-env, use the graph shape), and targeted `query` probes against the current environment. If `analyze_model` is unavailable in this recce build, fall back to text-level inspection (`Read` the SQL + `git diff`). Do NOT call any diff tool (`row_count_diff`, `value_diff`, `profile_diff`, `query_diff`, `top_k_diff`, `histogram_diff`, `schema_diff`, `impact_analysis`) — they degrade to current-vs-current in single-env and waste budget."
 
 **Context passthrough:** If the user's request includes any of the following, include it verbatim in the dispatch message so the verifier can validate findings against intent:
 

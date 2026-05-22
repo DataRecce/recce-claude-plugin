@@ -73,23 +73,31 @@ Determine the model scope in this precedence order:
 
 ### Step A — Static evidence (Tier 1a + Tier 1b)
 
-For each changed model:
+For each changed model, first resolve its bare name to a dbt unique ID, then run the evidence calls.
+
+0. **Resolve unique IDs** — `analyze_model`, `get_cll`, and `get_model` all require dbt unique IDs (format `model.<project>.<model_name>`), not bare names. Resolve each changed model name with:
+   ```
+   mcp__plugin_recce_recce__select_nodes(select: "{model}")
+   ```
+   The response is `{"nodes": ["model.<project>.<model>", ...]}`. Use the first matching entry as `{unique_id}` in the calls below. If `select_nodes` returns no nodes for a name, record "unresolved model: {model}" and skip its Tier-1a/1b calls (proceed with `git diff` text inspection in Step A.4 only).
 
 1. **AST/semantic analysis** — call:
    ```
-   mcp__plugin_recce_recce__analyze_model(model_id: "{model}")
+   mcp__plugin_recce_recce__analyze_model(model_id: "{unique_id}")
    ```
-   Record: refs, projections, filters, joins, group_by, aggregations, `has_subquery`, and the 1-hop downstream list. If the response includes `unparseable=true`, note it and fall back to reading the SQL via `Read` on `models/.../<model>.sql`.
+   Record: refs, projections, filters, joins, group_by, aggregations, `has_subquery`, and the 1-hop downstream list.
+   - If the response includes `unparseable=true`, note it and fall back to reading the SQL via `Read` on `models/.../<model>.sql`.
+   - **If `analyze_model` is not available in this recce build** (response indicates "tool not found" / "unknown tool" / similar — the tool is being added upstream; older recce versions do not ship it), record "analyze_model unavailable in this recce build; using text-level fallback" in `### Reasoning` and skip Tier-1a structural extraction. Continue with Steps A.2–A.5 normally; rely on `Read` + `git diff` (Step A.4) to identify refs, filters, joins, and aggregations from the SQL text. Do NOT retry, and do NOT block the run.
 
 2. **Column-level lineage** — call:
    ```
-   mcp__plugin_recce_recce__get_cll(node_id: "{model}")
+   mcp__plugin_recce_recce__get_cll(node_id: "{unique_id}")
    ```
    Capture transitive downstream column dependencies, especially for columns touched by the diff. High fanout (many downstream consumers across marts/exposures) raises risk.
 
 3. **Column types** — call:
    ```
-   mcp__plugin_recce_recce__get_model(model_id: "{model}")
+   mcp__plugin_recce_recce__get_model(model_id: "{unique_id}")
    ```
    Use the schema (column names + types) when classifying type-narrowing changes.
 
