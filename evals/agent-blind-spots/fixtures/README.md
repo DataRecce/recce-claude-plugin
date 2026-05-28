@@ -20,9 +20,14 @@ Re-running is idempotent — existing `artifacts/` directories are removed and r
 `build_fixtures.sh` materialises each fixture's head-SHA checkout at `.tmp/sources/<slug>/` (a freshly-initialised standalone git repo with one commit, zero remotes — see the in-script comment for the leak-proofing rationale). Immediately after checkout, the build script **strips Recce-aware automation** from that working tree so a Tier-0 agent reading the source cannot find the with-Recce answer pre-baked into the repo (see [DRC-3430](https://linear.app/recce/issue/DRC-3430)):
 
 - `.github/prompts/` — Recce-aware GitHub Action system prompt + worked-example output tables (names `mcp__recce__` tools, prescribes call sequences, anchors numeric values for the column the fixture's PR affects)
-- `.github/workflows/recce-*.yml` and `recce-*.yaml` — Recce CI workflow definitions
+- `.github/workflows/recce-*.{yml,yaml}` and `recce_*.{yml,yaml}` — Recce CI workflow definitions
 - `.github/workflows/claude.yml` — "Claude Code + Recce MCP" reviewer workflow (primes the agent with the same playbook)
+- `.github/workflows/dbt_base.yml`, `dbt-build-pr.yml`, `dbt-build-base.yml` — dbt CI workflows that wire `DataRecce/recce-cloud-cicd-action` in (the names look generic but the steps prime Recce)
+- `.github/mcp_config.json` — explicit Recce MCP server registration
+- `.devcontainer/` — Recce-specific dev container plus a post-start script that boots Recce
 - `recce.yml` — preset Recce check definitions
+
+`profiles.yml` is **not** stripped despite carrying the literal string `RECCE` (the upstream Snowflake role name) — it's required for dbt to parse, and a role name is not Recce-the-tool priming. The post-build leak grep whitelists it via `--exclude=profiles.yml`.
 
 The strip is followed by a `grep -E 'mcp__recce__|recce\.yml|RECCE_API_TOKEN'` belt-and-suspenders sweep over the source tree; the build fails fast (`FAIL <slug>`) if any new Recce-shaped file slips in at an unanticipated path. When that happens, extend the strip list in `build_fixtures.sh` and re-run.
 

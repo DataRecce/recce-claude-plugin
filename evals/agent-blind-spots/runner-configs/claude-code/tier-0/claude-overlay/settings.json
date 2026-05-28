@@ -1,0 +1,34 @@
+{
+  "$comment": "Tier-0 sandbox profile for the /recce-verify v1 eval. Drop this .claude/ directory into the per-fixture working tree (.tmp/sources/<slug>/) before invoking Claude Code. See ../../../ENFORCEMENT.md for the runner recipe. The PreToolUse hook is the load-bearing layer; permissions.deny below is documentation-aligned but does not cover every bypass the hook does — see runner-configs/README.md.",
+  "permissions": {
+    "deny": [
+      "mcp__recce__*",
+      "mcp__plugin_recce_*",
+      "mcp__recce_dev__*",
+      "Bash(recce *)",
+      "Bash(dbt run*)",
+      "Bash(dbt test*)",
+      "Bash(dbt parse*)",
+      "Bash(dbt compile*)",
+      "Bash(dbt docs*)",
+      "Bash(duckdb *)",
+      "Bash(psql *)",
+      "Bash(snowsql *)",
+      "Bash(bq *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Skill|mcp__(plugin_)?recce(_|-).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny-tier-0.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

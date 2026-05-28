@@ -20,7 +20,10 @@ TIER_DIR="${WT_ROOT}/evals/agent-blind-spots/runner-configs/claude-code/tier-0"
 ( cd "${WT_ROOT}/evals/agent-blind-spots" && ./build_fixtures.sh )
 
 # 2. Stamp the per-fixture working tree with the Tier-0 sandbox config.
-cp -r "${TIER_DIR}/.claude" "${FIXTURE_DIR}/"
+#    `claude-overlay/` becomes `.claude/` inside the fixture — the source
+#    directory is named differently so it isn't swallowed by the repo's
+#    `.claude/` gitignore rule.
+cp -r "${TIER_DIR}/claude-overlay" "${FIXTURE_DIR}/.claude"
 
 # 3. Neuter user-level Claude Code settings so a stray ~/.claude/settings.json
 #    can't widen the sandbox. (Skip this step at your own risk.)
@@ -37,7 +40,7 @@ cd "${FIXTURE_DIR}"
 claude "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
 ```
 
-The Tier-0 `.claude/settings.json` declares `permissions.deny` for Recce MCP namespaces and the dbt-regen / SQL-client Bash patterns, and registers a `PreToolUse` hook (`deny-tier-0.sh`) as belt-and-suspenders behind that — see `runner-configs/README.md` for the rationale.
+The Tier-0 `.claude/settings.json` declares `permissions.deny` rules for the documented Recce MCP namespaces and dbt/SQL-client Bash patterns, and registers a `PreToolUse` hook (`deny-tier-0.py`). The hook is the **load-bearing layer** — `permissions.deny` is conceded to be unreliable (Claude Code [issue #6699](https://github.com/anthropics/claude-code/issues/6699)) and uses shell-glob matching whose surface differs from the hook's tokenizer-based check. Treat `permissions.deny` as documentation; trust the hook. See `runner-configs/README.md` for the divergence details.
 
 ### Tier 1
 
@@ -68,7 +71,7 @@ The runner therefore **must** launch the agent with cwd set to the per-fixture w
 
 This complements the cwd separation:
 
-* Claude Code: the project-level `.claude/settings.json` lives inside the per-fixture worktree, so it travels with the agent's cwd. The PreToolUse hook also blocks any `Bash(cat ../../<host-path>)` attempt.
+* Claude Code: the project-level `.claude/settings.json` lives inside the per-fixture worktree, so it travels with the agent's cwd. **Spoiler-path protection comes from cwd alone** — the PreToolUse hook does not gate `Read`/`Grep`/`Glob` and the Tier-0 Bash allowlist includes `cat`. If the runner mistakenly launches `claude` from the eval host repo root, the agent can read `RUBRIC.md` and the per-fixture spoiler README. The recipe above (step 5: `cd "${FIXTURE_DIR}"`) is therefore not optional.
 * Codex: the process sandbox is anchored on cwd; absolute paths outside cwd require approval at Tier-0 read-only mode and writes are uniformly denied.
 
 ## Recording in the baseline

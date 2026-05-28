@@ -265,44 +265,87 @@ build_fixture() {
     #     for Recce-aware PR review (lists mcp__recce__ tool names,
     #     prescribed call sequences, numeric anchors for the affected
     #     column)
-    #   * .github/workflows/recce-*.yml — Recce CI workflows
+    #   * .github/workflows/recce-*.yml, recce_*.yml — Recce CI workflows
     #   * .github/workflows/claude.yml — "Claude Code + Recce MCP"
     #     reviewer workflow (primes the agent with the same playbook)
+    #   * .github/workflows/dbt-build-{pr,base}.yml, dbt_base.yml —
+    #     dbt CI that uses `DataRecce/recce-cloud-cicd-action` (the
+    #     names are dbt-shaped but the steps wire Recce in)
+    #   * .github/mcp_config.json — explicit Recce MCP registration
+    #   * .devcontainer/ — Recce-specific dev container + post-start
+    #     script that boots Recce
     #   * recce.yml — preset Recce checks
-    # A random dbt project in the wild would not have these; their
-    # presence here is fixture-source-specific, not a contract bug.
-    # Strip them so a Tier-0 baseline measures what the agent deduces
-    # without Recce-style structured surfacing.
+    #
+    # A random dbt project in the wild would not have any of these;
+    # their presence here is fixture-source-specific, not a contract
+    # bug. Strip them so a Tier-0 baseline measures what the agent
+    # deduces without Recce-style structured surfacing.
     local stripped_paths=(
         ".github/prompts"
+        ".github/mcp_config.json"
         ".github/workflows/claude.yml"
+        ".github/workflows/recce_ci.yml"
+        ".github/workflows/dbt-build-pr.yml"
+        ".github/workflows/dbt-build-base.yml"
+        ".github/workflows/dbt_base.yml"
+        ".devcontainer"
         "recce.yml"
     )
     for stripped in "${stripped_paths[@]}"; do
         rm -rf "${source_dir:?}/${stripped}"
     done
-    # Glob removal: any .github/workflows/recce-*.{yml,yaml} — guard
-    # against an empty match because `nullglob` isn't set globally.
-    if compgen -G "${source_dir}/.github/workflows/recce-*.yml" > /dev/null; then
-        rm -f "${source_dir}"/.github/workflows/recce-*.yml
-    fi
-    if compgen -G "${source_dir}/.github/workflows/recce-*.yaml" > /dev/null; then
-        rm -f "${source_dir}"/.github/workflows/recce-*.yaml
-    fi
+    # Glob removal: any .github/workflows/recce-*.{yml,yaml} or
+    # recce_*.{yml,yaml}. Guard against empty matches because
+    # `nullglob` isn't set globally.
+    for glob in \
+        "${source_dir}/.github/workflows/recce-*.yml" \
+        "${source_dir}/.github/workflows/recce-*.yaml" \
+        "${source_dir}/.github/workflows/recce_*.yml" \
+        "${source_dir}/.github/workflows/recce_*.yaml"
+    do
+        if compgen -G "${glob}" > /dev/null; then
+            rm -f ${glob}
+        fi
+    done
 
-    # DRC-3430 belt-and-suspenders: grep for known Recce-shaped strings
-    # in the stripped working tree. Catches future regressions where a
-    # new Recce-aware file lands at a path the strip list doesn't
-    # cover. Scope the grep to the working tree (`--exclude-dir=.git`)
-    # so packed objects under .git/ don't false-positive — the agent
-    # cannot read packed git internals without first invoking a git
-    # command, and even then sees decoded content, not raw byte
-    # strings.
+    # DRC-3430 belt-and-suspenders: grep for Recce-shaped strings in the
+    # stripped working tree. Catches future regressions where a new
+    # Recce-aware file lands at a path the strip list doesn't cover.
+    #
+    # Two layers:
+    #
+    #   (a) Tight identifier match — MCP namespace, recce.yml filename,
+    #       known env vars. False-positive-free, but only catches the
+    #       exact shapes we know about.
+    #   (b) Loose `[Rr]ecce` substring — catches natural-language
+    #       priming like a CI workflow that says
+    #       `prompt: "Use the recce CLI to review this PR"`. False
+    #       positives are possible on a fresh source tree (a model
+    #       column called `recce_score`, say); when one surfaces we
+    #       either expand the strip list or whitelist the path here.
+    #
+    # Both grep over the working tree only (`--exclude-dir=.git`) so
+    # packed objects don't false-positive — the agent cannot read those
+    # without first invoking a git command, and even then sees decoded
+    # content, not raw byte strings.
+    # `profiles.yml` is whitelisted: the upstream Snowflake role is
+    # literally named "RECCE", which is unfortunate naming, not Recce
+    # priming. A role name doesn't tell the agent how to use Recce-
+    # the-tool. Whitelisting one filename is preferable to tightening
+    # the regex back to identifier-only matches (which would let
+    # natural-language priming like `prompt: "use the recce CLI"`
+    # through).
     local leak_hits
-    leak_hits="$(grep -rlE --exclude-dir=.git 'mcp__recce__|recce\.yml|RECCE_API_TOKEN' "${source_dir}" 2>/dev/null || true)"
+    leak_hits="$(grep -rlEi --exclude-dir=.git --exclude=profiles.yml \
+        'mcp__recce|recce\.yml|RECCE_API_TOKEN|recce' \
+        "${source_dir}" 2>/dev/null || true)"
     if [[ -n "${leak_hits}" ]]; then
         echo "FAIL ${slug} (Tier-0 strip leak — Recce-shaped strings still present in:)" >&2
-        printf '  %s\n' ${leak_hits} >&2
+        # Indent each path on its own line; sed is robust against
+        # whitespace in filenames where `printf '  %s\n' ${unquoted}`
+        # would word-split. dbt projects don't use spaces in paths
+        # today, but the cost of belt-and-suspenders is one sed call.
+        sed 's/^/  /' <<< "${leak_hits}" >&2
         echo "  Extend the strip list in build_fixtures.sh and re-run." >&2
         return 1
     fi

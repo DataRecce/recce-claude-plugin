@@ -7,6 +7,9 @@
       "Bash(dbt parse*)",
       "Bash(dbt compile*)",
       "Bash(dbt docs*)",
+      "Bash(dbt seed*)",
+      "Bash(dbt snapshot*)",
+      "Bash(dbt build*)",
       "Bash(duckdb *)",
       "Bash(psql *)",
       "Bash(snowsql *)",
@@ -20,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny-tier-1.sh\"",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny-tier-1.py\"",
             "timeout": 5
           }
         ]
