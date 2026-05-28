@@ -1,0 +1,30 @@
+{
+  "$comment": "Tier-1 sandbox profile for the /recce-verify v1 eval. Tier 1 is Tier 0 plus Recce CLI, Recce MCP, and single-env warehouse credentials (read-only on the dev environment). Drop this .claude/ directory into the per-fixture working tree (.tmp/sources/<slug>/) before invoking Claude Code. See ../../../ENFORCEMENT.md for the runner recipe.",
+  "permissions": {
+    "deny": [
+      "Bash(dbt run*)",
+      "Bash(dbt test*)",
+      "Bash(dbt parse*)",
+      "Bash(dbt compile*)",
+      "Bash(dbt docs*)",
+      "Bash(duckdb *)",
+      "Bash(psql *)",
+      "Bash(snowsql *)",
+      "Bash(bq *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny-tier-1.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

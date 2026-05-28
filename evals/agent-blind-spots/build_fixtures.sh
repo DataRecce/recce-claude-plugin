@@ -257,6 +257,56 @@ build_fixture() {
         return 1
     fi
 
+    # DRC-3430: strip Recce-aware automation that would leak the
+    # with-Recce answer to a Tier-0 agent reading the source tree.
+    # `jaffle_shop_golden` is a Recce-dogfood repo, so the per-fixture
+    # checkout ships:
+    #   * .github/prompts/*.md — system prompt + worked-example tables
+    #     for Recce-aware PR review (lists mcp__recce__ tool names,
+    #     prescribed call sequences, numeric anchors for the affected
+    #     column)
+    #   * .github/workflows/recce-*.yml — Recce CI workflows
+    #   * .github/workflows/claude.yml — "Claude Code + Recce MCP"
+    #     reviewer workflow (primes the agent with the same playbook)
+    #   * recce.yml — preset Recce checks
+    # A random dbt project in the wild would not have these; their
+    # presence here is fixture-source-specific, not a contract bug.
+    # Strip them so a Tier-0 baseline measures what the agent deduces
+    # without Recce-style structured surfacing.
+    local stripped_paths=(
+        ".github/prompts"
+        ".github/workflows/claude.yml"
+        "recce.yml"
+    )
+    for stripped in "${stripped_paths[@]}"; do
+        rm -rf "${source_dir:?}/${stripped}"
+    done
+    # Glob removal: any .github/workflows/recce-*.{yml,yaml} — guard
+    # against an empty match because `nullglob` isn't set globally.
+    if compgen -G "${source_dir}/.github/workflows/recce-*.yml" > /dev/null; then
+        rm -f "${source_dir}"/.github/workflows/recce-*.yml
+    fi
+    if compgen -G "${source_dir}/.github/workflows/recce-*.yaml" > /dev/null; then
+        rm -f "${source_dir}"/.github/workflows/recce-*.yaml
+    fi
+
+    # DRC-3430 belt-and-suspenders: grep for known Recce-shaped strings
+    # in the stripped working tree. Catches future regressions where a
+    # new Recce-aware file lands at a path the strip list doesn't
+    # cover. Scope the grep to the working tree (`--exclude-dir=.git`)
+    # so packed objects under .git/ don't false-positive — the agent
+    # cannot read packed git internals without first invoking a git
+    # command, and even then sees decoded content, not raw byte
+    # strings.
+    local leak_hits
+    leak_hits="$(grep -rlE --exclude-dir=.git 'mcp__recce__|recce\.yml|RECCE_API_TOKEN' "${source_dir}" 2>/dev/null || true)"
+    if [[ -n "${leak_hits}" ]]; then
+        echo "FAIL ${slug} (Tier-0 strip leak — Recce-shaped strings still present in:)" >&2
+        printf '  %s\n' ${leak_hits} >&2
+        echo "  Extend the strip list in build_fixtures.sh and re-run." >&2
+        return 1
+    fi
+
     # PR #20 intermediate snapshot — keyed on the well-known SHA in commits.txt.
     if [[ "${slug}" == "pr44-promotion-flags" ]]; then
         local intermediate_sha="23b96ca"

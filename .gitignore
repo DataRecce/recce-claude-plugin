@@ -54,6 +54,13 @@ evals/agent-blind-spots/fixtures/*/artifacts/
 # Claude Code local state (eval runs, transcripts, etc.).
 # Note: `.claude-plugin/` is a different path and remains tracked.
 .claude/
+# Exception: Tier-0 / Tier-1 sandbox profile templates for the
+# /recce-verify v1 eval (DRC-3584). These are committed templates the
+# eval runner copies into per-fixture working trees; they happen to
+# live under a `.claude/` subpath because they mirror the layout the
+# consumer expects after the copy.
+!evals/agent-blind-spots/runner-configs/**/.claude/
+!evals/agent-blind-spots/runner-configs/**/.claude/**
 
 # Local recce config (project-specific, not for the marketplace repo)
 recce.yml

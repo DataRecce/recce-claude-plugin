@@ -39,3 +39,14 @@ Verbatim. The baseline reasoning is the thing Recce's evidence will or won't shi
 ## Notes
 
 Anything weird about the run worth flagging: hallucinations, refusal, looping, contradictory statements, references to information the agent didn't actually have, etc.
+
+### Sandbox profile used
+
+Required for every baseline (Tier 0 and Tier 1). Without this block the baseline is unreproducible and disqualified — see `ENFORCEMENT.md`.
+
+- Agent runtime: `<Claude Code | Codex>`
+- Tier: `<0 | 1>`
+- Profile source: `<e.g., evals/agent-blind-spots/runner-configs/claude-code/tier-0 @ <git-sha>>`
+- Enforcement mechanism summary: `<one or two lines — e.g., "permissions.deny + PreToolUse hook" for Claude Code; "--sandbox=read-only + PATH scrub + empty MCP allowlist" for Codex>`
+- Trace evidence enforcement fired: `<line excerpts from agent transcript showing the block, e.g., `Tier-0 sandbox blocks: Recce CLI invocation`>`
+- Deviation from the recipe: `<none | description>`

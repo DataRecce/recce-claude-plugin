@@ -15,6 +15,19 @@ The script clones `DataRecce/jaffle_shop_golden` into `.tmp/jaffle_shop_golden/`
 
 Re-running is idempotent — existing `artifacts/` directories are removed and rebuilt.
 
+## Per-fixture source tree — what gets stripped
+
+`build_fixtures.sh` materialises each fixture's head-SHA checkout at `.tmp/sources/<slug>/` (a freshly-initialised standalone git repo with one commit, zero remotes — see the in-script comment for the leak-proofing rationale). Immediately after checkout, the build script **strips Recce-aware automation** from that working tree so a Tier-0 agent reading the source cannot find the with-Recce answer pre-baked into the repo (see [DRC-3430](https://linear.app/recce/issue/DRC-3430)):
+
+- `.github/prompts/` — Recce-aware GitHub Action system prompt + worked-example output tables (names `mcp__recce__` tools, prescribes call sequences, anchors numeric values for the column the fixture's PR affects)
+- `.github/workflows/recce-*.yml` and `recce-*.yaml` — Recce CI workflow definitions
+- `.github/workflows/claude.yml` — "Claude Code + Recce MCP" reviewer workflow (primes the agent with the same playbook)
+- `recce.yml` — preset Recce check definitions
+
+The strip is followed by a `grep -E 'mcp__recce__|recce\.yml|RECCE_API_TOKEN'` belt-and-suspenders sweep over the source tree; the build fails fast (`FAIL <slug>`) if any new Recce-shaped file slips in at an unanticipated path. When that happens, extend the strip list in `build_fixtures.sh` and re-run.
+
+This is fixture-source-specific, not a contract bug: `DataRecce/jaffle_shop_golden` is a Recce-dogfood repo and the stripped paths are the Recce team's own automation. A random dbt project in the wild would not have them. See [`../ENFORCEMENT.md`](../ENFORCEMENT.md) for how the sandbox profiles relate to this strip.
+
 ## Index
 
 | Fixture | Source PR | Class | Notes |
