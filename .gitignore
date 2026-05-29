@@ -47,6 +47,13 @@ temp/
 evals/agent-blind-spots/.tmp/
 evals/agent-blind-spots/fixtures/*/artifacts/
 
+# DRC-3586 spike-driver runtime outputs — per-run transcripts and ephemeral
+# Claude config dirs. The verdicts.csv / summary.md / cells.json under
+# runs/<date>/spike-driver/ may be committed manually as run baselines, so
+# the runs/ root is NOT ignored — only the transient subdirs are.
+evals/agent-blind-spots/runs/*/spike-driver/transcripts/
+evals/agent-blind-spots/runs/*/spike-driver/_claude_cfg/
+
 # Coverage / editor logs
 .coverage
 .nvimlog
