@@ -2,9 +2,13 @@
 
 Per [DRC-3584](https://linear.app/recce/issue/DRC-3584) acceptance criterion #2: one fixture × {Claude Code, Codex} × {Tier-0, Tier-1} verified by hand, with agent traces inspected to confirm enforcement actually fires.
 
-**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v2` (Python, post-PR-#36-review).
+**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v3` (Python; post-PR-#36-cycle-review).
 
-The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded after the code review surfaced six bypass shapes the case-glob couldn't address. The v2 hooks use `shlex` tokenisation, `basename` path-stripping, `sh -c` recursion, and case-insensitive skill/MCP matching. The "Bypass attempts" table below is the load-bearing evidence that v2 closes the bypasses.
+The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded twice:
+- **v2** (Python rewrite) — closed the 6 bypass shapes the case-glob couldn't address (shell separators, absolute paths, `sh -c`, dbt global flags, skill case-sensitivity, the false ENFORCEMENT.md:71 claim).
+- **v3** (this revision) — closed the 2 additional bypass shapes the cycle review surfaced (Tier-1 dbt flag-with-value, exec-wrapper-launches-denied-binary).
+
+The "Bypass attempts" tables below are the load-bearing evidence that v3 closes every reviewer-named bypass. All rows are exit-2 expected; the few exit-0 entries are explicit counter-claims (a documented allow path that protects the rubric for a different reason — typically cwd separation rather than the hook).
 
 ## Bypass attempts (the new red-team table)
 
@@ -23,26 +27,53 @@ Each cell ran the actual `deny-tier-{0,1}.py` hook against the JSON payload via 
 | Absolute path under /opt | `/opt/recce/bin/recce ls` | B2 | ✅ exit 2 |
 | `sh -c` wrapper | `sh -c "recce check"` | B3 | ✅ exit 2 |
 | `bash -lc` wrapper | `bash -lc "recce check"` | B3 | ✅ exit 2 |
-| `dbt` global flag before subcommand | `dbt --debug parse` | B4 | ✅ exit 2 |
-| `dbt --profiles-dir` interposed | `dbt --profiles-dir /tmp parse` | B4 | ✅ exit 2 |
-| `dbt -q` short-form flag | `dbt -q parse` | B4 | ✅ exit 2 |
+| `dbt` value-less flag before subcommand | `dbt --debug parse` | B4 | ✅ exit 2 (denied by allowlist — dbt not in allowlist) |
+| `dbt --profiles-dir` interposed | `dbt --profiles-dir /tmp parse` | B4 | ✅ exit 2 (denied by allowlist) |
+| `dbt -q` short-form flag | `dbt -q parse` | B4 | ✅ exit 2 (denied by allowlist) |
 | Capitalised Skill name | `tool_name=Skill, skill=Recce-verify` | B5 | ✅ exit 2 |
 | Uppercase Skill name | `tool_name=Skill, skill=RECCE-VERIFY` | B5 | ✅ exit 2 |
 | `mcp__recce_dev__*` namespace | `tool_name=mcp__recce_dev__some_tool` | I10 | ✅ exit 2 |
+| Exec wrapper: `xargs recce` | `echo check \| xargs recce` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `xargs -I {} recce` | `ls \| xargs -I {} recce {}` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `find -exec recce` | `find . -exec recce {} \;` | cycle B2 | ✅ exit 2 |
 | **Counter-claim**: spoiler path read | `cat ../../RUBRIC.md` | B6 | ✅ exit 0 (allowed by hook; **cwd separation does the work**, per the revised ENFORCEMENT.md) |
+| **Counter-claim**: benign xargs | `echo a \| xargs grep b` | regression | ✅ exit 0 (xargs wraps grep, both allowlisted) |
+| **Counter-claim**: benign find -exec | `find . -exec grep foo {} \;` | regression | ✅ exit 0 |
+| **Counter-claim**: find without -exec | `find . -name foo` | regression | ✅ exit 0 |
+
+Note: the cycle review (`v2 review`, NOTE 5) flagged the matcher regex `Bash|Skill|mcp__(plugin_)?recce(_|-).*` as "barely permissive enough to fire for `mcp__recce_dev__*`". Confirmed working: the synthetic payload above fires the hook (would be exit 2 instead of an un-gated allow path).
 
 ### Tier-1 hook
 
-| Bypass shape | Payload `command` | Observed |
-|---|---|---|
-| dbt with global flag | `dbt --debug parse` | ✅ exit 2 |
-| `sh -c "psql ..."` | `sh -c "psql -h h -c x"` | ✅ exit 2 |
-| Absolute path psql | `/usr/bin/psql -c "select 1"` | ✅ exit 2 |
-| Pipeline with dbt parse | `true;dbt parse` | ✅ exit 2 |
-| **Counter-claim**: Recce allowed | `recce check` | ✅ exit 0 |
-| **Counter-claim**: Recce MCP allowed | `tool_name=mcp__recce__row_count_diff` | ✅ exit 0 |
-| dbt parse direct | `dbt parse` | ✅ exit 2 |
-| `git diff` | `git diff HEAD` | ✅ exit 0 |
+| Bypass shape | Payload `command` | Cycle finding | Observed |
+|---|---|---|---|
+| dbt with value-less flag | `dbt --debug parse` | B4 | ✅ exit 2 |
+| dbt with flag-with-value (target) | `dbt --target dev parse` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (profiles-dir) | `dbt --profiles-dir /tmp parse` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (project-dir) | `dbt --project-dir /x run` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (vars) | `dbt --vars "x: 1" parse` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (log-format) | `dbt --log-format json parse` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (log-level) | `dbt --log-level debug parse` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (printer-width) | `dbt --printer-width 80 parse` | cycle B1 | ✅ exit 2 |
+| dbt with flag-with-value (profile) | `dbt --profile myprof parse` | cycle B1 | ✅ exit 2 |
+| `sh -c "psql ..."` | `sh -c "psql -h h -c x"` | B3 | ✅ exit 2 |
+| Absolute path psql | `/usr/bin/psql -c "select 1"` | B2 | ✅ exit 2 |
+| Pipeline with dbt parse | `true;dbt parse` | B1 | ✅ exit 2 |
+| Exec wrapper: `xargs dbt` | `echo a \| xargs dbt parse` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `find -exec dbt` | `find . -exec dbt parse \;` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `time dbt` | `time dbt parse` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `nohup dbt` | `nohup dbt parse` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `timeout` + psql | `timeout 30 psql -c x` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `xargs psql` | `echo s \| xargs psql` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `chrt` + psql | `chrt 0 5 psql -c x` | cycle B2 | ✅ exit 2 |
+| Exec wrapper: `ionice` + psql | `ionice -c 2 psql` | cycle B2 | ✅ exit 2 |
+| **Counter-claim**: Recce allowed | `recce check` | rubric | ✅ exit 0 |
+| **Counter-claim**: Recce MCP allowed | `tool_name=mcp__recce__row_count_diff` | rubric | ✅ exit 0 |
+| **Counter-claim**: bare dbt allowed | `dbt` (discovery only) | rubric | ✅ exit 0 |
+| **Counter-claim**: dbt --help allowed | `dbt --help` | rubric | ✅ exit 0 |
+| **Counter-claim**: dbt list allowed | `dbt list` (read-only manifest) | rubric | ✅ exit 0 |
+| dbt parse direct | `dbt parse` | B4 | ✅ exit 2 |
+| `git diff` | `git diff HEAD` | regression | ✅ exit 0 |
 
 ## Happy-path coverage (regression check)
 

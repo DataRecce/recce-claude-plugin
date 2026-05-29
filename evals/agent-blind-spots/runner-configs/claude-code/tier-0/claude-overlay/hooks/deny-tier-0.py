@@ -49,6 +49,20 @@ SHELL_WRAPPERS: frozenset[str] = frozenset(
     {"sh", "bash", "zsh", "dash", "ash", "ksh"}
 )
 
+# Exec wrappers that run their argument as a new process. `xargs` and
+# `find` are in the allowlist (legitimate dev-loop utilities), but
+# they can launch any binary — including a denied one. Recurse into
+# their wrapped command and re-check it against the allowlist.
+#
+# `time`, `nohup`, `nice`, `setsid`, etc. are NOT in the allowlist,
+# so they're already denied head-of-token. Including them here is
+# defensive: if a future version of this hook adds them to the
+# allowlist, the recursion contract still holds.
+EXEC_WRAPPERS: frozenset[str] = frozenset(
+    {"xargs", "time", "nice", "nohup", "setsid", "parallel",
+     "exec", "timeout", "watch", "ionice", "chrt", "stdbuf"}
+)
+
 # Recce MCP namespaces. Covers mcp__recce__*, mcp__plugin_recce_*,
 # mcp__recce_dev__*, and any future Recce-shaped namespace.
 MCP_RECCE_RE = re.compile(r"^mcp__(plugin_)?recce(_|-|$)", re.IGNORECASE)
@@ -81,8 +95,11 @@ def split_segments(cmd: str) -> list[str]:
         segments.extend(split_segments(sub))
     cmd = re.sub(r"`[^`]*`", "", cmd)
 
-    # Now split on command-boundary separators.
-    parts = re.split(r"[;&|()\n]+", cmd)
+    # Now split on command-boundary separators. Negative lookbehind on
+    # `\\` keeps escaped separators (e.g. the `\;` that terminates
+    # `find -exec`) attached to the same segment; shlex strips the
+    # backslash later.
+    parts = re.split(r"(?<!\\)[;&|()\n]+", cmd)
     for part in parts:
         if part.strip():
             segments.append(part.strip())
@@ -126,27 +143,102 @@ def skip_leading_env(tokens: list[str]) -> list[str]:
     return tokens[i:]
 
 
+def looks_like_executable(name: str) -> bool:
+    """Heuristic — does this token's basename look like it could be a
+    binary the agent is actually invoking? Rules out numbers (timeout
+    durations, chrt priorities), pure-symbol tokens (`{}`, `;`), and
+    empty strings.
+    """
+    if not name:
+        return False
+    if name in ("{}", "[]", ";", "+", "\\;"):
+        return False
+    if name.isdigit():
+        return False
+    # Allow alphanumerics + `_`/`-`/`.` (binaries like `git-foo`,
+    # `python3.11`, `recce-cli`). Anything else (e.g., a quoted-shell
+    # construct that survived shlex) is treated as non-executable.
+    stripped = name.replace("-", "").replace("_", "").replace(".", "")
+    return stripped.isalnum()
+
+
+def find_wrapped_command(wrapper_name: str, tokens: list[str]) -> list[str]:
+    """For an exec wrapper at tokens[0], return the wrapped command's
+    tokens.
+
+    Different wrappers interleave their own positional args before the
+    wrapped command (e.g., `timeout 30 CMD`, `chrt 0 5 CMD`,
+    `ionice -c 2 CMD`). Hard-coding a per-wrapper arg parser is
+    brittle. Instead, walk the args and return tokens starting at the
+    first executable-shaped token. `find` is special because the
+    wrapped command lives after a `-exec` / `-execdir` keyword.
+    """
+    if wrapper_name == "find":
+        for keyword in ("-exec", "-execdir"):
+            if keyword not in tokens:
+                continue
+            idx = tokens.index(keyword)
+            end = len(tokens)
+            for j in range(idx + 1, len(tokens)):
+                if tokens[j] in (";", "+", "\\;"):
+                    end = j
+                    break
+            return tokens[idx + 1:end]
+        return []
+    for i, tok in enumerate(tokens[1:], 1):
+        if tok.startswith("-"):
+            continue
+        if not looks_like_executable(basename(tok)):
+            continue
+        return tokens[i:]
+    return []
+
+
+def check_segment_tokens(tokens: list[str], command: str, depth: int = 0) -> None:
+    if depth > 4:
+        return
+    tokens = skip_leading_env(tokens)
+    if not tokens:
+        return
+    name = basename(tokens[0])
+
+    if name in SHELL_WRAPPERS:
+        deny(
+            f"shell wrapper '{name}' is banned at Tier 0 — the "
+            f"agent has no legitimate reason to invoke a subshell "
+            f"(matched in: {command!r})"
+        )
+
+    if not name:
+        return
+
+    # Exec wrappers in the allowlist (`xargs`, `find`) need recursion
+    # so they can't smuggle a denied binary through. Wrappers NOT in
+    # the allowlist (`time`, `nohup`, ...) are denied head-of-token
+    # below, so the recursion is moot for them — but we still handle
+    # them defensively in case the allowlist grows.
+    if name in EXEC_WRAPPERS or name == "find":
+        wrapped = find_wrapped_command(name, tokens)
+        if wrapped:
+            check_segment_tokens(wrapped, command, depth + 1)
+        # If the wrapper itself isn't in the allowlist, fall through
+        # to the allowlist check (will deny). If it IS allowlisted
+        # (xargs / find), the wrapped check above is what enforces.
+        if name in TIER_0_ALLOWLIST:
+            return
+
+    if name not in TIER_0_ALLOWLIST:
+        deny(
+            f"Bash executable '{name}' not in Tier-0 allowlist "
+            f"(matched in: {command!r})"
+        )
+
+
 def check_bash_command(command: str) -> None:
     if not command.strip():
         return
     for segment in split_segments(command):
-        tokens = skip_leading_env(tokenize(segment))
-        if not tokens:
-            continue
-        name = basename(tokens[0])
-        if name in SHELL_WRAPPERS:
-            deny(
-                f"shell wrapper '{name}' is banned at Tier 0 — the "
-                f"agent has no legitimate reason to invoke a subshell "
-                f"(matched in: {command!r})"
-            )
-        if not name:
-            continue
-        if name not in TIER_0_ALLOWLIST:
-            deny(
-                f"Bash executable '{name}' not in Tier-0 allowlist "
-                f"(matched in: {command!r})"
-            )
+        check_segment_tokens(tokenize(segment), command)
 
 
 def main() -> None:
