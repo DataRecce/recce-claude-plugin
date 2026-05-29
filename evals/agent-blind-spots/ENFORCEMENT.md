@@ -6,6 +6,16 @@ This is load-bearing: the lens-3 counterfactual delta (Tier-0 verdict → Tier-1
 
 The sandbox profile templates live under [`runner-configs/`](runner-configs/). See [`runner-configs/README.md`](runner-configs/README.md) for the per-agent / per-tier file map; this document is the recipe that turns those templates into a recorded baseline.
 
+## Prerequisite — `bashlex`
+
+The Claude Code PreToolUse hooks (`deny-tier-{0,1}.py`) use `bashlex` to parse the agent's Bash command into an AST. Without it the hooks fail closed (exit 2 with an install message) so bypasses cannot slip through silently. Install once per eval-runner Python:
+
+```bash
+python3 -m pip install bashlex
+```
+
+This is needed for the Claude Code runner only — Codex's enforcement is process-sandbox + PATH scrub + MCP allowlist, no hook involved.
+
 ## Recipe — Claude Code
 
 ### Tier 0
@@ -16,8 +26,9 @@ WT_ROOT="$(git rev-parse --show-toplevel)"        # eval host repo root
 FIXTURE_DIR="${WT_ROOT}/evals/agent-blind-spots/.tmp/sources/${SLUG}"
 TIER_DIR="${WT_ROOT}/evals/agent-blind-spots/runner-configs/claude-code/tier-0"
 
-# 1. Build fixtures if you haven't.
+# 1. Build fixtures if you haven't, and confirm bashlex is installed.
 ( cd "${WT_ROOT}/evals/agent-blind-spots" && ./build_fixtures.sh )
+python3 -c "import bashlex" || python3 -m pip install bashlex
 
 # 2. Stamp the per-fixture working tree with the Tier-0 sandbox config.
 #    `claude-overlay/` becomes `.claude/` inside the fixture — the source
@@ -40,7 +51,9 @@ cd "${FIXTURE_DIR}"
 claude "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
 ```
 
-The Tier-0 `.claude/settings.json` declares `permissions.deny` rules for the documented Recce MCP namespaces and dbt/SQL-client Bash patterns, and registers a `PreToolUse` hook (`deny-tier-0.py`). The hook is the **load-bearing layer** — `permissions.deny` is conceded to be unreliable (Claude Code [issue #6699](https://github.com/anthropics/claude-code/issues/6699)) and uses shell-glob matching whose surface differs from the hook's tokenizer-based check. Treat `permissions.deny` as documentation; trust the hook. See `runner-configs/README.md` for the divergence details.
+The Tier-0 `.claude/settings.json` declares `permissions.deny` rules for the documented Recce MCP namespaces and dbt/SQL-client Bash patterns, and registers a `PreToolUse` hook (`deny-tier-0.py`). The hook is the **load-bearing layer** — `permissions.deny` is conceded to be unreliable (Claude Code [issue #6699](https://github.com/anthropics/claude-code/issues/6699)) and uses shell-glob matching whose surface differs from the hook's AST-based check. Treat `permissions.deny` as documentation; trust the hook. See `runner-configs/README.md` for the divergence details.
+
+The hook uses `bashlex` (a real Bash AST parser) so nested `$()`, ANSI-C `$'...'`, parameter expansion `${a:-default}`, Bash keywords (`!`, `coproc`), command modifiers (`command`, `builtin`), and exec wrappers (`xargs`, `find -exec`, `time`, `nohup`, …) are all handled by their AST shape rather than ad-hoc regex.
 
 ### Tier 1
 

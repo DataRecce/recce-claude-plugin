@@ -50,9 +50,9 @@ claude "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
 
 ## Why both `permissions.deny` and a `PreToolUse` hook
 
-Claude Code's `permissions.deny` uses shell-glob matching that is conceded to be unreliable: open issue [anthropics/claude-code#6699](https://github.com/anthropics/claude-code/issues/6699) shows bypasses, and the glob shape can't express the things the rubric requires (path-stripped basenames, `sh -c "<banned>"` recursion, dbt subcommands with global flags interposed, case-insensitive skill matching).
+Claude Code's `permissions.deny` uses shell-glob matching that is conceded to be unreliable: open issue [anthropics/claude-code#6699](https://github.com/anthropics/claude-code/issues/6699) shows bypasses, and the glob shape can't express the things the rubric requires (path-stripped basenames, `sh -c "<banned>"` recursion, dbt subcommands with global flags interposed, case-insensitive skill matching, nested `$()` smuggling, ANSI-C / parameter-expansion head smuggling).
 
-The PreToolUse hook is therefore the **load-bearing layer**, not a backup. It uses `shlex` tokenisation, basenames each executable, recurses into shell wrappers, lowercases skill names, and matches MCP namespaces with a regex.
+The PreToolUse hook is therefore the **load-bearing layer**, not a backup. It parses each Bash command with `bashlex` (a real Bash AST parser) and walks the AST — substitutions, ANSI-C quoting, parameter defaults, Bash keywords, command modifiers, and exec wrappers are handled by their AST shape rather than regex.
 
 **`permissions.deny` and the hook do not mirror each other**, and that's deliberate:
 
@@ -60,6 +60,16 @@ The PreToolUse hook is therefore the **load-bearing layer**, not a backup. It us
 * The hook covers the full surface, including the bypass shapes the glob can't address.
 
 Treat `permissions.deny` as documentation for human readers. Trust the hook for enforcement.
+
+## Prerequisite: `bashlex`
+
+The hook depends on `bashlex`. Install once in the eval-runner Python:
+
+```bash
+python3 -m pip install bashlex
+```
+
+Without `bashlex` the hook fails closed (exit 2 with an install message) so a missing dependency cannot silently allow bypasses.
 
 ## Maintenance
 
@@ -69,4 +79,4 @@ When you add a new Recce CLI verb, new MCP tool namespace, or a new dbt subcomma
 2. Update the documented `permissions.deny` patterns to match the new shape.
 3. Add the new shape to the Bypass attempts table in `runs/<date>/sandbox-verification.md` so a future regression is caught.
 
-The hook's MCP namespace regex is `^mcp__(plugin_)?recce(_|-|$)` — adding a `mcp__recce_<foo>__*` namespace is automatically covered. New Bash basenames (e.g. a `recce` CLI rename) require a Python-level change.
+The hook's MCP namespace regex is `^mcp__(plugin_)?recce(_|-|$)` — adding a `mcp__recce_<foo>__*` namespace is automatically covered. New Bash basenames (e.g. a `recce` CLI rename, a new SQL client, a new dbt subcommand) require a Python-level change to `DENIED_BINS` / `DBT_DENIED_SUBCOMMANDS` / `TIER_0_ALLOWLIST` / `EXEC_WRAPPERS` / `SHELL_WRAPPERS` / `TRANSPARENT_PREFIXES`.

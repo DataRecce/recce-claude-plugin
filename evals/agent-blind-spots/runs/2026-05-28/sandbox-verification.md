@@ -2,12 +2,13 @@
 
 Per [DRC-3584](https://linear.app/recce/issue/DRC-3584) acceptance criterion #2: one fixture × {Claude Code, Codex} × {Tier-0, Tier-1} verified by hand, with agent traces inspected to confirm enforcement actually fires.
 
-**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v4` (Python; post-PR-#36-cycle-iteration-2).
+**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v5` (bashlex AST; post-PR-#36-cycle-iteration-3).
 
-The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded three times:
-- **v2** (Python rewrite) — closed the 6 bypass shapes the case-glob couldn't address (shell separators, absolute paths, `sh -c`, dbt global flags, skill case-sensitivity, the false ENFORCEMENT.md:71 claim).
-- **v3** — closed the 2 additional bypass shapes the cycle iter-1 surfaced (Tier-1 dbt flag-with-value, exec-wrapper-launches-denied-binary).
-- **v4** (this revision) — closed 3 additional bypass classes the cycle iter-2 surfaced (`eval` shell-builtin smuggling, `$()`/backtick substitution at command-head, missing dbt subcommands `clone`/`retry`).
+The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded four times:
+- **v2** (Python rewrite using shlex + regex) — closed the 6 bypass shapes the case-glob couldn't address (shell separators, absolute paths, `sh -c`, dbt global flags, skill case-sensitivity, the false ENFORCEMENT.md:71 claim).
+- **v3** — closed the 2 additional bypass shapes cycle iter-1 surfaced (Tier-1 dbt flag-with-value, exec-wrapper-launches-denied-binary).
+- **v4** — closed 3 additional bypass classes cycle iter-2 surfaced (`eval` shell-builtin smuggling, `$()`/backtick substitution at command-head, missing dbt subcommands `clone`/`retry`).
+- **v5** (this revision) — closed 9 additional bypass classes cycle iter-3 surfaced. Required a structural rewrite from regex/shlex to `bashlex` (a real Bash AST parser) because the bypasses exploited Bash semantics shlex/regex couldn't model: nested `$()`, ANSI-C `$'...'`, parameter expansion `${a:-default}`, Bash keywords (`coproc`, `!`), command modifiers (`command`, `builtin`), exec-wrapper smuggling (`xargs -I {} sh -c "{} parse" dbt`), and substitution-produces-subcommand (`dbt $(echo run)`).
 
 The "Bypass attempts" tables below are the load-bearing evidence that v3 closes every reviewer-named bypass. All rows are exit-2 expected; the few exit-0 entries are explicit counter-claims (a documented allow path that protects the rubric for a different reason — typically cwd separation rather than the hook).
 
@@ -89,6 +90,19 @@ Note: the cycle review (`v2 review`, NOTE 5) flagged the matcher regex `Bash|Ski
 | **Counter-claim**: benign `$()` head | `$(which python) script.py` | iter-2 | ✅ exit 0 |
 | **Counter-claim**: benign `$(echo grep)` | `$(echo grep) -rn foo .` | iter-2 | ✅ exit 0 |
 | **Counter-claim**: dbt-without-subcommand via `$()` | `$(echo dbt)` | iter-2 | ✅ exit 0 (bare dbt allowed) |
+| **v5 — nested `$()` L1** | `$(sh -c "$(echo dbt) run")` | iter-3 | ✅ exit 2 |
+| **v5 — nested `$()` L2** | `$($(echo dbt) run)` | iter-3 | ✅ exit 2 |
+| **v5 — nested backtick + `$()`** | `` `$(echo dbt) run` `` | iter-3 | ✅ exit 2 |
+| **v5 — `eval $(...)` smuggling** | `eval $(echo "dbt parse")` | iter-3 | ✅ exit 2 |
+| **v5 — `xargs $(echo dbt)`** | `xargs $(echo dbt)` | iter-3 | ✅ exit 2 (denied: xargs-wrapped denied basename) |
+| **v5 — substitution-supplied subcommand** | `dbt $(echo run)` | iter-3 | ✅ exit 2 |
+| **v5 — ANSI-C `$'dbt'`** | `$'dbt' parse` | iter-3 | ✅ exit 2 |
+| **v5 — parameter expansion `${a:-dbt}`** | `${a:-dbt} parse` | iter-3 | ✅ exit 2 |
+| **v5 — `coproc` keyword** | `coproc dbt run` | iter-3 | ✅ exit 2 (denied pre-parse; bashlex doesn't support coproc) |
+| **v5 — `command` modifier** | `command dbt run` | iter-3 | ✅ exit 2 (transparent prefix; dbt revealed underneath) |
+| **v5 — `builtin eval`** | `builtin eval dbt run` | iter-3 | ✅ exit 2 |
+| **v5 — `!` negation prefix** | `! dbt run` | iter-3 | ✅ exit 2 (pipeline negation walked) |
+| **v5 — `xargs -I {} sh -c "{} parse" dbt`** | `xargs -I {} sh -c "{} parse" dbt` | iter-3 | ✅ exit 2 (denied: dbt in wrapped position) |
 
 ## Happy-path coverage (regression check)
 
