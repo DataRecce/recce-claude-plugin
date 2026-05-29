@@ -56,13 +56,15 @@ AGENTS = ("claude", "codex")
 TIERS = (0, 1)
 
 AGENT_PROMPT = (
-    "Review this dbt PR. The inputs listed in the Tier-0 runtime contract "
-    "(diff.patch, manifest-before.json / manifest-after.json, compiled-before/ / "
-    "compiled-after/, catalog-before.json / catalog-after.json, and read access "
-    "to the dbt project at the head SHA) are available in the current working "
-    "directory. Decide catch / miss / partial per the rubric. Recommend "
-    "approve / request-changes / abstain. End your output with one line, "
-    "exactly:\n"
+    "Review this dbt PR. The current working directory is the dbt project at the "
+    "head SHA (models/, dbt_project.yml, etc.). The frozen Tier-0 inputs are "
+    "staged under `_eval_inputs/`:\n"
+    "  - _eval_inputs/diff.patch — source-model diff base..head\n"
+    "  - _eval_inputs/artifacts/manifest-{before,after}.json — dbt manifests pre/post\n"
+    "  - _eval_inputs/artifacts/compiled-{before,after}/ — compiled SQL pre/post\n"
+    "  - _eval_inputs/artifacts/catalog-{before,after}.json — schema-only (row stats are zero)\n"
+    "Decide catch / miss / partial per the rubric. Recommend "
+    "approve / request-changes / abstain. End your output with one line, exactly:\n"
     "VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>"
 )
 
@@ -127,6 +129,31 @@ def scrub_env(extra_unset: tuple[str, ...] = ()) -> dict:
 def scrub_path(strip_patterns: tuple[str, ...]) -> str:
     pat = re.compile("|".join(strip_patterns))
     return ":".join(p for p in os.environ.get("PATH", "").split(":") if not pat.search(p))
+
+
+def stage_inputs(fixture_dir: Path, fixture_id: str) -> None:
+    """Stage frozen Tier-0 inputs into the agent's cwd at `_eval_inputs/`.
+
+    Symlinks `fixtures/<id>/{diff.patch, artifacts/}` into a `_eval_inputs/`
+    subdirectory of the per-fixture worktree, so an agent whose sandbox is
+    anchored on cwd (notably Codex Tier-0 read-only) can still reach the
+    frozen artifacts. Without this, only Claude Code (which doesn't anchor
+    Read on cwd) could see the inputs.
+    """
+    src_root = EVAL_DIR / "fixtures" / fixture_id
+    if not src_root.exists():
+        return
+    dst = fixture_dir / "_eval_inputs"
+    if dst.is_symlink() or dst.exists():
+        if dst.is_symlink():
+            dst.unlink()
+        else:
+            shutil.rmtree(dst)
+    dst.mkdir()
+    for name in ("diff.patch", "artifacts"):
+        src = src_root / name
+        if src.exists():
+            (dst / name).symlink_to(src.resolve())
 
 
 def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tuple[Path, int]:
@@ -195,6 +222,7 @@ def run_cell(cell: Cell, run_dir: Path) -> None:
     if not cli_available(cell.agent):
         cell.error = f"{cell.agent} CLI not found on PATH; skipping"
         return
+    stage_inputs(fixture_dir, cell.fixture)
     try:
         if cell.agent == "claude":
             path, rc = run_claude(fixture_dir, cell.tier, run_dir, AGENT_PROMPT)
