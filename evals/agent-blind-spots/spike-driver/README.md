@@ -15,6 +15,25 @@ Not the durable harness. Output artifacts live under `runs/<date>/spike-driver/`
 - `codex` CLI on PATH (optional — codex cells skip gracefully if missing)
 - `uv` available (per repo convention)
 
+## Auth note — `CLAUDE_CONFIG_DIR`
+
+`ENFORCEMENT.md` recipe step 3 sets `CLAUDE_CONFIG_DIR=$(mktemp -d)` to neuter
+a stray `~/.claude/settings.json`. The driver **does not** apply that override
+by default because it also strips the auth state — the child `claude --print`
+fails with `Not logged in`. For unattended runs the load-bearing enforcement is
+the project-level `.claude/settings.json` overlay (stamped per cell) plus the
+`PreToolUse` hook; a user-level `permissions.allow` cannot bypass an exit-2
+hook regardless.
+
+To enable the strict override (paranoid mode), set:
+
+```bash
+RECCE_EVAL_STRICT_CONFIG=1 uv run driver.py --smoke
+```
+
+You must preseed auth under the per-cell `_claude_cfg/<fixture>_t<n>/` dir
+before each run; the driver does not provision auth.
+
 ## Usage
 
 ```bash

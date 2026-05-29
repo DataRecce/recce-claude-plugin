@@ -167,10 +167,19 @@ def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tupl
     transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_claude_t{tier}.txt"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # NOTE: ENFORCEMENT.md recipe step 3 (CLAUDE_CONFIG_DIR=$(mktemp -d)) is
+    # *intentionally not applied here* — neutering ~/.claude/ also strips the
+    # auth state, which breaks unattended runs. The load-bearing enforcement
+    # for Tier-0 is the project-level .claude/settings.json overlay (stamped
+    # above) + the PreToolUse hook (deny-tier-N.py); a stray user-level
+    # `permissions.allow` cannot bypass an exit-2 hook. For paranoid mode,
+    # set RECCE_EVAL_STRICT_CONFIG=1 to override CLAUDE_CONFIG_DIR; the cell
+    # will fail with "Not logged in" unless auth is preseeded under that dir.
     env = scrub_env()
-    cfg_dir = run_dir / "_claude_cfg" / f"{fixture_dir.name}_t{tier}"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-    env["CLAUDE_CONFIG_DIR"] = str(cfg_dir)
+    if os.environ.get("RECCE_EVAL_STRICT_CONFIG"):
+        cfg_dir = run_dir / "_claude_cfg" / f"{fixture_dir.name}_t{tier}"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        env["CLAUDE_CONFIG_DIR"] = str(cfg_dir)
 
     proc = subprocess.run(
         ["claude", "--print", "--dangerously-skip-permissions", prompt],
