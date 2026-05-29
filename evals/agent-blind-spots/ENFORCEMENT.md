@@ -123,6 +123,33 @@ Per DRC-3584 acceptance criterion #2, run one fixture × {Claude Code, Codex} ×
 
 Record the result in a `runs/<YYYY-MM-DD>/sandbox-verification.md` per cell so future contributors can repro.
 
+## Threat model — non-adversarial code agent
+
+`RUBRIC.md` evaluates a **non-adversarial code agent** doing dbt PR review under instruction. That agent's failure mode is forgetting to call Recce, or calling Recce incorrectly — not constructing Bash incantations to slip past the sandbox. The Claude Code hooks are calibrated to that threat model; treat them as accident-prevention, not as red-team defense.
+
+The hooks block what a non-adversarial agent reaches in normal operation:
+
+- Direct Recce reachable paths (`recce` CLI, `mcp__recce__*`, `/recce:*` skill names, `recce.yml` discovery, `RECCE_API_TOKEN` references).
+- The dbt subcommands that compile or evaluate models (`run`, `test`, `parse`, `compile`, `build`, `seed`, `snapshot`, `docs`, `freshness`, `run-operation`, `debug`, `source`, `clone`, `retry`).
+- Raw SQL clients in the Tier-0 / Tier-1 denylist (`duckdb`, `psql`, `snowsql`, `bq`).
+- Standard exec-wrapper laundering (`xargs`, `find -exec`, `time`, `nohup`, `parallel`, `timeout`, `command`, `builtin`) and shell-wrapper laundering (`sh -c`, `bash -c`; `eval` at Tier-0).
+
+The hooks do **not** attempt to defeat an adversarial agent actively trying to evade the sandbox. Static Bash analysis has structural limits — an adversary can reach denied commands through any of the following classes, all of which are **accepted as out of scope for v1**:
+
+| Class | Example | Why static analysis can't close it |
+|---|---|---|
+| `bashlex` parser gaps | `time dbt parse`, `case x in *) dbt parse;; esac`, `select … dbt …` | bashlex raises `NotImplementedError` on certain Bash keywords; the AST is unreachable |
+| Heredoc body as interpreter input | `sh <<EOF\ndbt parse\nEOF` | The heredoc body is a string from `sh`'s perspective; not a child AST |
+| Pipeline producer/consumer | `echo "dbt parse" \| sh` | The string flowing across the pipe is opaque at parse time |
+| Stdin-supplied subcommands | `while read l; do dbt $l; done` | The values of `$l` are only known at runtime |
+| String args evaluated later | `trap 'dbt parse' EXIT` | The string is evaluated by the trap handler at signal time |
+| Interpreter shell-out | `python3 -c "os.system('dbt parse')"`, `node -e "..."`, `awk 'BEGIN{system(...)}'` | The interpreter's command is an opaque string from Bash's perspective |
+| Variable-flow assignments / loops | `FOO=$(dbt parse) cmd`, `for x in $(dbt parse); do …` | Requires whole-program data-flow analysis, not single-command parsing |
+
+Closing these would require either an OS-level sandbox (`bwrap` / `firejail` / `sandbox-exec`) or a full Bash interpreter — both larger than the eval itself. If a downstream eval discovers a *non-adversarial* agent reaching denied commands through one of these classes in practice, that becomes a follow-up issue (revisit the threat model, not patch one more pattern speculatively).
+
+For Codex, this whole class of escape is closed by the OS-level process sandbox (`--sandbox=read-only` / `workspace-write`) plus the PATH scrub — there is no need for static Bash analysis. The Claude Code side runs without an OS-level sandbox in v1 because Claude Code does not expose one; the hook + cwd discipline is the best available approximation under that constraint.
+
 ## What this does NOT enforce
 
 Mechanical enforcement only catches what the runner can introspect. Three categories are still contract-based:
