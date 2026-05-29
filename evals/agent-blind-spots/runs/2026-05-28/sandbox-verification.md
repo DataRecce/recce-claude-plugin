@@ -2,13 +2,14 @@
 
 Per [DRC-3584](https://linear.app/recce/issue/DRC-3584) acceptance criterion #2: one fixture × {Claude Code, Codex} × {Tier-0, Tier-1} verified by hand, with agent traces inspected to confirm enforcement actually fires.
 
-**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v5` (bashlex AST; post-PR-#36-cycle-iteration-3).
+**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v6` (bashlex AST; post-PR-#36-cycle-iteration-4).
 
-The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded four times:
+The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded five times:
 - **v2** (Python rewrite using shlex + regex) — closed the 6 bypass shapes the case-glob couldn't address (shell separators, absolute paths, `sh -c`, dbt global flags, skill case-sensitivity, the false ENFORCEMENT.md:71 claim).
 - **v3** — closed the 2 additional bypass shapes cycle iter-1 surfaced (Tier-1 dbt flag-with-value, exec-wrapper-launches-denied-binary).
 - **v4** — closed 3 additional bypass classes cycle iter-2 surfaced (`eval` shell-builtin smuggling, `$()`/backtick substitution at command-head, missing dbt subcommands `clone`/`retry`).
-- **v5** (this revision) — closed 9 additional bypass classes cycle iter-3 surfaced. Required a structural rewrite from regex/shlex to `bashlex` (a real Bash AST parser) because the bypasses exploited Bash semantics shlex/regex couldn't model: nested `$()`, ANSI-C `$'...'`, parameter expansion `${a:-default}`, Bash keywords (`coproc`, `!`), command modifiers (`command`, `builtin`), exec-wrapper smuggling (`xargs -I {} sh -c "{} parse" dbt`), and substitution-produces-subcommand (`dbt $(echo run)`).
+- **v5** — closed 9 additional bypass classes cycle iter-3 surfaced. Required a structural rewrite from regex/shlex to `bashlex` (real Bash AST parser).
+- **v6** (this revision) — closed 7 BLOCKERs + 5 ISSUEs cycle iter-4 surfaced. These were AST-walker gaps inside the bashlex code: process substitution `<(...)`/`>(...)` not walked, `CompoundNode.list` not descended (subshells `(...)`, groups `{ ...; }` silently allowed), brace expansion (`{dbt,bash}`, `dbt {parse,run}`) left as literal words, xargs→sh-c chain with placeholder substitution, `$0`/`$BASH` parameter resolution. ISSUEs: `coproc` regex false-positives inside string literals (now relies on bashlex's NotImplementedError + error-message check), `$((arith))` no longer fails closed (legit construct), ANSI-C decoder uses `codecs.decode` with `unicode_escape`, `_looks_like_executable` adds `[[`/`]]`/`;;`/`&&`/`||`, reparse fallback scans all tokens.
 
 The "Bypass attempts" tables below are the load-bearing evidence that v3 closes every reviewer-named bypass. All rows are exit-2 expected; the few exit-0 entries are explicit counter-claims (a documented allow path that protects the rubric for a different reason — typically cwd separation rather than the hook).
 
@@ -103,6 +104,16 @@ Note: the cycle review (`v2 review`, NOTE 5) flagged the matcher regex `Bash|Ski
 | **v5 — `builtin eval`** | `builtin eval dbt run` | iter-3 | ✅ exit 2 |
 | **v5 — `!` negation prefix** | `! dbt run` | iter-3 | ✅ exit 2 (pipeline negation walked) |
 | **v5 — `xargs -I {} sh -c "{} parse" dbt`** | `xargs -I {} sh -c "{} parse" dbt` | iter-3 | ✅ exit 2 (denied: dbt in wrapped position) |
+| **v6 — process substitution `<(`** | `diff <(dbt run) /etc/hosts` | iter-4 | ✅ exit 2 (ProcesssubstitutionNode walked) |
+| **v6 — process substitution `>(` in redirect** | `echo x 2> >(dbt parse)` | iter-4 | ✅ exit 2 (RedirectNode.output walked) |
+| **v6 — subshell `(...)`** | `(dbt parse)` | iter-4 | ✅ exit 2 (CompoundNode.list descended) |
+| **v6 — group `{ ...; }`** | `{ dbt parse; }` | iter-4 | ✅ exit 2 |
+| **v6 — brace head** | `{dbt,bash} run` | iter-4 | ✅ exit 2 (brace literal decoded into candidates) |
+| **v6 — brace dbt subcommand** | `dbt {parse,run}` | iter-4 | ✅ exit 2 |
+| **v6 — xargs→sh-c chain with placeholder** | `echo dbt \| xargs -I {} sh -c "{} parse"` | iter-4 | ✅ exit 2 (placeholder-in-body denied conservatively) |
+| **v6 — `$0` positional** | `$0 -c "dbt parse"` | iter-4 | ✅ exit 2 (`$0` resolves to shell wrapper candidate) |
+| **v6 ISSUE — coproc inside string literal** | `echo coproc` | iter-4 | ✅ exit 0 (no longer false-positives) |
+| **v6 ISSUE — arithmetic expansion** | `echo $((1+1))` | iter-4 | ✅ exit 0 (no longer fails closed) |
 
 ## Happy-path coverage (regression check)
 

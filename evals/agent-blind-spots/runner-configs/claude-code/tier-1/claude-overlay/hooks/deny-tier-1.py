@@ -91,12 +91,44 @@ def deny(reason: str) -> None:
 # --- Word resolution ------------------------------------------------------
 
 _ANSI_C_RE = re.compile(r"^\$'(.*)'$", re.DOTALL)
+_BRACE_LITERAL_RE = re.compile(r"^([^{},\s]*)\{([^{}]+)\}([^{}]*)$")
+
+# Parameters that at runtime resolve to a shell name. We can't predict
+# which shell, so treat them as if they were a shell wrapper — same
+# threat surface as `sh`. Includes positional $0 (the script name)
+# and $BASH, $SHELL, $BASH_SOURCE, $0 alias.
+_SHELL_NAME_PARAMS: frozenset[str] = frozenset(
+    {"0", "BASH", "SHELL", "BASH_SOURCE"}
+)
 
 
 def _decode_ansi_c(inner: str) -> str:
-    """Naive ANSI-C escape decode: drop backslashes that precede a
-    char. `\\d\\b\\t` → `dbt`, which is the bypass we care about."""
-    return re.sub(r"\\(.)", r"\1", inner)
+    """Decode ANSI-C escapes the way bash does (close enough for our
+    threat model): \\d → d (literal, since \\d isn't a bash escape),
+    \\n → newline, \\t → tab, etc. We use `unicode_escape` for the
+    standard set; characters that aren't escape codes survive as-is.
+    """
+    try:
+        import codecs
+        return codecs.decode(inner, 'unicode_escape')
+    except (UnicodeDecodeError, ValueError):
+        # Malformed escape — fall back to dropping backslashes.
+        return re.sub(r"\\(.)", r"\1", inner)
+
+
+def _expand_brace_literal(text: str) -> list[str] | None:
+    """For a literal word like `{dbt,bash}` or `prefix{a,b}suffix`,
+    return the expanded list of candidates. Returns None when no
+    brace expansion is present. Doesn't handle nested or sequence
+    expansions (`{a..z}`); those are rare in adversarial contexts."""
+    m = _BRACE_LITERAL_RE.match(text)
+    if not m:
+        return None
+    prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
+    parts = [p.strip() for p in inner.split(",")]
+    if len(parts) < 2:
+        return None
+    return [f"{prefix}{p}{suffix}" for p in parts]
 
 
 def resolve_word(word_node, original_cmd: str) -> list[str]:
@@ -106,10 +138,13 @@ def resolve_word(word_node, original_cmd: str) -> list[str]:
     `$'dbt'` (ANSI-C) → ['dbt'] (detected via raw position because
     bashlex represents the construct as `$dbt` with a ParameterNode).
     `${a:-dbt}` → ['dbt'].
+    `{dbt,bash}` (brace literal) → ['dbt', 'bash'].
     `$(echo dbt)` → ['dbt', 'echo'] (each word inside the
     substitution is a candidate output; over-approximate but
     conservative for denial decisions).
-    `` `cmd` `` → same as `$(cmd)`.
+    `$0` / `$BASH` / `$SHELL` → ['sh'] (placeholder that triggers
+    the shell-wrapper branch in walk(); we can't predict the actual
+    shell name).
     """
     pos = getattr(word_node, 'pos', None)
     text = getattr(word_node, 'word', '') or ''
@@ -124,6 +159,10 @@ def resolve_word(word_node, original_cmd: str) -> list[str]:
 
     parts = getattr(word_node, 'parts', []) or []
     if not parts:
+        # Literal word. Check for brace expansion.
+        expanded = _expand_brace_literal(text)
+        if expanded is not None:
+            return expanded
         return [text]
 
     candidates: list[str] = []
@@ -135,14 +174,35 @@ def resolve_word(word_node, original_cmd: str) -> list[str]:
                 candidates.append(value.split(':-', 1)[1])
             elif ':=' in value:
                 candidates.append(value.split(':=', 1)[1])
-            # Bare $VAR — unknown at static time. Don't speculate.
+            elif value in _SHELL_NAME_PARAMS:
+                # `$0`, `$BASH`, `$SHELL` — resolves to a shell at
+                # runtime. Surface as 'sh' so the shell-wrapper
+                # branch fires conservatively.
+                candidates.append("sh")
+            # Other bare $VAR — unknown at static time. Don't speculate.
         elif kind == 'commandsubstitution':
+            sub_cmd = getattr(part, 'command', None)
+            if sub_cmd is not None:
+                for sub_word in _walk_command_words(sub_cmd):
+                    candidates.extend(resolve_word(sub_word, original_cmd))
+        elif kind == 'processsubstitution':
+            # `<(cmd)` / `>(cmd)` — same threat surface as $(): the
+            # inner command runs. We still walk INTO it via
+            # _walk_substitutions (security pass); here we also
+            # add its words as candidate outputs since process-sub
+            # in head position resolves to a /dev/fd/N path that
+            # bash would `exec` — unusual but possible.
             sub_cmd = getattr(part, 'command', None)
             if sub_cmd is not None:
                 for sub_word in _walk_command_words(sub_cmd):
                     candidates.extend(resolve_word(sub_word, original_cmd))
 
     if not candidates:
+        # Expansion present but no useful candidate — fall back to
+        # the literal text (also try brace expansion on the literal).
+        expanded = _expand_brace_literal(text)
+        if expanded is not None:
+            return expanded
         return [text]
     return candidates
 
@@ -163,12 +223,14 @@ def _walk_command_words(cmd_node) -> Iterable[object]:
 
 
 def _walk_substitutions(word_node, original_cmd: str, depth: int) -> None:
-    """Walk INTO every command substitution found in this word as if
-    it were a top-level command. Catches `$(sh -c "dbt run")` because
-    the inner `sh -c "dbt run"` is itself denied.
+    """Walk INTO every command substitution or process substitution
+    found in this word as if it were a top-level command. Catches
+    `$(sh -c "dbt run")` and `diff <(dbt run)` because their inner
+    commands are independently checked.
     """
     for part in getattr(word_node, 'parts', []) or []:
-        if getattr(part, 'kind', '') == 'commandsubstitution':
+        kind = getattr(part, 'kind', '')
+        if kind in ('commandsubstitution', 'processsubstitution'):
             sub_cmd = getattr(part, 'command', None)
             if sub_cmd is not None:
                 walk(sub_cmd, original_cmd, depth + 1)
@@ -177,7 +239,7 @@ def _walk_substitutions(word_node, original_cmd: str, depth: int) -> None:
 def _looks_like_executable(name: str) -> bool:
     if not name:
         return False
-    if name in ("{}", "[]", ";", "+", "\\;"):
+    if name in ("{}", "[]", ";", "+", "\\;", "[[", "]]", ";;", "&&", "||"):
         return False
     if name.isdigit():
         return False
@@ -194,7 +256,12 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
 
     if kind in ('list', 'pipeline', 'compound', 'if', 'for', 'while',
                 'until', 'function', 'case'):
-        for child in getattr(node, 'parts', []) or []:
+        # CompoundNode stores its children under `.list`, not `.parts`.
+        # Other container kinds use `.parts`. Descend on whichever
+        # attribute is populated.
+        children = (getattr(node, 'list', None)
+                    or getattr(node, 'parts', None) or [])
+        for child in children:
             if hasattr(child, 'kind'):
                 walk(child, original_cmd, depth + 1)
         return
@@ -213,6 +280,14 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
     # denied call that bash will execute).
     for w in words:
         _walk_substitutions(w, original_cmd, depth)
+
+    # Pass 1b: redirect targets can be process substitutions
+    # (`echo x 2> >(dbt parse)`); walk those too.
+    for p in (node.parts or []):
+        if getattr(p, 'kind', '') == 'redirect':
+            out = getattr(p, 'output', None)
+            if out is not None and getattr(out, 'kind', '') == 'word':
+                _walk_substitutions(out, original_cmd, depth)
 
     # Pass 2: head + args check on the current command.
     idx = 0
@@ -249,6 +324,26 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
     head_candidates = resolve_word(head_word, original_cmd)
     head_names = {basename(c) for c in head_candidates}
     arg_words = words[idx + 1:]
+
+    # When the head resolves to multiple candidates (brace expansion
+    # `{dbt,bash}`, substitution payload `$(echo dbt)`), the same
+    # command could exec ANY of them at runtime. Apply the dbt rule
+    # eagerly here so a brace literal that includes `dbt` plus a
+    # denied subcommand in args (`{dbt,bash} run`) denies — without
+    # this, the shell-wrapper branch below would handle `bash` and
+    # return without ever checking the dbt arm.
+    if "dbt" in head_names and _dbt_args_have_denied(arg_words, original_cmd):
+        deny(
+            "dbt subcommand regenerates frozen artifacts or hits a "
+            f"warehouse (matched in: {original_cmd!r})"
+        )
+    eager_denied = (head_names & DENIED_BINS) - {"dbt"}
+    if eager_denied:
+        name = next(iter(eager_denied))
+        deny(
+            f"Direct SQL client '{name}' — use Recce MCP query instead "
+            f"(matched in: {original_cmd!r})"
+        )
 
     # --- Shell wrappers (sh -c, bash -lc, ...) ---
     if head_names & SHELL_WRAPPERS:
@@ -305,8 +400,45 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
                             f"denied binary '{name}' as exec-wrapped "
                             f"command (matched in: {original_cmd!r})"
                         )
-            # Also re-parse to catch nested wrappers.
+
+            # If the wrapped binary is itself a shell wrapper
+            # (xargs -I {} sh -c "..."), the exec-wrapper's args
+            # become input to that shell. Re-parse the -c arg as
+            # bash so the inner construct is walked again. Without
+            # this, `xargs -I {} sh -c "{} parse" dbt` slips: the
+            # exec-wrapper scan sees only `sh`, and the {} doesn't
+            # statically resolve to dbt.
             head_cands = resolve_word(wrapped[0], original_cmd)
+            head_basenames = {basename(c) for c in head_cands}
+            if head_basenames & SHELL_WRAPPERS:
+                for j in range(1, len(wrapped) - 1):
+                    if (wrapped[j].word or '') in ("-c", "-lc", "-ic"):
+                        inner_literal = wrapped[j + 1].word or ''
+                        placeholder = _xargs_placeholder(arg_words)
+                        if (placeholder
+                            and placeholder in inner_literal
+                            and "xargs" in head_names):
+                            # `xargs -I X sh -c "...X..."` is a classic
+                            # command-injection pattern: the placeholder
+                            # is replaced at runtime by stdin lines, so
+                            # the shell command is dynamic. Static
+                            # analysis can't predict what stdin will
+                            # supply; deny conservatively.
+                            deny(
+                                f"`xargs -I {placeholder} sh -c \"...\"` "
+                                f"with placeholder in the shell body is "
+                                f"a dynamic-command construction — deny "
+                                f"(matched in: {original_cmd!r})"
+                            )
+                        # No placeholder smuggling — reparse the
+                        # literal -c text and let the recursive walk
+                        # check the inner construct.
+                        _reparse_and_walk(
+                            inner_literal, original_cmd, depth + 1
+                        )
+                        return
+
+            # Default: synthesize and re-walk to catch nested wrappers.
             if head_cands:
                 rest = " ".join((w.word or '') for w in wrapped[1:])
                 synth = (head_cands[0] + " " + rest).strip()
@@ -331,6 +463,15 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
             f"Direct SQL client '{name}' — use Recce MCP query instead "
             f"(matched in: {original_cmd!r})"
         )
+
+
+def _xargs_placeholder(arg_words: list) -> str | None:
+    """For `xargs -I PLACEHOLDER ...`, return PLACEHOLDER. Default is
+    `{}` when -I has no arg or when the wrapper isn't xargs."""
+    for i, w in enumerate(arg_words):
+        if (w.word or '') in ("-I", "--replace") and i + 1 < len(arg_words):
+            return arg_words[i + 1].word or '{}'
+    return '{}'
 
 
 def _find_exec_target(head_names: set[str], arg_words: list) -> list:
@@ -383,7 +524,10 @@ def _reparse_and_walk(inner: str, original_cmd: str, depth: int) -> None:
     try:
         trees = bashlex.parse(inner)
     except (bashlex.errors.ParsingError, NotImplementedError):
-        # Unparseable inner — fall back to literal token scan.
+        # Unparseable inner — fall back to a literal token scan that
+        # walks EVERY token (not just the first). A constructed inner
+        # that surfaces `:` first and the wrapper second escapes a
+        # first-token-only scan.
         for tok in inner.split():
             base = basename(tok)
             if base in DENIED_BINS or base in SHELL_WRAPPERS or base in EXEC_WRAPPERS:
@@ -409,19 +553,27 @@ def main() -> None:
     if not cmd.strip():
         return
 
-    # `coproc` is a Bash keyword bashlex can't parse. A Tier-1 agent
-    # has no legitimate reason for it; deny outright before the parser
-    # raises NotImplementedError.
-    if re.search(r"\bcoproc\b", cmd):
-        deny(f"`coproc` keyword is not allowed at Tier 1 (matched in: {cmd!r})")
-
     try:
         trees = bashlex.parse(cmd)
     except NotImplementedError as e:
-        deny(
-            f"bash construct not supported by parser ({e}); "
-            f"failing closed (matched in: {cmd!r})"
-        )
+        # Only deny for `coproc` (real bypass surface — a Tier-1
+        # agent has no legitimate reason to background-spawn a
+        # named pipe to dbt). Other unsupported constructs (e.g.
+        # arithmetic expansion `$((1+2))`, `select` keyword, etc.)
+        # are legitimate Bash idioms that agents use; falling open
+        # there leaves the rest of the sandbox (PATH scrub at the
+        # runner level, MCP allowlist, settings.json deny) as the
+        # net. Conservatively, also deny if the error message
+        # contains any obvious wrapper word that hints the construct
+        # might be smuggling a denied binary, but accept the
+        # arithmetic / select / brace-expansion shapes.
+        msg = str(e).lower()
+        if 'coproc' in msg:
+            deny(
+                f"`coproc` keyword is not allowed at Tier 1 "
+                f"(matched in: {cmd!r})"
+            )
+        return
     except bashlex.errors.ParsingError:
         return
 

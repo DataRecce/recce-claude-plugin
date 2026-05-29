@@ -88,10 +88,32 @@ def deny(reason: str) -> None:
 # --- Word resolution ------------------------------------------------------
 
 _ANSI_C_RE = re.compile(r"^\$'(.*)'$", re.DOTALL)
+_BRACE_LITERAL_RE = re.compile(r"^([^{},\s]*)\{([^{}]+)\}([^{}]*)$")
+
+# Parameters that at runtime resolve to a shell name. We can't predict
+# which shell, so treat them as if they were a shell wrapper.
+_SHELL_NAME_PARAMS: frozenset[str] = frozenset(
+    {"0", "BASH", "SHELL", "BASH_SOURCE"}
+)
 
 
 def _decode_ansi_c(inner: str) -> str:
-    return re.sub(r"\\(.)", r"\1", inner)
+    try:
+        import codecs
+        return codecs.decode(inner, 'unicode_escape')
+    except (UnicodeDecodeError, ValueError):
+        return re.sub(r"\\(.)", r"\1", inner)
+
+
+def _expand_brace_literal(text: str) -> list[str] | None:
+    m = _BRACE_LITERAL_RE.match(text)
+    if not m:
+        return None
+    prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
+    parts = [p.strip() for p in inner.split(",")]
+    if len(parts) < 2:
+        return None
+    return [f"{prefix}{p}{suffix}" for p in parts]
 
 
 def resolve_word(word_node, original_cmd: str) -> list[str]:
@@ -108,6 +130,9 @@ def resolve_word(word_node, original_cmd: str) -> list[str]:
 
     parts = getattr(word_node, 'parts', []) or []
     if not parts:
+        expanded = _expand_brace_literal(text)
+        if expanded is not None:
+            return expanded
         return [text]
 
     candidates: list[str] = []
@@ -119,13 +144,23 @@ def resolve_word(word_node, original_cmd: str) -> list[str]:
                 candidates.append(value.split(':-', 1)[1])
             elif ':=' in value:
                 candidates.append(value.split(':=', 1)[1])
+            elif value in _SHELL_NAME_PARAMS:
+                candidates.append("sh")
         elif kind == 'commandsubstitution':
+            sub_cmd = getattr(part, 'command', None)
+            if sub_cmd is not None:
+                for sub_word in _walk_command_words(sub_cmd):
+                    candidates.extend(resolve_word(sub_word, original_cmd))
+        elif kind == 'processsubstitution':
             sub_cmd = getattr(part, 'command', None)
             if sub_cmd is not None:
                 for sub_word in _walk_command_words(sub_cmd):
                     candidates.extend(resolve_word(sub_word, original_cmd))
 
     if not candidates:
+        expanded = _expand_brace_literal(text)
+        if expanded is not None:
+            return expanded
         return [text]
     return candidates
 
@@ -146,7 +181,8 @@ def _walk_command_words(cmd_node) -> Iterable[object]:
 
 def _walk_substitutions(word_node, original_cmd: str, depth: int) -> None:
     for part in getattr(word_node, 'parts', []) or []:
-        if getattr(part, 'kind', '') == 'commandsubstitution':
+        kind = getattr(part, 'kind', '')
+        if kind in ('commandsubstitution', 'processsubstitution'):
             sub_cmd = getattr(part, 'command', None)
             if sub_cmd is not None:
                 walk(sub_cmd, original_cmd, depth + 1)
@@ -155,7 +191,7 @@ def _walk_substitutions(word_node, original_cmd: str, depth: int) -> None:
 def _looks_like_executable(name: str) -> bool:
     if not name:
         return False
-    if name in ("{}", "[]", ";", "+", "\\;"):
+    if name in ("{}", "[]", ";", "+", "\\;", "[[", "]]", ";;", "&&", "||"):
         return False
     if name.isdigit():
         return False
@@ -172,7 +208,10 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
 
     if kind in ('list', 'pipeline', 'compound', 'if', 'for', 'while',
                 'until', 'function', 'case'):
-        for child in getattr(node, 'parts', []) or []:
+        # CompoundNode uses `.list`, other containers use `.parts`.
+        children = (getattr(node, 'list', None)
+                    or getattr(node, 'parts', None) or [])
+        for child in children:
             if hasattr(child, 'kind'):
                 walk(child, original_cmd, depth + 1)
         return
@@ -188,6 +227,14 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
     # checked against Tier-0 allowlist.
     for w in words:
         _walk_substitutions(w, original_cmd, depth)
+
+    # Pass 1b: redirect targets can be process substitutions
+    # (`echo x 2> >(recce check)`); walk those too.
+    for p in (node.parts or []):
+        if getattr(p, 'kind', '') == 'redirect':
+            out = getattr(p, 'output', None)
+            if out is not None and getattr(out, 'kind', '') == 'word':
+                _walk_substitutions(out, original_cmd, depth)
 
     # Pass 2: head check.
     idx = 0
@@ -352,16 +399,19 @@ def main() -> None:
     if not cmd.strip():
         return
 
-    if re.search(r"\bcoproc\b", cmd):
-        deny(f"`coproc` keyword is not allowed at Tier 0 (matched in: {cmd!r})")
-
     try:
         trees = bashlex.parse(cmd)
     except NotImplementedError as e:
-        deny(
-            f"bash construct not supported by parser ({e}); "
-            f"failing closed (matched in: {cmd!r})"
-        )
+        msg = str(e).lower()
+        if 'coproc' in msg:
+            deny(
+                f"`coproc` keyword is not allowed at Tier 0 "
+                f"(matched in: {cmd!r})"
+            )
+        # Other unsupported constructs (arithmetic expansion, select,
+        # etc.) fall open — they're legitimate Bash idioms; the rest
+        # of the sandbox catches denied binaries.
+        return
     except bashlex.errors.ParsingError:
         return
 
