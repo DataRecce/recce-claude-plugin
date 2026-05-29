@@ -96,8 +96,6 @@ Emit JSON ONLY in this exact shape:
 }}
 """
 
-VERDICT_TAIL_RE = re.compile(r"VERDICT:\s*(catch|miss|partial)\s*[·•|]?\s*(approve|request-changes|abstain)", re.IGNORECASE)
-
 
 @dataclass
 class Cell:
@@ -139,10 +137,14 @@ def stage_inputs(fixture_dir: Path, fixture_id: str) -> None:
     anchored on cwd (notably Codex Tier-0 read-only) can still reach the
     frozen artifacts. Without this, only Claude Code (which doesn't anchor
     Read on cwd) could see the inputs.
+
+    Raises FileNotFoundError if neither `diff.patch` nor `artifacts/` exists
+    under `fixtures/<id>/`; otherwise the agent would see an empty
+    `_eval_inputs/` and review the PR with no Tier-0 inputs (silent miss).
     """
     src_root = EVAL_DIR / "fixtures" / fixture_id
     if not src_root.exists():
-        return
+        raise FileNotFoundError(f"fixture dir missing: {src_root}")
     dst = fixture_dir / "_eval_inputs"
     if dst.is_symlink() or dst.exists():
         if dst.is_symlink():
@@ -150,10 +152,18 @@ def stage_inputs(fixture_dir: Path, fixture_id: str) -> None:
         else:
             shutil.rmtree(dst)
     dst.mkdir()
+    staged = 0
     for name in ("diff.patch", "artifacts"):
         src = src_root / name
         if src.exists():
             (dst / name).symlink_to(src.resolve())
+            staged += 1
+    if staged == 0:
+        dst.rmdir()
+        raise FileNotFoundError(
+            f"no Tier-0 inputs under {src_root} (need diff.patch and/or artifacts/); "
+            "did build_fixtures.sh complete for this fixture?"
+        )
 
 
 def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tuple[Path, int]:
@@ -231,7 +241,11 @@ def run_cell(cell: Cell, run_dir: Path) -> None:
     if not cli_available(cell.agent):
         cell.error = f"{cell.agent} CLI not found on PATH; skipping"
         return
-    stage_inputs(fixture_dir, cell.fixture)
+    try:
+        stage_inputs(fixture_dir, cell.fixture)
+    except FileNotFoundError as e:
+        cell.error = f"stage_inputs failed: {e}"
+        return
     try:
         if cell.agent == "claude":
             path, rc = run_claude(fixture_dir, cell.tier, run_dir, AGENT_PROMPT)
