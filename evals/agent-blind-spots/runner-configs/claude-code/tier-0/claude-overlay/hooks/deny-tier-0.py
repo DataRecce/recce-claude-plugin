@@ -45,8 +45,11 @@ TIER_0_ALLOWLIST: frozenset[str] = frozenset({
 # Shell wrappers that take `-c <command>`. Banned outright at Tier 0 —
 # refusing to interpret them is simpler than recursing, and an agent
 # with a positive allowlist has no legitimate reason to invoke a shell.
+# `eval` is a shell builtin that concatenates its args and re-evaluates
+# them as a command (same threat surface, different syntactic shape);
+# included here so it's banned alongside the rest.
 SHELL_WRAPPERS: frozenset[str] = frozenset(
-    {"sh", "bash", "zsh", "dash", "ash", "ksh"}
+    {"sh", "bash", "zsh", "dash", "ash", "ksh", "eval"}
 )
 
 # Exec wrappers that run their argument as a new process. `xargs` and

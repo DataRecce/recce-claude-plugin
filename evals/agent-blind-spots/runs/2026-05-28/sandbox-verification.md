@@ -2,11 +2,12 @@
 
 Per [DRC-3584](https://linear.app/recce/issue/DRC-3584) acceptance criterion #2: one fixture × {Claude Code, Codex} × {Tier-0, Tier-1} verified by hand, with agent traces inspected to confirm enforcement actually fires.
 
-**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v3` (Python; post-PR-#36-cycle-review).
+**Fixture:** `pr1-fix-clv`. **Worktree:** `.claude/worktrees/drc-3584-sandbox-profiles`. **Hook revision:** `v4` (Python; post-PR-#36-cycle-iteration-2).
 
-The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded twice:
+The v1 case-glob bash hooks (shipped in the first PR-#36 commit) were superseded three times:
 - **v2** (Python rewrite) — closed the 6 bypass shapes the case-glob couldn't address (shell separators, absolute paths, `sh -c`, dbt global flags, skill case-sensitivity, the false ENFORCEMENT.md:71 claim).
-- **v3** (this revision) — closed the 2 additional bypass shapes the cycle review surfaced (Tier-1 dbt flag-with-value, exec-wrapper-launches-denied-binary).
+- **v3** — closed the 2 additional bypass shapes the cycle iter-1 surfaced (Tier-1 dbt flag-with-value, exec-wrapper-launches-denied-binary).
+- **v4** (this revision) — closed 3 additional bypass classes the cycle iter-2 surfaced (`eval` shell-builtin smuggling, `$()`/backtick substitution at command-head, missing dbt subcommands `clone`/`retry`).
 
 The "Bypass attempts" tables below are the load-bearing evidence that v3 closes every reviewer-named bypass. All rows are exit-2 expected; the few exit-0 entries are explicit counter-claims (a documented allow path that protects the rubric for a different reason — typically cwd separation rather than the hook).
 
@@ -40,6 +41,8 @@ Each cell ran the actual `deny-tier-{0,1}.py` hook against the JSON payload via 
 | **Counter-claim**: benign xargs | `echo a \| xargs grep b` | regression | ✅ exit 0 (xargs wraps grep, both allowlisted) |
 | **Counter-claim**: benign find -exec | `find . -exec grep foo {} \;` | regression | ✅ exit 0 |
 | **Counter-claim**: find without -exec | `find . -name foo` | regression | ✅ exit 0 |
+| **v4 — `eval` banned outright** | `eval recce check` | iter-2 | ✅ exit 2 |
+| `eval "ls -la"` (even benign args) | `eval "ls -la"` | iter-2 | ✅ exit 2 (no legit reason for `eval` at Tier 0) |
 
 Note: the cycle review (`v2 review`, NOTE 5) flagged the matcher regex `Bash|Skill|mcp__(plugin_)?recce(_|-).*` as "barely permissive enough to fire for `mcp__recce_dev__*`". Confirmed working: the synthetic payload above fires the hook (would be exit 2 instead of an un-gated allow path).
 
@@ -72,8 +75,20 @@ Note: the cycle review (`v2 review`, NOTE 5) flagged the matcher regex `Bash|Ski
 | **Counter-claim**: bare dbt allowed | `dbt` (discovery only) | rubric | ✅ exit 0 |
 | **Counter-claim**: dbt --help allowed | `dbt --help` | rubric | ✅ exit 0 |
 | **Counter-claim**: dbt list allowed | `dbt list` (read-only manifest) | rubric | ✅ exit 0 |
+| **Counter-claim**: dbt deps allowed | `dbt deps` (no warehouse) | rubric | ✅ exit 0 |
 | dbt parse direct | `dbt parse` | B4 | ✅ exit 2 |
 | `git diff` | `git diff HEAD` | regression | ✅ exit 0 |
+| **v4 — `eval` shell-builtin smuggling** | `eval dbt run` | iter-2 | ✅ exit 2 |
+| `eval` with quoted inner | `eval "dbt run"` | iter-2 | ✅ exit 2 |
+| **v4 — `$()` substitution at head** | `$(echo dbt) run` | iter-2 | ✅ exit 2 |
+| Backtick substitution at head | `` `echo dbt` run `` | iter-2 | ✅ exit 2 |
+| `$(printf %s dbt) parse` | `$(printf %s dbt) parse` | iter-2 | ✅ exit 2 |
+| **v4 — `dbt clone`** | `dbt clone` (warehouse) | iter-2 | ✅ exit 2 |
+| **v4 — `dbt retry`** | `dbt retry` (inherits prior cmd) | iter-2 | ✅ exit 2 |
+| **Counter-claim**: `$()` not at head | `git log --grep=$(echo psql)` | iter-2 | ✅ exit 0 |
+| **Counter-claim**: benign `$()` head | `$(which python) script.py` | iter-2 | ✅ exit 0 |
+| **Counter-claim**: benign `$(echo grep)` | `$(echo grep) -rn foo .` | iter-2 | ✅ exit 0 |
+| **Counter-claim**: dbt-without-subcommand via `$()` | `$(echo dbt)` | iter-2 | ✅ exit 0 (bare dbt allowed) |
 
 ## Happy-path coverage (regression check)
 

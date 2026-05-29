@@ -46,14 +46,25 @@ DENIED_BINS: frozenset[str] = frozenset(
 # `dbt --version`, `dbt list` / `dbt ls`, `dbt deps`, `dbt clean` are
 # allowed because they don't regenerate artifacts or touch the
 # warehouse.
+#
+# `dbt clone` (dbt-core ≥1.6) materialises cloned models in the
+# warehouse. `dbt retry` re-executes whatever the previous failed
+# invocation was — if that was `dbt run`, retry re-runs it, so the
+# deny semantics must inherit at the retry call.
 DBT_DENIED_SUBCOMMANDS: frozenset[str] = frozenset(
     {"run", "test", "parse", "compile", "docs", "seed", "snapshot",
-     "build", "freshness", "run-operation", "debug", "source"}
+     "build", "freshness", "run-operation", "debug", "source",
+     "clone", "retry"}
 )
 
 SHELL_WRAPPERS: frozenset[str] = frozenset(
     {"sh", "bash", "zsh", "dash", "ash", "ksh"}
 )
+
+# `eval` is a shell builtin that concatenates its args and
+# re-evaluates them as a command. Same threat surface as `sh -c` but
+# with no `-c` flag — the inner command is just the joined positional
+# args. Handled as a special case alongside SHELL_WRAPPERS.
 
 # Exec wrappers that run their argument as a new process. If the
 # wrapped command is a denied binary, the hook would otherwise see
@@ -219,6 +230,16 @@ def check_tokens(tokens: list[str], command_str: str, depth: int = 0) -> None:
         # not a denied command on its own.
         return
 
+    # `eval ARGS...` concatenates its positional args and re-evaluates
+    # them as a new command. Same threat surface as `sh -c` but with
+    # the inner command spread across positional args instead of a
+    # single `-c` value.
+    if name == "eval":
+        inner = " ".join(tokens[1:])
+        for inner_segment in split_segments(inner):
+            check_tokens(tokenize(inner_segment), command_str, depth + 1)
+        return
+
     # Exec wrapper (xargs / time / nohup / find -exec / ...).
     if name in EXEC_WRAPPERS or name == "find":
         wrapped = find_wrapped_command(name, tokens)
@@ -241,6 +262,61 @@ def check_tokens(tokens: list[str], command_str: str, depth: int = 0) -> None:
         )
 
 
+def check_substitution_at_head(cmd: str) -> None:
+    """Detect `$()` / backtick substitutions at command-head position
+    that smuggle a denied binary.
+
+    `$(echo dbt) run` evaluates to `dbt run` at bash runtime — the
+    substitution provides the head binary, which the regular
+    check_tokens path can't see because the substitution's content
+    has already been stripped from the outer segment. This pass walks
+    the original command and looks for substitutions at the head of
+    each segment.
+
+    The check is conservative — false positives only occur if the
+    agent legitimately has a denied-binary basename appear in a
+    substitution at command-head, which is the threat we're guarding
+    against and has no benign use at Tier 1.
+    """
+    # Segment on true command separators only — don't split on `(`/`)`
+    # because that would shred `$(...)` into pieces (we want it intact
+    # to detect it as a head substitution). `split_segments` upstream
+    # uses parens too because it has already extracted `$()` before
+    # splitting; this pass works on the raw command.
+    for raw_seg in re.split(r"(?<!\\)[;&|\n]+", cmd):
+        seg = raw_seg.strip()
+        if not seg:
+            continue
+        m = re.match(r"^(\$\(([^()]*)\)|`([^`]*)`)", seg)
+        if not m:
+            continue
+        payload = (m.group(2) or m.group(3) or "").strip()
+        outer_rest = seg[m.end():].strip()
+        try:
+            payload_tokens = shlex.split(payload) if payload else []
+        except ValueError:
+            payload_tokens = [payload]
+        try:
+            outer_tokens = shlex.split(outer_rest) if outer_rest else []
+        except ValueError:
+            outer_tokens = [outer_rest]
+        for i, tok in enumerate(payload_tokens):
+            sub_name = basename(tok)
+            if sub_name == "dbt":
+                combined = payload_tokens[i + 1:] + outer_tokens
+                if any(t in DBT_DENIED_SUBCOMMANDS for t in combined):
+                    deny(
+                        "dbt smuggled via substitution at command-head "
+                        f"with denied subcommand (matched in: {cmd!r})"
+                    )
+            elif sub_name in DENIED_BINS:
+                deny(
+                    f"denied binary '{sub_name}' smuggled via "
+                    f"substitution at command-head "
+                    f"(matched in: {cmd!r})"
+                )
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -253,6 +329,14 @@ def main() -> None:
     command = (payload.get("tool_input", {}) or {}).get("command", "") or ""
     if not command.strip():
         return
+
+    # Pre-check for `$()` / backtick substitutions at command-head
+    # position that smuggle a denied binary (e.g., `$(echo dbt) run`).
+    # split_segments extracts the substitution's content as its own
+    # segment, so the outer post-substitution segment loses the head
+    # binary — check_tokens alone can't see it. This pre-check fills
+    # that gap.
+    check_substitution_at_head(command)
 
     for segment in split_segments(command):
         check_tokens(tokenize(segment), command)
