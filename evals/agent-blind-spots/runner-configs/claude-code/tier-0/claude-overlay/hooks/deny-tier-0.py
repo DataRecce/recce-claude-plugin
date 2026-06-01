@@ -77,6 +77,16 @@ MCP_RECCE_RE = re.compile(r"^mcp__(plugin_)?recce(_|-|$)", re.IGNORECASE)
 # Recce skill prefix — `recce-verify`, `recce:recce-review`, etc.
 RECCE_SKILL_RE = re.compile(r"^recce[-:]", re.IGNORECASE)
 
+# Overlay-leak guard. The Tier-0 enforcement overlay itself names Recce
+# (settings.json deny rules, deny-tier-0.py vocabulary). `cat` is in
+# the allowlist, so a bare `cat .claude/settings.json` would otherwise
+# turn the enforcement file into a Recce-shaped spoiler. Block any Bash
+# command argument that references `.claude/` or the `.claude`
+# directory itself. The Read/Glob/Grep tool paths are blocked
+# separately via permissions.deny in settings.json (deny rules apply
+# even with --dangerously-skip-permissions).
+_CLAUDE_DIR_RE = re.compile(r"(?:^|[/=])\.claude(?:/|$)")
+
 
 # --- Output ---------------------------------------------------------------
 
@@ -222,6 +232,44 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
     words = [p for p in (node.parts or []) if getattr(p, 'kind', '') == 'word']
     if not words:
         return
+
+    # Pass 0: overlay-leak guard. Any word argument that references
+    # `.claude/` (the directory holding the Tier-0 enforcement overlay
+    # itself) is denied at Tier 0 — its contents name Recce vocabulary
+    # and reading it would defeat the "agent cannot reach Recce-shaped
+    # signals" contract. Read/Glob/Grep tool kinds are blocked
+    # separately by permissions.deny in settings.json.
+    #
+    # This intentionally catches the non-adversarial shape — a normal
+    # agent inspecting cwd via `cat .claude/...`, `ls .claude/`,
+    # `cat < .claude/...`, `find .claude`, etc. The interpreter-shell-out
+    # bypass class (awk/python -c "...cat .claude/...") is out of scope
+    # per ENFORCEMENT.md § "Threat model — non-adversarial code agent".
+    for w in words:
+        for cand in resolve_word(w, original_cmd):
+            if cand and _CLAUDE_DIR_RE.search(cand):
+                deny(
+                    f"argument '{cand}' references the Tier-0 enforcement "
+                    f"overlay at .claude/, which names Recce vocabulary "
+                    f"(matched in: {original_cmd!r})"
+                )
+
+    # Redirect targets (`cat < .claude/settings.json`,
+    # `grep recce < .claude/...`) bypass the words pass because
+    # `<file` is parsed as a redirect node, not a positional word.
+    for p in (node.parts or []):
+        if getattr(p, 'kind', '') != 'redirect':
+            continue
+        out = getattr(p, 'output', None)
+        if out is None or getattr(out, 'kind', '') != 'word':
+            continue
+        for cand in resolve_word(out, original_cmd):
+            if cand and _CLAUDE_DIR_RE.search(cand):
+                deny(
+                    f"redirect target '{cand}' references the Tier-0 "
+                    f"enforcement overlay at .claude/, which names Recce "
+                    f"vocabulary (matched in: {original_cmd!r})"
+                )
 
     # Pass 1: walk INTO every substitution so the inner is independently
     # checked against Tier-0 allowlist.

@@ -102,6 +102,7 @@ class Cell:
     fixture: str
     agent: str
     tier: int
+    model: str | None = None
     transcript_path: str | None = None
     returncode: int | None = None
     verdict: dict | None = None
@@ -127,6 +128,47 @@ def scrub_env(extra_unset: tuple[str, ...] = ()) -> dict:
 def scrub_path(strip_patterns: tuple[str, ...]) -> str:
     pat = re.compile("|".join(strip_patterns))
     return ":".join(p for p in os.environ.get("PATH", "").split(":") if not pat.search(p))
+
+
+def codex_tier0_path(stub_bin: Path) -> str:
+    """Return a PATH for Codex Tier-0 that genuinely masks `recce`/`dbt`.
+
+    The earlier regex scrub only stripped directories whose path contained
+    `/recce/` or `/dbt/` literally; bin dirs like `/opt/homebrew/bin`,
+    `~/.local/bin`, and `.venv/bin` (where the real binaries live) survived
+    the scrub. Prepending `stub-bin/` — which contains `recce` and `dbt`
+    scripts that exit 127 — makes the masking real: shell name resolution
+    hits the stub first.
+    """
+    # Belt-and-suspenders: keep the regex scrub for any path literally
+    # containing /recce/ or /dbt/ or .recce, AND prepend the stub-bin so
+    # the standard bin dirs are overridden.
+    scrubbed = scrub_path((r"/recce(/|$)", r"/dbt(/|$)", r"\.recce"))
+    return f"{stub_bin}:{scrubbed}" if scrubbed else str(stub_bin)
+
+
+def assert_codex_tier0_masked(env: dict, cwd: Path) -> None:
+    """Fail fast if `recce`/`dbt` resolve to anything other than the stub.
+
+    Codex's Tier-0 Recce/dbt block is now PATH stub-bin masking; the cell
+    is contaminated the moment `recce list` or `dbt list` could actually
+    run. Run `command -v` under the scrubbed env before invoking the
+    agent — if either resolves outside the stub-bin, abort.
+    """
+    stub_bin_dir = str(RUNNER_CONFIGS / "codex" / "tier-0" / "stub-bin")
+    for binary in ("recce", "dbt"):
+        proc = subprocess.run(
+            ["bash", "-c", f"command -v {binary} || true"],
+            cwd=str(cwd), env=env, capture_output=True, text=True, timeout=5,
+        )
+        resolved = proc.stdout.strip()
+        if resolved and not resolved.startswith(stub_bin_dir):
+            raise RuntimeError(
+                f"Codex Tier-0 PATH masking failed: '{binary}' resolves to "
+                f"{resolved!r} (expected stub under {stub_bin_dir!r}). "
+                "Aborting before the cell runs to avoid contaminating the "
+                "Tier-0 baseline."
+            )
 
 
 def stage_inputs(fixture_dir: Path, fixture_id: str) -> None:
@@ -166,7 +208,7 @@ def stage_inputs(fixture_dir: Path, fixture_id: str) -> None:
         )
 
 
-def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tuple[Path, int]:
+def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: str | None) -> tuple[Path, int]:
     tier_dir = RUNNER_CONFIGS / "claude-code" / f"tier-{tier}"
     overlay_src = tier_dir / "claude-overlay"
     overlay_dst = fixture_dir / ".claude"
@@ -191,19 +233,23 @@ def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tupl
         cfg_dir.mkdir(parents=True, exist_ok=True)
         env["CLAUDE_CONFIG_DIR"] = str(cfg_dir)
 
+    cmd = ["claude", "--print", "--dangerously-skip-permissions"]
+    if model:
+        cmd += ["--model", model]
+    cmd.append(prompt)
     proc = subprocess.run(
-        ["claude", "--print", "--dangerously-skip-permissions", prompt],
-        cwd=str(fixture_dir), env=env, capture_output=True, text=True, timeout=900,
+        cmd, cwd=str(fixture_dir), env=env, capture_output=True, text=True, timeout=900,
     )
     transcript_path.write_text(
         f"# Cell: {fixture_dir.name} · claude · tier-{tier}\n"
+        f"# model: {model or '(unpinned)'}\n"
         f"# returncode: {proc.returncode}\n\n"
         f"## stdout\n{proc.stdout}\n\n## stderr\n{proc.stderr}\n"
     )
     return transcript_path, proc.returncode
 
 
-def run_codex(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tuple[Path, int]:
+def run_codex(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: str | None) -> tuple[Path, int]:
     tier_dir = RUNNER_CONFIGS / "codex" / f"tier-{tier}"
     config = tier_dir / "config.toml"
     sandbox = "read-only" if tier == 0 else "workspace-write"
@@ -211,29 +257,66 @@ def run_codex(fixture_dir: Path, tier: int, run_dir: Path, prompt: str) -> tuple
     transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_codex_t{tier}.txt"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
-    strip_patterns = (r"/recce(/|$)", r"/dbt(/|$)", r"\.recce") if tier == 0 else (r"/dbt(/|$)",)
     env = scrub_env()
-    env["PATH"] = scrub_path(strip_patterns)
-    # Tier-1 keeps single-env warehouse credentials from the parent shell;
-    # the operator is responsible for absence of base/prod creds (see codex/tier-1/README.md).
+    if tier == 0:
+        # Tier 0: real PATH masking via stub-bin (the earlier regex-only
+        # scrub left `recce`/`dbt` reachable via `/opt/homebrew/bin`,
+        # `.venv/bin`, etc.). Pre-flight `command -v` confirms the mask.
+        stub_bin = tier_dir / "stub-bin"
+        env["PATH"] = codex_tier0_path(stub_bin)
+        assert_codex_tier0_masked(env, fixture_dir)
+    else:
+        # Tier 1: strip only dbt-named directories; Recce CLI must remain
+        # reachable. Single-env warehouse credentials are inherited from
+        # the parent shell; operator is responsible for absence of
+        # base/prod creds (see codex/tier-1/README.md).
+        env["PATH"] = scrub_path((r"/dbt(/|$)",))
 
+    cmd = ["codex", "exec",
+           f"--sandbox={sandbox}",
+           "--ask-for-approval=never",
+           "--config", str(config)]
+    if model:
+        cmd += ["--model", model]
+    cmd.append(prompt)
     proc = subprocess.run(
-        ["codex", "exec",
-         f"--sandbox={sandbox}",
-         "--ask-for-approval=never",
-         "--config", str(config),
-         prompt],
-        cwd=str(fixture_dir), env=env, capture_output=True, text=True, timeout=900,
+        cmd, cwd=str(fixture_dir), env=env, capture_output=True, text=True, timeout=900,
     )
     transcript_path.write_text(
         f"# Cell: {fixture_dir.name} · codex · tier-{tier}\n"
+        f"# model: {model or '(unpinned)'}\n"
         f"# returncode: {proc.returncode}\n\n"
         f"## stdout\n{proc.stdout}\n\n## stderr\n{proc.stderr}\n"
     )
     return transcript_path, proc.returncode
 
 
-def run_cell(cell: Cell, run_dir: Path) -> None:
+def reset_fixture_dir(fixture_dir: Path) -> None:
+    """Reset the fixture worktree to its committed HEAD before a cell runs.
+
+    Each fixture's `.tmp/sources/<slug>/` directory is reused across all
+    4 cells (claude×{0,1}, codex×{0,1}). Without an explicit reset, a
+    write from cell N (Claude Code at Tier 0 was previously
+    write-capable; Tier 1 is write-capable by design for staging Recce
+    artifacts) persists into cell N+1, breaking the "all cells start
+    from the same base" contract in ENFORCEMENT.md.
+
+    `_eval_inputs/` is staged by stage_inputs() *after* this reset so
+    the symlinks survive — git treats them as untracked and
+    `git clean -fdx` removes them, which is intended (stage_inputs()
+    re-creates them per cell).
+    """
+    subprocess.run(
+        ["git", "reset", "--hard", "HEAD"],
+        cwd=str(fixture_dir), check=True, capture_output=True, text=True,
+    )
+    subprocess.run(
+        ["git", "clean", "-fdx"],
+        cwd=str(fixture_dir), check=True, capture_output=True, text=True,
+    )
+
+
+def run_cell(cell: Cell, run_dir: Path, model: str | None) -> None:
     fixture_dir = SOURCES_DIR / cell.fixture
     if not fixture_dir.exists():
         cell.error = f"per-fixture worktree missing: {fixture_dir} (did you run build_fixtures.sh?)"
@@ -241,22 +324,41 @@ def run_cell(cell: Cell, run_dir: Path) -> None:
     if not cli_available(cell.agent):
         cell.error = f"{cell.agent} CLI not found on PATH; skipping"
         return
+    # Reset the fixture worktree before staging inputs and copying the
+    # overlay, so each cell starts from the same base — no Claude write
+    # from a prior cell bleeds across. Must run *before* stage_inputs()
+    # (whose `_eval_inputs/` symlinks are untracked and would be removed
+    # by `git clean -fdx`) and *before* run_claude()'s overlay copy.
+    try:
+        reset_fixture_dir(fixture_dir)
+    except subprocess.CalledProcessError as e:
+        cell.error = (
+            f"reset_fixture_dir failed for {fixture_dir}: "
+            f"rc={e.returncode}; stderr={(e.stderr or '').strip()[:200]}"
+        )
+        return
     try:
         stage_inputs(fixture_dir, cell.fixture)
     except FileNotFoundError as e:
         cell.error = f"stage_inputs failed: {e}"
         return
+    cell.model = model
     try:
         if cell.agent == "claude":
-            path, rc = run_claude(fixture_dir, cell.tier, run_dir, AGENT_PROMPT)
+            path, rc = run_claude(fixture_dir, cell.tier, run_dir, AGENT_PROMPT, model)
         else:
-            path, rc = run_codex(fixture_dir, cell.tier, run_dir, AGENT_PROMPT)
+            path, rc = run_codex(fixture_dir, cell.tier, run_dir, AGENT_PROMPT, model)
         cell.transcript_path = str(path)
         cell.returncode = rc
     except subprocess.TimeoutExpired:
         cell.error = f"{cell.agent} timed out after 900s"
     except FileNotFoundError as e:
         cell.error = f"{cell.agent} setup failed: {e}"
+    except RuntimeError as e:
+        # Pre-flight assertion failures (e.g., Codex Tier-0 PATH masking
+        # didn't take) surface here so the cell is recorded as errored
+        # rather than producing a contaminated transcript.
+        cell.error = f"{cell.agent} pre-flight failed: {e}"
 
 
 def _shrink(text: str, limit: int = 30000) -> str:
@@ -266,7 +368,7 @@ def _shrink(text: str, limit: int = 30000) -> str:
     return text[:half] + "\n…[truncated]…\n" + text[-half:]
 
 
-def judge_cell(cell: Cell, rubric: str, baseline_catch: str) -> dict:
+def judge_cell(cell: Cell, rubric: str, baseline_catch: str, model: str | None) -> dict:
     if not cell.transcript_path:
         return {"error": "no transcript"}
     transcript = _shrink(Path(cell.transcript_path).read_text())
@@ -275,10 +377,12 @@ def judge_cell(cell: Cell, rubric: str, baseline_catch: str) -> dict:
         fixture=cell.fixture, agent=cell.agent, tier=cell.tier,
         transcript=transcript, baseline_catch=baseline_catch,
     )
+    judge_cmd = ["claude", "--print", "--dangerously-skip-permissions"]
+    if model:
+        judge_cmd += ["--model", model]
+    judge_cmd += ["--append-system-prompt", JUDGE_SYSTEM, user]
     proc = subprocess.run(
-        ["claude", "--print", "--dangerously-skip-permissions",
-         "--append-system-prompt", JUDGE_SYSTEM, user],
-        capture_output=True, text=True, timeout=300,
+        judge_cmd, capture_output=True, text=True, timeout=300,
     )
     if proc.returncode != 0:
         return {"error": f"judge rc={proc.returncode}", "stderr": proc.stderr[:300]}
@@ -403,7 +507,24 @@ def main() -> int:
     parser.add_argument("--baseline-dir", type=Path, help="DRC-3585 manual baseline dir; compares judge to human on catch axis")
     parser.add_argument("--no-run", action="store_true", help="Skip agent runs; judge existing transcripts in --run-dir")
     parser.add_argument("--run-dir", type=Path, help="Override run output dir (default runs/<date>/spike-driver/)")
+    parser.add_argument(
+        "--model",
+        default="claude-opus-4-5",
+        help=(
+            "Model id to pin on every agent + judge invocation "
+            "(ENFORCEMENT.md:157 requires the runner to pin a single model "
+            "across the matrix). Same value is passed to both `claude --model` "
+            "and `codex --model`. Use --no-model to opt out for ad-hoc smoke runs."
+        ),
+    )
+    parser.add_argument(
+        "--no-model",
+        action="store_true",
+        help="Skip --model pin (cells fall back to each CLI's default). "
+             "Recorded as '(unpinned)' in transcripts and cells.json.",
+    )
     args = parser.parse_args()
+    model = None if args.no_model else args.model
 
     agents = [a for a in args.agents.split(",") if a]
     tiers = [int(t) for t in args.tiers.split(",") if t]
@@ -427,8 +548,8 @@ def main() -> int:
 
     if not args.no_run:
         for cell in cells:
-            print(f"[run]   {cell.fixture} · {cell.agent} · tier-{cell.tier}", file=sys.stderr)
-            run_cell(cell, run_dir)
+            print(f"[run]   {cell.fixture} · {cell.agent} · tier-{cell.tier} · model={model or '(unpinned)'}", file=sys.stderr)
+            run_cell(cell, run_dir, model)
             if cell.error:
                 print(f"         → {cell.error}", file=sys.stderr)
     else:
@@ -444,10 +565,10 @@ def main() -> int:
         if not cell.transcript_path:
             continue
         baseline_catch = baseline.get(cell.fixture, "unknown")
-        print(f"[judge] {cell.fixture} · {cell.agent} · tier-{cell.tier}", file=sys.stderr)
-        cell.verdict = judge_cell(cell, rubric, baseline_catch)
+        print(f"[judge] {cell.fixture} · {cell.agent} · tier-{cell.tier} · model={model or '(unpinned)'}", file=sys.stderr)
+        cell.verdict = judge_cell(cell, rubric, baseline_catch, model)
         if args.judge_stability:
-            cell.verdict_2 = judge_cell(cell, rubric, baseline_catch)
+            cell.verdict_2 = judge_cell(cell, rubric, baseline_catch, model)
 
     csv_path = run_dir / "verdicts.csv"
     write_csv(cells, csv_path)

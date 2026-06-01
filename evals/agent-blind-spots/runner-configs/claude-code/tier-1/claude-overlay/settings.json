@@ -1,5 +1,5 @@
 {
-  "$comment": "Tier-1 sandbox profile for the /recce-verify v1 eval. Tier 1 is Tier 0 plus Recce CLI, Recce MCP, and single-env warehouse credentials (read-only on the dev environment). Drop this .claude/ directory into the per-fixture working tree (.tmp/sources/<slug>/) before invoking Claude Code. See ../../../ENFORCEMENT.md for the runner recipe.",
+  "$comment": "Tier-1 sandbox profile for the /recce-verify v1 eval. Tier 1 is Tier 0 plus Recce CLI, Recce MCP, and single-env warehouse credentials (read-only on the dev environment). Drop this .claude/ directory into the per-fixture working tree (.tmp/sources/<slug>/) before invoking Claude Code. See ../../../ENFORCEMENT.md for the runner recipe. Note: deny rules are enforced even with --dangerously-skip-permissions.",
   "permissions": {
     "deny": [
       "Bash(dbt run*)",
@@ -13,7 +13,13 @@
       "Bash(duckdb *)",
       "Bash(psql *)",
       "Bash(snowsql *)",
-      "Bash(bq *)"
+      "Bash(bq *)",
+      "Read(.claude/**)",
+      "Read(./.claude/**)",
+      "Glob(.claude/**)",
+      "Glob(./.claude/**)",
+      "Grep(.claude/**)",
+      "Grep(./.claude/**)"
     ]
   },
   "hooks": {

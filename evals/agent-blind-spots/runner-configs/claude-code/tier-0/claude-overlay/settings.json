@@ -1,5 +1,5 @@
 {
-  "$comment": "Tier-0 sandbox profile for the /recce-verify v1 eval. Drop this .claude/ directory into the per-fixture working tree (.tmp/sources/<slug>/) before invoking Claude Code. See ../../../ENFORCEMENT.md for the runner recipe. The PreToolUse hook is the load-bearing layer; permissions.deny below is documentation-aligned but does not cover every bypass the hook does — see runner-configs/README.md.",
+  "$comment": "Tier-0 sandbox profile for the /recce-verify v1 eval. Drop this .claude/ directory into the per-fixture working tree (.tmp/sources/<slug>/) before invoking Claude Code. See ../../../ENFORCEMENT.md for the runner recipe. The PreToolUse hook is the load-bearing layer; permissions.deny below is documentation-aligned but does not cover every bypass the hook does — see runner-configs/README.md. Note: deny rules are enforced even with --dangerously-skip-permissions; only the interactive prompt is bypassed by that flag.",
   "permissions": {
     "deny": [
       "mcp__recce__*",
@@ -14,7 +14,17 @@
       "Bash(duckdb *)",
       "Bash(psql *)",
       "Bash(snowsql *)",
-      "Bash(bq *)"
+      "Bash(bq *)",
+      "Read(.claude/**)",
+      "Read(./.claude/**)",
+      "Glob(.claude/**)",
+      "Glob(./.claude/**)",
+      "Grep(.claude/**)",
+      "Grep(./.claude/**)",
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit"
     ]
   },
   "hooks": {

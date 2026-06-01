@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Tier-0 stub for `dbt`. See stub-bin/recce for rationale — the prior PATH
+# regex only stripped dirs whose path contained `/dbt/`, leaving `dbt` in
+# real bin/ directories reachable. This stub is prepended to PATH at Tier 0
+# so any `dbt` invocation resolves here first and exits non-zero.
+echo "Tier-0 sandbox blocks: dbt CLI is not available at Tier 0." >&2
+echo "                       (stub at $0; the real binary is masked by PATH overlay)" >&2
+exit 127
