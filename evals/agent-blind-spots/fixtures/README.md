@@ -29,7 +29,9 @@ Re-running is idempotent — existing `artifacts/` directories are removed and r
 
 `profiles.yml` is **not** stripped despite carrying the literal string `RECCE` (the upstream Snowflake role name) — it's required for dbt to parse, and a role name is not Recce-the-tool priming. The post-build leak grep whitelists it via `--exclude=profiles.yml`.
 
-The strip is followed by a `grep -E 'mcp__recce__|recce\.yml|RECCE_API_TOKEN'` belt-and-suspenders sweep over the source tree; the build fails fast (`FAIL <slug>`) if any new Recce-shaped file slips in at an unanticipated path. When that happens, extend the strip list in `build_fixtures.sh` and re-run.
+The strip is followed by a two-layer leak sweep over the working tree (`build_fixtures.sh:340`): (a) tight identifier match — `mcp__recce__`, `recce.yml`, `RECCE_API_TOKEN`; (b) loose `[Rr]ecce` substring to catch natural-language priming like a CI workflow that says *"Use the recce CLI to review this PR"*. `profiles.yml` is whitelisted via `--exclude=profiles.yml`. The build fails fast (`FAIL <slug>`) on any hit.
+
+After the working-tree strip passes, the per-fixture repo's history is **rewritten** into a single fresh commit whose tree IS the stripped working tree (`build_fixtures.sh:370`). Without this rewrite, a Tier-0 agent allowlisted to run `git` could recover the original tree via `git show HEAD:recce.yml` / `git cat-file -p HEAD^{tree}` / `git log -p`, even though those paths are absent from the working tree. The post-rewrite path-leak regex (anchored at path components so `.devcontainer.json` doesn't false-positive) verifies no Recce-shaped paths appear in the new tree and `rev-list --all HEAD --count` is still 1.
 
 This is fixture-source-specific, not a contract bug: `DataRecce/jaffle_shop_golden` is a Recce-dogfood repo and the stripped paths are the Recce team's own automation. A random dbt project in the wild would not have them. See [`../ENFORCEMENT.md`](../ENFORCEMENT.md) for how the sandbox profiles relate to this strip.
 

@@ -61,11 +61,10 @@ DENIED_BINS: frozenset[str] = frozenset(
     {"dbt", "duckdb", "psql", "snowsql", "bq"}
 )
 
-DBT_DENIED_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"run", "test", "parse", "compile", "docs", "seed", "snapshot",
-     "build", "freshness", "run-operation", "debug", "source",
-     "clone", "retry"}
-)
+# Note: at Tier-1 we deny *all* dbt invocations to match the Codex
+# PATH-scrub policy (orchestrator iter-6 ISSUE). No subcommand
+# discrimination list is needed; deny-tier-0.py still has its own
+# DBT_DENIED_SUBCOMMANDS for the Tier-0 contract.
 
 SHELL_WRAPPERS: frozenset[str] = frozenset(
     {"sh", "bash", "zsh", "dash", "ash", "ksh"}
@@ -455,16 +454,10 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
                     _reparse_and_walk(synth, original_cmd, depth + 1)
         return
 
-    # --- dbt ---
-    if "dbt" in head_names:
-        if _dbt_args_have_denied(arg_words, original_cmd):
-            deny(
-                "dbt subcommand regenerates frozen artifacts or hits a "
-                f"warehouse (matched in: {original_cmd!r})"
-            )
-        return
-
     # --- Direct denied bin (psql / duckdb / snowsql / bq) ---
+    # (dbt is denied unconditionally by the eager check at the top of
+    # this function; reaching this point means head_names does not
+    # contain "dbt" and the line below excludes it anyway.)
     direct_denied = (head_names & DENIED_BINS) - {"dbt"}
     if direct_denied:
         name = next(iter(direct_denied))
@@ -514,17 +507,6 @@ def _find_exec_target(head_names: set[str], arg_words: list) -> list:
         if getattr(w, 'parts', None):
             return arg_words[i:]
     return []
-
-
-def _dbt_args_have_denied(arg_words: list, original_cmd: str) -> bool:
-    """True if any resolved value of any arg (including substitution
-    payloads, ANSI-C decoded, parameter defaults) is a banned
-    dbt subcommand."""
-    for arg in arg_words:
-        for cand in resolve_word(arg, original_cmd):
-            if cand in DBT_DENIED_SUBCOMMANDS:
-                return True
-    return False
 
 
 def _reparse_and_walk(inner: str, original_cmd: str, depth: int) -> None:
