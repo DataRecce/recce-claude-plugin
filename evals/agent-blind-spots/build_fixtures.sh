@@ -350,6 +350,56 @@ build_fixture() {
         return 1
     fi
 
+    # DRC-3584 Andy review B1 / orchestrator iter-6: rewrite the per-
+    # fixture repo's history so stripped Recce-aware content is NOT
+    # recoverable via `git show HEAD`, `git cat-file -p HEAD^{tree}`,
+    # `git log -p`, etc. `git` is Tier-0-allowlisted, so without this
+    # rewrite the working-tree strip is bypassable.
+    #
+    # The simplest history-rewrite: delete `.git/` and re-init a fresh
+    # single-commit repo from the already-stripped working tree. The
+    # new commit's tree contains ONLY the stripped paths; no
+    # ancestor commit, no other ref, no reflog entry references the
+    # original head SHA's tree.
+    #
+    # The upstream head SHA is recorded in commits.txt for
+    # documentation — losing it from the per-fixture repo is fine
+    # (and arguably better, since the SHA itself is a weak leak
+    # vector: an agent could `git log` and infer the upstream
+    # project from the commit message + author).
+    rm -rf "${source_dir}/.git"
+    git -c init.defaultBranch=main -C "${source_dir}" init --quiet
+    git -c user.email=fixture@recce.eval -c user.name=fixture-build \
+        -C "${source_dir}" add -A
+    git -c user.email=fixture@recce.eval -c user.name=fixture-build \
+        -C "${source_dir}" commit --quiet \
+        -m "Stripped fixture tree for ${slug} (build_fixtures.sh)"
+
+    # Re-verify the post-rewrite invariants. The rev-list count must
+    # still be 1 (single commit), and `git ls-tree -r` over the new
+    # tree must not contain Recce-shaped paths (same regex layers as
+    # the working-tree leak grep above, but now applied to git
+    # objects — closes the BLOCKER).
+    local post_rev_count
+    post_rev_count="$(git -C "${source_dir}" rev-list --all HEAD --count)"
+    if [[ "${post_rev_count}" != "1" ]]; then
+        echo "FAIL ${slug} (post-rewrite Tier-0 leak: rev-list = ${post_rev_count}, expected 1)" >&2
+        return 1
+    fi
+    # Anchored regex — match path components exactly, not substrings.
+    # `\.devcontainer/` matches files inside the dir but NOT the
+    # sibling `.devcontainer.json` (generic VS Code dbt config, no
+    # Recce content; would false-positive without the trailing slash).
+    local git_tree_leak
+    git_tree_leak="$(git -C "${source_dir}" ls-tree -r --name-only HEAD \
+        | grep -E '(^|/)recce\.yml$|(^|/)mcp_config\.json$|(^|/)\.devcontainer/|(^|/)\.github/prompts/|(^|/)\.github/workflows/(claude|recce[-_].*|dbt-build-[a-z]+|dbt_base)\.ya?ml$' \
+        || true)"
+    if [[ -n "${git_tree_leak}" ]]; then
+        echo "FAIL ${slug} (post-rewrite git tree still has Recce-shaped paths:)" >&2
+        sed 's/^/  /' <<< "${git_tree_leak}" >&2
+        return 1
+    fi
+
     # PR #20 intermediate snapshot — keyed on the well-known SHA in commits.txt.
     if [[ "${slug}" == "pr44-promotion-flags" ]]; then
         local intermediate_sha="23b96ca"

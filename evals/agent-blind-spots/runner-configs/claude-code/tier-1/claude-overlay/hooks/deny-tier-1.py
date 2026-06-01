@@ -328,14 +328,23 @@ def walk(node, original_cmd: str, depth: int = 0) -> None:
     # When the head resolves to multiple candidates (brace expansion
     # `{dbt,bash}`, substitution payload `$(echo dbt)`), the same
     # command could exec ANY of them at runtime. Apply the dbt rule
-    # eagerly here so a brace literal that includes `dbt` plus a
-    # denied subcommand in args (`{dbt,bash} run`) denies — without
-    # this, the shell-wrapper branch below would handle `bash` and
-    # return without ever checking the dbt arm.
-    if "dbt" in head_names and _dbt_args_have_denied(arg_words, original_cmd):
+    # eagerly here so a brace literal that includes `dbt` denies —
+    # without this, the shell-wrapper branch below would handle
+    # `bash` and return without ever checking the dbt arm.
+    #
+    # At Tier-1 we deny ALL dbt invocations (no subcommand
+    # discrimination). The Codex Tier-1 recipe PATH-scrubs the `dbt`
+    # binary entirely; this matches that policy on the Claude Code
+    # side so the lens-3 cross-runner delta measures the Recce signal,
+    # not a policy mismatch (Andy review I2 / orchestrator iter-6).
+    # Tier-1 contract: Recce reads the frozen artifacts; the agent
+    # never needs to invoke dbt — even read-only subcommands like
+    # `dbt list` / `dbt show` are unnecessary (the SKILL.md uses
+    # `git diff --name-only` for model discovery).
+    if "dbt" in head_names:
         deny(
-            "dbt subcommand regenerates frozen artifacts or hits a "
-            f"warehouse (matched in: {original_cmd!r})"
+            "dbt is not reachable at Tier-1 — Recce reads the frozen "
+            f"artifacts (matched in: {original_cmd!r})"
         )
     eager_denied = (head_names & DENIED_BINS) - {"dbt"}
     if eager_denied:
