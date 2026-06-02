@@ -30,11 +30,24 @@ TIER_DIR="${WT_ROOT}/evals/agent-blind-spots/runner-configs/claude-code/tier-0"
 ( cd "${WT_ROOT}/evals/agent-blind-spots" && ./build_fixtures.sh )
 python3 -c "import bashlex" || python3 -m pip install bashlex
 
-# 2. Stamp the per-fixture working tree with the Tier-0 sandbox config.
-#    `claude-overlay/` becomes `.claude/` inside the fixture — the source
-#    directory is named differently so it isn't swallowed by the repo's
-#    `.claude/` gitignore rule.
-cp -r "${TIER_DIR}/claude-overlay" "${FIXTURE_DIR}/.claude"
+# 2. Render the Tier-0 settings template to a path *outside* the fixture cwd.
+#    The template's `command` field carries a ${RUNNER_HOOK_PATH} placeholder
+#    that must be substituted with an absolute path to the hook script
+#    (also outside cwd). NOTE: the agent's cwd MUST stay free of any
+#    `.claude/` directory — the overlay file and the hook script both name
+#    Recce vocabulary, and a Tier-0 agent doing ordinary recursive reads
+#    (`grep -r recce .`, `find . -type f -exec cat {} \;`,
+#    `cat .*/settings.json`) would otherwise reach them. The
+#    `--settings <abs-path>` flow keeps Recce-shaped files structurally
+#    out of the agent's view.
+HOOK_PATH="${TIER_DIR}/claude-overlay/hooks/deny-tier-0.py"
+RENDERED_DIR="$(mktemp -d)"
+RENDERED_SETTINGS="${RENDERED_DIR}/tier-0.json"
+python3 -c "
+from pathlib import Path
+tpl = Path('${TIER_DIR}/claude-overlay/settings.json').read_text()
+Path('${RENDERED_SETTINGS}').write_text(tpl.replace('\${RUNNER_HOOK_PATH}', '${HOOK_PATH}'))
+"
 
 # 3. Neuter user-level Claude Code settings so a stray ~/.claude/settings.json
 #    can't widen the sandbox. (Skip this step at your own risk.)
@@ -46,20 +59,24 @@ unset SNOWFLAKE_USER SNOWFLAKE_PASSWORD SNOWFLAKE_ACCOUNT
 unset POSTGRES_PASSWORD BIGQUERY_PROJECT
 # (extend to match your environment; goal is no live credential in env)
 
-# 5. Run the agent with cwd at the per-fixture working tree.
+# 5. Run the agent with cwd at the per-fixture working tree, loading the
+#    rendered Tier-0 settings via --settings.
 cd "${FIXTURE_DIR}"
-claude "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
+claude --settings "${RENDERED_SETTINGS}" \
+       "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
 ```
 
-The Tier-0 `.claude/settings.json` declares `permissions.deny` rules for the documented Recce MCP namespaces and dbt/SQL-client Bash patterns, and registers a `PreToolUse` hook (`deny-tier-0.py`). The hook is the **load-bearing layer** — `permissions.deny` is conceded to be unreliable (Claude Code [issue #6699](https://github.com/anthropics/claude-code/issues/6699)) and uses shell-glob matching whose surface differs from the hook's AST-based check. Treat `permissions.deny` as documentation; trust the hook. See `runner-configs/README.md` for the divergence details.
+The Tier-0 settings template declares `permissions.deny` rules for the documented Recce MCP namespaces and dbt/SQL-client Bash patterns, and registers a `PreToolUse` hook (`deny-tier-0.py`). The hook is the **load-bearing layer** — `permissions.deny` is conceded to be unreliable (Claude Code [issue #6699](https://github.com/anthropics/claude-code/issues/6699)) and uses shell-glob matching whose surface differs from the hook's AST-based check. Treat `permissions.deny` as documentation; trust the hook. See `runner-configs/README.md` for the divergence details.
 
 The hook uses `bashlex` (a real Bash AST parser) so nested `$()`, ANSI-C `$'...'`, parameter expansion `${a:-default}`, Bash keywords (`!`, `coproc`), command modifiers (`command`, `builtin`), and exec wrappers (`xargs`, `find -exec`, `time`, `nohup`, …) are all handled by their AST shape rather than ad-hoc regex.
+
+**Why not copy `claude-overlay/` into `${FIXTURE_DIR}/.claude/`?** Earlier iterations of this recipe did exactly that. The overlay file itself names Recce vocabulary (`mcp__recce__*`, `Bash(recce *)`, `RECCE_API_TOKEN`, the hook source mentions `recce`), and a Tier-0 agent doing a non-adversarial recursive search of cwd would reach those tokens through bypass shapes the AST hook cannot pre-empt (glob expansion happens *after* the hook reads the literal argument). Loading via `--settings <abs-path>` and pointing the hook `command` at an absolute path outside cwd makes the leak structurally impossible. Verified on Claude Code v2.1.160 that hooks fire and `permissions.deny` holds under `--dangerously-skip-permissions` with zero `.claude/` in cwd.
 
 ### Tier 1
 
 Same shape as Tier 0, with three differences:
 
-1. `TIER_DIR` points to `runner-configs/claude-code/tier-1/`.
+1. `TIER_DIR` points to `runner-configs/claude-code/tier-1/` and `HOOK_PATH` to `tier-1/claude-overlay/hooks/deny-tier-1.py`.
 2. Leave the **dev-environment** warehouse credentials in the shell (or load them from a secrets file). Do **not** also export base/prod credentials — Tier 1 is single-env.
 3. Recce MCP must be reachable to Claude Code (typically already true if `/recce-verify` works locally). The Tier-1 settings allow Recce MCP tools and Recce CLI; only dbt-regen and direct SQL clients stay denied.
 
@@ -84,7 +101,7 @@ The runner therefore **must** launch the agent with cwd set to the per-fixture w
 
 This complements the cwd separation:
 
-* Claude Code: the project-level `.claude/settings.json` lives inside the per-fixture worktree, so it travels with the agent's cwd. **Spoiler-path protection comes from cwd alone** — the PreToolUse hook does not gate `Read`/`Grep`/`Glob` and the Tier-0 Bash allowlist includes `cat`. If the runner mistakenly launches `claude` from the eval host repo root, the agent can read `RUBRIC.md` and the per-fixture spoiler README. The recipe above (step 5: `cd "${FIXTURE_DIR}"`) is therefore not optional.
+* Claude Code: the settings.json and PreToolUse hook live **outside** the per-fixture worktree (loaded via `claude --settings <abs-path>`), keeping the agent's cwd a pristine dbt project with no Recce-shaped files at all. **Spoiler-path protection comes from cwd alone** — the PreToolUse hook does not gate `Read`/`Grep`/`Glob` and the Tier-0 Bash allowlist includes `cat`. If the runner mistakenly launches `claude` from the eval host repo root, the agent can read `RUBRIC.md` and the per-fixture spoiler README. The recipe above (step 5: `cd "${FIXTURE_DIR}"`) is therefore not optional.
 * Codex: the process sandbox is anchored on cwd; absolute paths outside cwd require approval at Tier-0 read-only mode and writes are uniformly denied.
 
 ## Recording in the baseline

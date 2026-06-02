@@ -208,13 +208,50 @@ def stage_inputs(fixture_dir: Path, fixture_id: str) -> None:
         )
 
 
-def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: str | None) -> tuple[Path, int]:
+def render_claude_settings(tier: int, run_dir: Path, fixture_name: str) -> Path:
+    """Render the Tier-N settings.json template to a per-cell temp location.
+
+    Andy's iter-8 BLOCKER (Tier-0 overlay leak): a copied-into-cwd
+    `.claude/{settings.json, hooks/deny-tier-N.py}` is reachable by a
+    non-adversarial agent through ordinary recursive reads
+    (`grep -r recce .`, `find . -type f -exec cat {} \\;`, `cat .*/settings.json`)
+    that the Bash AST hook cannot see ahead of glob expansion. Pass 0
+    token-matching is whack-a-mole; the root cause is structural —
+    Recce-shaped files in the agent's cwd.
+
+    The fix (verified by Andy on CC v2.1.160): load the settings via
+    `claude --settings <abs-path>` from *outside* cwd, with the hook
+    `command` field pointing to an absolute path also outside cwd. This
+    keeps the agent's cwd a pristine dbt project with no Recce-shaped
+    files whatsoever, making the leak structurally impossible.
+
+    The template at `runner-configs/claude-code/tier-{tier}/claude-overlay/
+    settings.json` declares the hook command as `python3
+    "${RUNNER_HOOK_PATH}"`; we substitute that placeholder with the
+    absolute path to the corresponding `deny-tier-{tier}.py` (which lives
+    in the runner-configs tree, also outside cwd) and write the rendered
+    file under `run_dir/_settings/<fixture>_t<tier>.json`. The runner
+    passes that rendered path to `claude --settings`.
+    """
     tier_dir = RUNNER_CONFIGS / "claude-code" / f"tier-{tier}"
-    overlay_src = tier_dir / "claude-overlay"
-    overlay_dst = fixture_dir / ".claude"
-    if overlay_dst.exists():
-        shutil.rmtree(overlay_dst)
-    shutil.copytree(overlay_src, overlay_dst)
+    template_path = tier_dir / "claude-overlay" / "settings.json"
+    hook_path = (tier_dir / "claude-overlay" / "hooks" / f"deny-tier-{tier}.py").resolve()
+
+    template_text = template_path.read_text()
+    rendered_text = template_text.replace("${RUNNER_HOOK_PATH}", str(hook_path))
+
+    settings_dir = run_dir / "_settings"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    rendered_path = settings_dir / f"{fixture_name}_t{tier}.json"
+    rendered_path.write_text(rendered_text)
+    return rendered_path
+
+
+def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: str | None) -> tuple[Path, int]:
+    # No overlay copy. The settings.json + hook live outside cwd; cwd
+    # stays a pristine dbt project with `_eval_inputs/` symlink + project
+    # files only. See render_claude_settings() for the rationale.
+    settings_path = render_claude_settings(tier, run_dir, fixture_dir.name)
 
     transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_claude_t{tier}.txt"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,18 +259,22 @@ def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: 
     # NOTE: ENFORCEMENT.md recipe step 3 (CLAUDE_CONFIG_DIR=$(mktemp -d)) is
     # *intentionally not applied here* — neutering ~/.claude/ also strips the
     # auth state, which breaks unattended runs. The load-bearing enforcement
-    # for Tier-0 is the project-level .claude/settings.json overlay (stamped
-    # above) + the PreToolUse hook (deny-tier-N.py); a stray user-level
-    # `permissions.allow` cannot bypass an exit-2 hook. For paranoid mode,
-    # set RECCE_EVAL_STRICT_CONFIG=1 to override CLAUDE_CONFIG_DIR; the cell
-    # will fail with "Not logged in" unless auth is preseeded under that dir.
+    # for Tier-0 is the `--settings` override + the PreToolUse hook
+    # (deny-tier-N.py); a stray user-level `permissions.allow` cannot bypass
+    # an exit-2 hook. For paranoid mode, set RECCE_EVAL_STRICT_CONFIG=1 to
+    # override CLAUDE_CONFIG_DIR; the cell will fail with "Not logged in"
+    # unless auth is preseeded under that dir.
     env = scrub_env()
     if os.environ.get("RECCE_EVAL_STRICT_CONFIG"):
         cfg_dir = run_dir / "_claude_cfg" / f"{fixture_dir.name}_t{tier}"
         cfg_dir.mkdir(parents=True, exist_ok=True)
         env["CLAUDE_CONFIG_DIR"] = str(cfg_dir)
 
-    cmd = ["claude", "--print", "--dangerously-skip-permissions"]
+    cmd = [
+        "claude", "--print",
+        "--settings", str(settings_path),
+        "--dangerously-skip-permissions",
+    ]
     if model:
         cmd += ["--model", model]
     cmd.append(prompt)
@@ -324,11 +365,13 @@ def run_cell(cell: Cell, run_dir: Path, model: str | None) -> None:
     if not cli_available(cell.agent):
         cell.error = f"{cell.agent} CLI not found on PATH; skipping"
         return
-    # Reset the fixture worktree before staging inputs and copying the
-    # overlay, so each cell starts from the same base — no Claude write
-    # from a prior cell bleeds across. Must run *before* stage_inputs()
-    # (whose `_eval_inputs/` symlinks are untracked and would be removed
-    # by `git clean -fdx`) and *before* run_claude()'s overlay copy.
+    # Reset the fixture worktree before staging inputs, so each cell
+    # starts from the same base — no Claude write from a prior cell
+    # bleeds across. Must run *before* stage_inputs() (whose
+    # `_eval_inputs/` symlinks are untracked and would be removed by
+    # `git clean -fdx`). The Claude Code settings are loaded via
+    # `--settings <abs-path>` outside cwd (see render_claude_settings),
+    # so the fixture cwd stays Recce-shaped-free.
     try:
         reset_fixture_dir(fixture_dir)
     except subprocess.CalledProcessError as e:

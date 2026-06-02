@@ -9,12 +9,20 @@ runner-configs/
 ├── README.md                                ← (this file)
 ├── claude-code/
 │   ├── tier-0/
-│   │   └── claude-overlay/                  ← copied to <fixture>/.claude/ by the runner
-│   │       ├── settings.json                ← permissions.deny (documentation) + PreToolUse hook
+│   │   └── claude-overlay/                  ← template; the runner renders settings.json
+│   │       │                                  to a per-cell temp path and loads it via
+│   │       │                                  `claude --settings <abs-path>`. NEVER
+│   │       │                                  copied into the fixture cwd — see below.
+│   │       ├── settings.json                ← permissions.deny (documentation) + PreToolUse
+│   │       │                                  hook; `command` field uses `${RUNNER_HOOK_PATH}`
+│   │       │                                  placeholder substituted by the runner with an
+│   │       │                                  absolute path to the hook.
 │   │       └── hooks/deny-tier-0.py         ← exit-2 block, positive Bash allowlist
 │   └── tier-1/
 │       └── claude-overlay/
-│           ├── settings.json                ← narrower deny (Recce allowed; dbt regen + SQL clients denied)
+│           ├── settings.json                ← narrower deny (Recce allowed; dbt regen + SQL
+│           │                                  clients denied). Same `${RUNNER_HOOK_PATH}`
+│           │                                  placeholder pattern as Tier-0.
 │           └── hooks/deny-tier-1.py         ← exit-2 block, tokenised denylist
 └── codex/
     ├── tier-0/
@@ -25,7 +33,7 @@ runner-configs/
         └── config.toml                      ← template mcp_servers.recce entry to fill in
 ```
 
-The template directory is named `claude-overlay/` rather than `.claude/` so it isn't swallowed by the repo's `.claude/` gitignore rule. The eval runner renames it to `.claude/` when it copies the overlay into the per-fixture working tree (see Quick start below).
+The template directory is named `claude-overlay/` rather than `.claude/` so it isn't swallowed by the repo's `.claude/` gitignore rule. **It is NOT copied into the fixture working tree.** Earlier iterations of the recipe did exactly that, but the overlay file and the hook source both name Recce vocabulary (`mcp__recce__*`, `Bash(recce *)`, `RECCE_API_TOKEN`, recce-shaped tokens in the hook code), and a Tier-0 agent doing non-adversarial recursive reads (`grep -r recce .`, `find . -type f -exec cat {} \;`, `cat .*/settings.json`) would reach those tokens through bypass shapes the AST hook cannot pre-empt (glob expansion happens after the hook reads the literal argument). The eval runner now renders the template settings.json to a path *outside* the agent's cwd and loads it via `claude --settings <abs-path>`, leaving the agent's cwd a pristine dbt project with no Recce-shaped files at all. Verified on Claude Code v2.1.160.
 
 ## Quick start
 
@@ -37,13 +45,23 @@ WT_ROOT="$(git rev-parse --show-toplevel)"
 FIXTURE_DIR="${WT_ROOT}/evals/agent-blind-spots/.tmp/sources/${SLUG}"
 TIER_DIR="${WT_ROOT}/evals/agent-blind-spots/runner-configs/claude-code/tier-0"
 
-cp -r "${TIER_DIR}/claude-overlay" "${FIXTURE_DIR}/.claude"
+# Render the template with an absolute hook path (both file paths live
+# OUTSIDE the fixture cwd by design).
+HOOK_PATH="${TIER_DIR}/claude-overlay/hooks/deny-tier-0.py"
+RENDERED_DIR="$(mktemp -d)"
+RENDERED_SETTINGS="${RENDERED_DIR}/tier-0.json"
+python3 -c "
+from pathlib import Path
+tpl = Path('${TIER_DIR}/claude-overlay/settings.json').read_text()
+Path('${RENDERED_SETTINGS}').write_text(tpl.replace('\${RUNNER_HOOK_PATH}', '${HOOK_PATH}'))
+"
 
 # Optional but recommended — neuter user-level settings for this run:
 export CLAUDE_CONFIG_DIR="$(mktemp -d)"
 
 cd "${FIXTURE_DIR}"
-claude "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
+claude --settings "${RENDERED_SETTINGS}" \
+       "<the prompt — see RUBRIC.md Tier-0 prompt-shape contract>"
 ```
 
 **Codex, Tier 0:** see [`codex/tier-0/README.md`](codex/tier-0/README.md).
