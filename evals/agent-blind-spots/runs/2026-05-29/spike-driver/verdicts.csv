@@ -1,0 +1,5 @@
+fixture,agent,tier,catch,evidence_tier,delta,catch_2,tier_2,delta_2,returncode,error
+pr1-fix-clv,claude,0,catch,0,same,catch,0,improvement,0,
+pr1-fix-clv,claude,1,catch,1c,improvement,catch,1c,improvement,0,
+pr1-fix-clv,codex,0,miss,0,same,miss,0,same,2,
+pr1-fix-clv,codex,1,miss,0,same,miss,0,same,2,
