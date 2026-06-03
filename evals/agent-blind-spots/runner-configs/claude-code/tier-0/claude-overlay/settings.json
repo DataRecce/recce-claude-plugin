@@ -1,0 +1,44 @@
+{
+  "$comment": "Tier-0 sandbox profile template for the /recce-verify v1 eval. The runner loads this file via `claude --settings <abs-path>` rather than copying it into the per-fixture cwd, so the agent's cwd is a pristine dbt project with no Recce-shaped files. The `command` field below uses a runner-hook-path placeholder (dollar-brace RUNNER_HOOK_PATH), which the runner substitutes with an absolute path to deny-tier-0.py outside the agent's cwd before invocation. See ../../../ENFORCEMENT.md for the recipe. The PreToolUse hook is the load-bearing layer; permissions.deny below is documentation-aligned but does not cover every bypass the hook does — see runner-configs/README.md. Note: deny rules are enforced even with --dangerously-skip-permissions; only the interactive prompt is bypassed by that flag.",
+  "permissions": {
+    "deny": [
+      "mcp__recce__*",
+      "mcp__plugin_recce_*",
+      "mcp__recce_dev__*",
+      "Bash(recce *)",
+      "Bash(dbt run*)",
+      "Bash(dbt test*)",
+      "Bash(dbt parse*)",
+      "Bash(dbt compile*)",
+      "Bash(dbt docs*)",
+      "Bash(duckdb *)",
+      "Bash(psql *)",
+      "Bash(snowsql *)",
+      "Bash(bq *)",
+      "Read(.claude/**)",
+      "Read(./.claude/**)",
+      "Glob(.claude/**)",
+      "Glob(./.claude/**)",
+      "Grep(.claude/**)",
+      "Grep(./.claude/**)",
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Skill|mcp__(plugin_)?recce(_|-).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${RUNNER_HOOK_PATH}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

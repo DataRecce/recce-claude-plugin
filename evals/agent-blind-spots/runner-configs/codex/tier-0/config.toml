@@ -1,0 +1,14 @@
+# Codex Tier-0 sandbox profile config for the /recce-verify v1 eval.
+#
+# The `mcp_servers` table is intentionally empty: a Tier-0 agent must
+# not have any path to a Recce MCP tool. Do not add entries here.
+#
+# Pair this config with `--sandbox=read-only`, a PATH scrub that drops
+# `recce` and `dbt`, and cwd set to `.tmp/sources/<slug>/`. See
+# README.md alongside this file for the full invocation recipe.
+
+[sandbox]
+mode = "read-only"
+
+[mcp_servers]
+# (intentionally empty)

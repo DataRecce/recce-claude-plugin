@@ -257,6 +257,149 @@ build_fixture() {
         return 1
     fi
 
+    # DRC-3430: strip Recce-aware automation that would leak the
+    # with-Recce answer to a Tier-0 agent reading the source tree.
+    # `jaffle_shop_golden` is a Recce-dogfood repo, so the per-fixture
+    # checkout ships:
+    #   * .github/prompts/*.md — system prompt + worked-example tables
+    #     for Recce-aware PR review (lists mcp__recce__ tool names,
+    #     prescribed call sequences, numeric anchors for the affected
+    #     column)
+    #   * .github/workflows/recce-*.yml, recce_*.yml — Recce CI workflows
+    #   * .github/workflows/claude.yml — "Claude Code + Recce MCP"
+    #     reviewer workflow (primes the agent with the same playbook)
+    #   * .github/workflows/dbt-build-{pr,base}.yml, dbt_base.yml —
+    #     dbt CI that uses `DataRecce/recce-cloud-cicd-action` (the
+    #     names are dbt-shaped but the steps wire Recce in)
+    #   * .github/mcp_config.json — explicit Recce MCP registration
+    #   * .devcontainer/ — Recce-specific dev container + post-start
+    #     script that boots Recce
+    #   * recce.yml — preset Recce checks
+    #
+    # A random dbt project in the wild would not have any of these;
+    # their presence here is fixture-source-specific, not a contract
+    # bug. Strip them so a Tier-0 baseline measures what the agent
+    # deduces without Recce-style structured surfacing.
+    local stripped_paths=(
+        ".github/prompts"
+        ".github/mcp_config.json"
+        ".github/workflows/claude.yml"
+        ".github/workflows/recce_ci.yml"
+        ".github/workflows/dbt-build-pr.yml"
+        ".github/workflows/dbt-build-base.yml"
+        ".github/workflows/dbt_base.yml"
+        ".devcontainer"
+        "recce.yml"
+    )
+    for stripped in "${stripped_paths[@]}"; do
+        rm -rf "${source_dir:?}/${stripped}"
+    done
+    # Glob removal: any .github/workflows/recce-*.{yml,yaml} or
+    # recce_*.{yml,yaml}. Guard against empty matches because
+    # `nullglob` isn't set globally.
+    for glob in \
+        "${source_dir}/.github/workflows/recce-*.yml" \
+        "${source_dir}/.github/workflows/recce-*.yaml" \
+        "${source_dir}/.github/workflows/recce_*.yml" \
+        "${source_dir}/.github/workflows/recce_*.yaml"
+    do
+        if compgen -G "${glob}" > /dev/null; then
+            rm -f ${glob}
+        fi
+    done
+
+    # DRC-3430 belt-and-suspenders: grep for Recce-shaped strings in the
+    # stripped working tree. Catches future regressions where a new
+    # Recce-aware file lands at a path the strip list doesn't cover.
+    #
+    # Two layers:
+    #
+    #   (a) Tight identifier match — MCP namespace, recce.yml filename,
+    #       known env vars. False-positive-free, but only catches the
+    #       exact shapes we know about.
+    #   (b) Loose `[Rr]ecce` substring — catches natural-language
+    #       priming like a CI workflow that says
+    #       `prompt: "Use the recce CLI to review this PR"`. False
+    #       positives are possible on a fresh source tree (a model
+    #       column called `recce_score`, say); when one surfaces we
+    #       either expand the strip list or whitelist the path here.
+    #
+    # Both grep over the working tree only (`--exclude-dir=.git`) so
+    # packed objects don't false-positive — the agent cannot read those
+    # without first invoking a git command, and even then sees decoded
+    # content, not raw byte strings.
+    # `profiles.yml` is whitelisted: the upstream Snowflake role is
+    # literally named "RECCE", which is unfortunate naming, not Recce
+    # priming. A role name doesn't tell the agent how to use Recce-
+    # the-tool. Whitelisting one filename is preferable to tightening
+    # the regex back to identifier-only matches (which would let
+    # natural-language priming like `prompt: "use the recce CLI"`
+    # through).
+    local leak_hits
+    leak_hits="$(grep -rlEi --exclude-dir=.git --exclude=profiles.yml \
+        'mcp__recce|recce\.yml|RECCE_API_TOKEN|recce' \
+        "${source_dir}" 2>/dev/null || true)"
+    if [[ -n "${leak_hits}" ]]; then
+        echo "FAIL ${slug} (Tier-0 strip leak — Recce-shaped strings still present in:)" >&2
+        # Indent each path on its own line; sed is robust against
+        # whitespace in filenames where `printf '  %s\n' ${unquoted}`
+        # would word-split. dbt projects don't use spaces in paths
+        # today, but the cost of belt-and-suspenders is one sed call.
+        sed 's/^/  /' <<< "${leak_hits}" >&2
+        echo "  Extend the strip list in build_fixtures.sh and re-run." >&2
+        return 1
+    fi
+
+    # DRC-3584 Andy review B1 / orchestrator iter-6: rewrite the per-
+    # fixture repo's history so stripped Recce-aware content is NOT
+    # recoverable via `git show HEAD`, `git cat-file -p HEAD^{tree}`,
+    # `git log -p`, etc. `git` is Tier-0-allowlisted, so without this
+    # rewrite the working-tree strip is bypassable.
+    #
+    # The simplest history-rewrite: delete `.git/` and re-init a fresh
+    # single-commit repo from the already-stripped working tree. The
+    # new commit's tree contains ONLY the stripped paths; no
+    # ancestor commit, no other ref, no reflog entry references the
+    # original head SHA's tree.
+    #
+    # The upstream head SHA is recorded in commits.txt for
+    # documentation — losing it from the per-fixture repo is fine
+    # (and arguably better, since the SHA itself is a weak leak
+    # vector: an agent could `git log` and infer the upstream
+    # project from the commit message + author).
+    rm -rf "${source_dir}/.git"
+    git -c init.defaultBranch=main -C "${source_dir}" init --quiet
+    git -c user.email=fixture@recce.eval -c user.name=fixture-build \
+        -C "${source_dir}" add -A
+    git -c user.email=fixture@recce.eval -c user.name=fixture-build \
+        -C "${source_dir}" commit --quiet \
+        -m "Stripped fixture tree for ${slug} (build_fixtures.sh)"
+
+    # Re-verify the post-rewrite invariants. The rev-list count must
+    # still be 1 (single commit), and `git ls-tree -r` over the new
+    # tree must not contain Recce-shaped paths (same regex layers as
+    # the working-tree leak grep above, but now applied to git
+    # objects — closes the BLOCKER).
+    local post_rev_count
+    post_rev_count="$(git -C "${source_dir}" rev-list --all HEAD --count)"
+    if [[ "${post_rev_count}" != "1" ]]; then
+        echo "FAIL ${slug} (post-rewrite Tier-0 leak: rev-list = ${post_rev_count}, expected 1)" >&2
+        return 1
+    fi
+    # Anchored regex — match path components exactly, not substrings.
+    # `\.devcontainer/` matches files inside the dir but NOT the
+    # sibling `.devcontainer.json` (generic VS Code dbt config, no
+    # Recce content; would false-positive without the trailing slash).
+    local git_tree_leak
+    git_tree_leak="$(git -C "${source_dir}" ls-tree -r --name-only HEAD \
+        | grep -E '(^|/)recce\.yml$|(^|/)mcp_config\.json$|(^|/)\.devcontainer/|(^|/)\.github/prompts/|(^|/)\.github/workflows/(claude|recce[-_].*|dbt-build-[a-z]+|dbt_base)\.ya?ml$' \
+        || true)"
+    if [[ -n "${git_tree_leak}" ]]; then
+        echo "FAIL ${slug} (post-rewrite git tree still has Recce-shaped paths:)" >&2
+        sed 's/^/  /' <<< "${git_tree_leak}" >&2
+        return 1
+    fi
+
     # PR #20 intermediate snapshot — keyed on the well-known SHA in commits.txt.
     if [[ "${slug}" == "pr44-promotion-flags" ]]; then
         local intermediate_sha="23b96ca"

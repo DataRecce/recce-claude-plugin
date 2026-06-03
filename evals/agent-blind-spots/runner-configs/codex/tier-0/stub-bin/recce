@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Tier-0 stub for `recce`. The PATH-regex scrub in earlier revisions only
+# stripped directories whose path contained `/recce/` or `/dbt/` — directories
+# like `/opt/homebrew/bin`, `~/.local/bin`, and `.venv/bin` (where the real
+# binaries actually live) survived the scrub. This stub is prepended to PATH
+# so any Tier-0 `recce` invocation resolves here first and exits non-zero.
+echo "Tier-0 sandbox blocks: recce CLI is not available at Tier 0." >&2
+echo "                       (stub at $0; the real binary is masked by PATH overlay)" >&2
+exit 127

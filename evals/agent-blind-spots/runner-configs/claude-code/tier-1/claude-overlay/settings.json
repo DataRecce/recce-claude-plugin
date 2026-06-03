@@ -1,0 +1,39 @@
+{
+  "$comment": "Tier-1 sandbox profile template for the /recce-verify v1 eval. Tier 1 is Tier 0 plus Recce CLI, Recce MCP, and single-env warehouse credentials (read-only on the dev environment). The runner loads this file via `claude --settings <abs-path>` rather than copying it into the per-fixture cwd, so the agent's cwd is a pristine dbt project with no Recce-shaped files. The `command` field below uses a runner-hook-path placeholder (dollar-brace RUNNER_HOOK_PATH), which the runner substitutes with an absolute path to deny-tier-1.py outside the agent's cwd before invocation. See ../../../ENFORCEMENT.md for the recipe. Note: deny rules are enforced even with --dangerously-skip-permissions.",
+  "permissions": {
+    "deny": [
+      "Bash(dbt run*)",
+      "Bash(dbt test*)",
+      "Bash(dbt parse*)",
+      "Bash(dbt compile*)",
+      "Bash(dbt docs*)",
+      "Bash(dbt seed*)",
+      "Bash(dbt snapshot*)",
+      "Bash(dbt build*)",
+      "Bash(duckdb *)",
+      "Bash(psql *)",
+      "Bash(snowsql *)",
+      "Bash(bq *)",
+      "Read(.claude/**)",
+      "Read(./.claude/**)",
+      "Glob(.claude/**)",
+      "Glob(./.claude/**)",
+      "Grep(.claude/**)",
+      "Grep(./.claude/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${RUNNER_HOOK_PATH}\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+# Codex Tier-1 sandbox profile config for the /recce-verify v1 eval.
+#
+# Tier 1 = Tier 0 plus Recce CLI, Recce MCP, and single-env warehouse
+# credentials. Base/prod environment access stays denied — that's Tier
+# 2 territory, out of v1 scope.
+#
+# The `[mcp_servers.recce]` entry below is a template: the exact
+# `command` and `args` depend on how Recce is installed in the eval
+# runner's environment. Fill it in before launching Codex.
+#
+# Pair this config with `--sandbox=workspace-write`, a PATH scrub that
+# drops `dbt` (Recce reads the frozen artifacts; the agent never needs
+# to regenerate them), and cwd set to `.tmp/sources/<slug>/`. See
+# README.md alongside this file for the full invocation recipe.
+
+[sandbox]
+mode = "workspace-write"
+
+[mcp_servers.recce]
+# TEMPLATE — fill in the launcher for your local Recce MCP server before
+# running the eval. The two common shapes are:
+#
+#   command = "recce"
+#   args = ["mcp", "--transport", "stdio"]
+#
+# or, if pinning a specific version under a virtualenv:
+#
+#   command = "/path/to/.venv/bin/python"
+#   args = ["-m", "recce.mcp", "--transport", "stdio"]
+#
+# Leaving `command` empty is intentional — a half-filled MCP entry is
+# more dangerous than no entry at all because the eval would silently
+# proceed without Recce reachable.
+command = ""
+args = []
