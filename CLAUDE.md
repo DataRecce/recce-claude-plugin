@@ -11,8 +11,9 @@ This is a Claude Code plugin marketplace repository for [Recce](https://datarecc
 | Plugin | Description |
 |--------|-------------|
 | **recce** | Daily dbt workflow plugin — auto-tracks model changes, triggers progressive data validation via MCP |
-| **recce-dev** | Internal E2E validation plugin for Recce project developers |
 | **recce-quickstart** | Guided onboarding for new Recce users (`/recce-setup`, `/recce-pr`, `/recce-check`) |
+
+> The internal **recce-dev** plugin (MCP E2E validation, benchmarking, `recce-eval`) lives in the [DataRecce/recce-team](https://github.com/DataRecce/recce-team) repo (`recce-dev/`), not here.
 
 ## Repository Structure
 
@@ -24,7 +25,6 @@ recce-claude-plugin/
 │   └── recce-docs-mcp/      # MCP docs server source + build
 ├── plugins/
 │   ├── recce/               # Daily dbt workflow plugin
-│   ├── recce-dev/           # Internal E2E validation
 │   └── recce-quickstart/    # Guided onboarding
 ├── scripts/                 # Developer setup (install-hooks.sh)
 └── tests/                   # Test suite
