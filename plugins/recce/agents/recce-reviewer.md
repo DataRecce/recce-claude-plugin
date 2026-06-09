@@ -206,9 +206,9 @@ Produce the final summary using this exact template:
 ```
 
 **Risk Level Rules:**
-- **HIGH**: Any of: schema breaking change (column drops, type changes), OR value_diff shows >50% of rows changed with significant mean shift, OR root cause diagnosis reveals a formula/logic error, OR context validation found a mismatch between stated intent and observed impact.
+- **HIGH**: Any of: destructive schema change (column drops, type changes), OR value_diff shows >50% of rows changed with significant mean shift, OR root cause diagnosis reveals a formula/logic error, OR context validation found a mismatch between stated intent and observed impact.
 - **MEDIUM**: Row count delta exceeds 10% on any table, OR value_diff shows >20% of rows changed, OR `data_impact: confirmed` on models not expected to change.
-- **LOW**: All row count deltas under 10%, no schema breaking changes, value changes within normal range, and no context validation concerns.
+- **LOW**: All row count deltas under 10%, no destructive schema changes, value changes within normal range, and no context validation concerns.
 - If investigation was limited (views, single-env, errors): base risk on available signals and note the limitation.
 
 **No Impact Summary** (use when Step 1 finds no impacted models):

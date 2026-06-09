@@ -295,6 +295,6 @@ Do **not** delete the file. Tell the user: "Review did not complete successfully
 
 Parse the risk level from the agent's summary output (look for `Risk level: HIGH`, `Risk level: MEDIUM`, or `Risk level: LOW`).
 
-- **HIGH**: "Schema breaking changes detected. Consider running `/recce-check` for detailed profile and query analysis before committing."
+- **HIGH**: "Destructive schema changes detected. Consider running `/recce-check` for detailed profile and query analysis before committing."
 - **MEDIUM**: "Row count changes detected. Review the deltas above, then commit when satisfied."
 - **LOW**: "No significant data impact detected. Looks safe to commit."

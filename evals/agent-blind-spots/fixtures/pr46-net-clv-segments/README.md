@@ -55,7 +55,7 @@ Anchor — what the Tier-0 baseline run *should* look like; not a live run recor
   - **Value diff on `customer_lifetime_value`** — mismatched (it now reflects gross-of-coupons on completed orders only). This is the decisive piece of evidence; the preset check in `recce.yml` already targets it.
   - **Row-count diff on `customers`** — unchanged (left join preserves rows).
   - **Lineage diff** — new node `finance_revenue` appears but has no downstream consumers in this PR.
-- Expected conclusion: "Net-CLV addition is fine; the redefinition of `customer_lifetime_value` is the breaking change for downstream consumers. Request changes: either keep `customer_lifetime_value` semantics stable and name the new column distinctly, or version the column and bump the contract."
+- Expected conclusion: "Net-CLV addition is fine; the redefinition of `customer_lifetime_value` is the column change for downstream consumers. Request changes: either keep `customer_lifetime_value` semantics stable and name the new column distinctly, or version the column and bump the contract."
 
 ## Caveats
 
