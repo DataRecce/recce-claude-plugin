@@ -63,9 +63,9 @@ uv run evals/agent-blind-spots/spike-driver/driver.py \
 ```
 runs/<date>/spike-driver/
 ├── transcripts/                   # raw agent stdout/stderr per cell
-│   ├── pr1-fix-clv_claude_t0.txt
-│   ├── pr1-fix-clv_claude_t1.txt
-│   ├── pr1-fix-clv_codex_t0.txt
+│   ├── pr1-fix-clv_claude_t0.md
+│   ├── pr1-fix-clv_claude_t1.md
+│   ├── pr1-fix-clv_codex_t0.md
 │   └── ...
 ├── _claude_cfg/                   # neutered CLAUDE_CONFIG_DIR per cell
 ├── verdicts.csv                   # one row per cell
@@ -83,7 +83,7 @@ Two ways to validate judge quality (use both when possible):
 
 ## Codex-under-sandbox check
 
-After a run, grep transcripts under `transcripts/*_codex_*.txt` for:
+After a run, grep transcripts under `transcripts/*_codex_*.md` for:
 
 - `mcp__recce__*` references in Tier-0 → leak (MCP table is empty in `runner-configs/codex/tier-0/config.toml`).
 - `recce ` shell calls in Tier-0 → check exit was non-zero (PATH scrub).

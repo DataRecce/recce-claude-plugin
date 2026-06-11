@@ -253,7 +253,7 @@ def run_claude(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: 
     # files only. See render_claude_settings() for the rationale.
     settings_path = render_claude_settings(tier, run_dir, fixture_dir.name)
 
-    transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_claude_t{tier}.txt"
+    transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_claude_t{tier}.md"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
     # NOTE: ENFORCEMENT.md recipe step 3 (CLAUDE_CONFIG_DIR=$(mktemp -d)) is
@@ -295,7 +295,7 @@ def run_codex(fixture_dir: Path, tier: int, run_dir: Path, prompt: str, model: s
     config = tier_dir / "config.toml"
     sandbox = "read-only" if tier == 0 else "workspace-write"
 
-    transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_codex_t{tier}.txt"
+    transcript_path = run_dir / "transcripts" / f"{fixture_dir.name}_codex_t{tier}.md"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
     env = scrub_env()
@@ -598,7 +598,7 @@ def main() -> int:
     else:
         # Re-judge mode: discover existing transcripts in run_dir
         for cell in cells:
-            t = run_dir / "transcripts" / f"{cell.fixture}_{cell.agent}_t{cell.tier}.txt"
+            t = run_dir / "transcripts" / f"{cell.fixture}_{cell.agent}_t{cell.tier}.md"
             if t.exists():
                 cell.transcript_path = str(t)
             else:

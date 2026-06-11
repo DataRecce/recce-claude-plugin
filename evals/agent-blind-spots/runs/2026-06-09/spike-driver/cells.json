@@ -1,0 +1,254 @@
+[
+  {
+    "fixture": "pr1-fix-clv",
+    "agent": "claude",
+    "tier": 0,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr1-fix-clv_claude_t0.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent correctly caught the bug at Tier 0, citing manifest/compiled-SQL tracing of the diff into downstream customer_segments and the silent NULL\u2192'Low Value' rebucketing; this run IS the frozen Tier-0 baseline, so there is no Recce counterfactual to shift the verdict."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Decisive evidence was pure Tier-0 SQL semantic analysis: the agent traced that the WHERE predicate on the LEFT JOIN's right-hand table (orders.status) silently becomes an INNER JOIN nulling CLV for customers with no completed order, then followed compiled artifacts downstream to customer_segments rebucketing \u2014 no Recce used, so as the frozen Tier-0 baseline there is no shift to compare against."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr1-fix-clv",
+    "agent": "claude",
+    "tier": 1,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr1-fix-clv_claude_t1.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent reached request-changes purely from Tier-0 inputs \u2014 reading the inserted `where orders.status = 'completed'` in compiled SQL plus schema.yml accepted_values to reason about CLV narrowing, NULL introduction via the downstream left join, and CTE-population inconsistency. It cited no Recce tool output, explicitly stated the defect is 'catchable from the SQL alone' and that it 'cannot quantify the impact from Tier-0 inputs,' so Recce was recommended-but-not-run and added nothing decisive."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "The agent reached request-changes purely from Tier-0 inputs \u2014 the compiled-before/after SQL diff isolating the inserted `where orders.status = 'completed'`, schema.yml accepted_values to show paid placed/shipped orders are excluded, and the left-join NULL/internal-inconsistency reasoning \u2014 and explicitly stated impact could not be quantified from the frozen inputs, deferring Recce value_diff/profile_diff to a next step; no Recce capability was invoked or cited as decisive, so the verdict matches what a Tier-0 baseline yields (catch \u2192 catch)."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr2-refactor-cte-to-models",
+    "agent": "claude",
+    "tier": 0,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr2-refactor-cte-to-models_claude_t0.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent traced compiled SQL before/after to confirm byte-equivalent join logic and identical projected columns, correctly approving the behavior-preserving refactor while flagging the table-materialization side effect; decisive evidence was compiled-SQL tracing (Tier 0), and this is the Tier-0 baseline run itself so no Recce delta applies."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent traced compiled SQL before/after, confirmed byte-equivalent join logic and identical 7-column projection, correctly approving the behavior-preserving refactor while flagging the CTE\u2192table materialization side effect; decisive evidence was compiled-SQL tracing with no Recce, so this is a Tier-0 baseline run (no shift to score)."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr2-refactor-cte-to-models",
+    "agent": "claude",
+    "tier": 1,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr2-refactor-cte-to-models_claude_t1.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "The decisive evidence was a byte-level compiled-SQL equivalence trace (CTE-vs-model aggregations, join grain, NULL bucketing) \u2014 all Tier-0 inputs (compiled SQL + git diff + manifest); the agent explicitly noted Recce's catalog row stats were zeroed and could not be used, so the correct approve verdict rests entirely on Tier-0 capability and Recce added nothing."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "1b",
+      "delta": "same",
+      "reasoning": "Agent correctly approved the behavior-preserving refactor; the decisive evidence was line-by-line SQL semantic equivalence of the compiled before/after (1b), and it explicitly noted Recce's catalog row stats were zeroed and unusable \u2014 meaning the verdict rested entirely on Tier-0-available compiled SQL, so a Tier-0 baseline would reach the same catch."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr3-amount-double-to-decimal",
+    "agent": "claude",
+    "tier": 0,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr3-amount-double-to-decimal_claude_t0.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent reached approve via Snowflake-specific SQL semantics (int/int yields scaled NUMBER, so amount/100 was never integer-truncated; cast to DECIMAL(10,2) is exact for integer-cent data) plus SUM auto-widening \u2014 all from compiled SQL + git diff + profiles.yml dialect, explicitly noting catalog nodes were empty so no Recce evidence was available. This IS the Tier-0 baseline run, so catch==catch by definition."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "From profiles.yml dialect (Snowflake) + SQL semantics alone \u2014 no Recce, catalog nodes were empty \u2014 the agent correctly reasoned that Snowflake's `/` does not truncate (unlike Postgres/Redshift), so `(amount/100)::DECIMAL(10,2)` is value-preserving for integer-cent data, and approved the refactor; this is the frozen Tier-0 baseline, so no delta."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr3-amount-double-to-decimal",
+    "agent": "claude",
+    "tier": 1,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr3-amount-double-to-decimal_claude_t1.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "The agent reached its request-changes verdict purely from compiled-SQL reasoning \u2014 DuckDB true-division semantics, type propagation into the incremental orders_daily_summary (on_schema_change drift), and the sum(amount)::bigint\u2192customer_segments rounding boundary \u2014 correctly rejecting the 'just a type cast, approve' trap. It explicitly notes the frozen catalog was empty (nodes:{}, stats zeroed) so no Recce query/CLL evidence (1c/1a) was decisive; all decisive evidence is Tier-0-available (compiled SQL + git diff), meaning a Tier-0 baseline with the same reasoning reaches the same catch verdict."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "The decisive evidence \u2014 DuckDB true-division semantics read off the three-part-identifier compiled SQL, plus a hand-traced DOUBLE\u2192DECIMAL type propagation into the incremental orders_daily_summary and the sum(amount)::bigint CLV/segment rounding \u2014 came entirely from compiled SQL, git diff, and source reading; no Recce tool was actually invoked (value_diff/profile_diff were only recommended), so it is Tier-0 evidence and a Tier-0 baseline reaches the same request-changes verdict."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr42-is-closed-filter",
+    "agent": "claude",
+    "tier": 0,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr42-is-closed-filter_claude_t0.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent caught the silent row-grain drop and recommended request-changes using purely static Tier-0 evidence: the git diff adding `where is_closed = true` to the orders mart's final CTE, plus schema.yml's accepted_values listing five statuses of which only 'completed' survives the filter. No Recce queries used, so this is the Tier-0 baseline itself (no with-Recce comparison \u2192 same)."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "1b",
+      "delta": "improvement",
+      "reasoning": "Agent's decisive evidence was AST/SQL-semantic: the diff adds a `where is_closed = true` filter to the previously-unfiltered `final` CTE, and `is_closed` is defined as `status = 'completed'`, so combined with the `accepted_values` status domain (5 statuses) it provably drops all non-completed rows \u2014 established from compiled SQL + diff without any row counts (Tier 1c/2 not used)."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr42-is-closed-filter",
+    "agent": "claude",
+    "tier": 1,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr42-is-closed-filter_claude_t1.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "The decisive evidence was the compiled-before vs compiled-after SQL diff showing the added `where is_closed = true` (orders.sql:54-56) plus manifest child_map confirming orders is a terminal node \u2014 all Tier-0 inputs. The agent explicitly stated it could NOT quantify the row drop because catalog stats were zeroed and 'this needs a row-count/profile diff' (Tier 1c) which it never ran, so no Recce capability produced decisive evidence; a Tier-0 agent with the same compiled SQL + manifest reaches the same catch."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent correctly recommended request-changes by citing the before/after compiled SQL diff (added `where is_closed = true`, orders.sql:53-56) plus manifest child_map and test-definition semantics (accepted_values passes on a subset) \u2014 all Tier-0 inputs; it cited no Recce tool output and explicitly noted catalog row stats were zeroed, so Recce was not decisive and a Tier-0 baseline would reach the same catch."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr44-promotion-flags",
+    "agent": "claude",
+    "tier": 0,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr44-promotion-flags_claude_t0.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent caught the dialect bug using only Tier-0 inputs: it identified boolor_agg as a Snowflake-only function in customers.sql against a DuckDB-targeted project (evidenced by dbt_duckdb.* macros and DuckDB-style identifier quoting in the manifest), correctly concluding the model fails at dbt run and recommending request-changes. This is the Tier-0 baseline run itself (no Recce), so no counterfactual shift applies."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent identified the DuckDB adapter from manifest (dbt_duckdb macros, DuckDB-style identifier quoting in compiled SQL) and grepped the tree/manifest to confirm no shimming macro, concluding boolor_agg is a Snowflake-only function that fails at dbt run \u2014 all decisive evidence is Tier-0 (manifest + compiled SQL + git diff), no Recce; as the Tier-0 baseline run itself the delta is same."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr44-promotion-flags",
+    "agent": "claude",
+    "tier": 1,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr44-promotion-flags_claude_t1.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Decisive evidence was purely static \u2014 compiled SQL shows no existing column modified (CLV byte-for-byte unchanged) and downstream models select explicit untouched columns \u2014 which the agent reached via manifest + compiled SQL + diff alone. It explicitly states catalogs are empty and MCP/Recce is unavailable, so no Tier-1 evidence (CLL/AST/queries) was actually used; the verdict is what Tier-0 alone would produce, hence no delta."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Decisive evidence was Tier-0 static analysis \u2014 the compiled SQL/git diff showing existing columns (customer_lifetime_value, etc.) byte-for-byte unchanged and downstream models selecting only explicit untouched columns; the agent explicitly stated catalogs were empty and Recce/MCP was unavailable, so no Tier-1 subset (1a/1b/1c) contributed, and the catch verdict matches what a Tier-0 baseline would reach."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr46-net-clv-segments",
+    "agent": "claude",
+    "tier": 0,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr46-net-clv-segments_claude_t0.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent caught the buried metric regression by diffing before/after compiled customers.sql \u2014 spotting the newly-added `status='completed'` and `amount>0` filters that silently redefine the downstream-consumed `customer_lifetime_value` \u2014 and recommended request-changes. Decisive evidence is Tier-0 compiled-SQL semantics (no Recce); since this is the Tier-0 baseline run itself, there is no counterfactual shift to measure."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "Agent diffed the before/after compiled `customer_payments` CTE and caught the silently-added `status = 'completed'` and `amount > 0` filters that redefine the existing gross `customer_lifetime_value`, plus the misleading doc \u2014 all from Tier-0 inputs (compiled SQL + git diff) alone. This is the Tier-0 baseline run itself (no Recce), so the counterfactual delta is `same`."
+    },
+    "error": null
+  },
+  {
+    "fixture": "pr46-net-clv-segments",
+    "agent": "claude",
+    "tier": 1,
+    "model": "claude-opus-4-8",
+    "transcript_path": "/Users/evenwei/InfuseAI/workspace/repos/recce-claude-plugin/.claude/worktrees/drc3585-lock-rubric/evals/agent-blind-spots/runs/2026-06-09/spike-driver/transcripts/pr46-net-clv-segments_claude_t1.md",
+    "returncode": 0,
+    "verdict": {
+      "catch": "catch",
+      "tier": "0",
+      "delta": "same",
+      "reasoning": "The agent caught the buried semantic redefinition of customer_lifetime_value by reading the git diff of models/customers.sql (the new completed-only / amount>0 filtering in the customer_payments CTE), and explicitly stated Recce/MCP was unavailable and catalogs were schema-only with zero row stats \u2014 so the decisive evidence is purely Tier-0 (git diff + SQL), meaning a Tier-0 baseline would reach the same catch."
+    },
+    "verdict_2": {
+      "catch": "catch",
+      "tier": "1b",
+      "delta": "improvement",
+      "reasoning": "The agent's decisive evidence was AST/SQL semantic analysis of customers.sql \u2014 reading the diff it identified that the customer_payments CTE silently narrowed gross CLV via a new completed-only join predicate and amount>0 WHERE filter, flowing into the existing value_segment with no test guarding it. This required no Recce data queries (catalogs were schema-only, MCP unavailable), and the unannounced-semantic-change catch on a behavior-altering PR is a likely improvement over a Tier-0 diff-only baseline."
+    },
+    "error": null
+  }
+]
