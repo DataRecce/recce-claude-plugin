@@ -34,7 +34,7 @@ VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>
 
 ## Reasoning the agent gave
 
-Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr1-fix-clv_claude_t0.txt`):
+Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr1-fix-clv_claude_t0.md`):
 
 ```
 The change isn't a syntax bug, but it materially redefines a published metric, creates NULLs that

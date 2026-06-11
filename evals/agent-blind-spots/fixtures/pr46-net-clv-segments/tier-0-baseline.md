@@ -34,7 +34,7 @@ VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>
 
 ## Reasoning the agent gave
 
-Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr46-net-clv-segments_claude_t0.txt`):
+Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr46-net-clv-segments_claude_t0.md`):
 
 ```
 The net-CLV feature itself is reasonable, but the PR silently regresses an existing, downstream-consumed

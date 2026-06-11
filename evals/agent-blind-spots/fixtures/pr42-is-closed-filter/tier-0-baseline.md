@@ -34,7 +34,7 @@ VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>
 
 ## Reasoning the agent gave
 
-Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr42-is-closed-filter_claude_t0.txt`):
+Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr42-is-closed-filter_claude_t0.md`):
 
 ```
 Request changes. Either remove the where is_closed = true line (keep is_closed as a non-destructive

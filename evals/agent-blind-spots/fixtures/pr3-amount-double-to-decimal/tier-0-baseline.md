@@ -34,7 +34,7 @@ VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>
 
 ## Reasoning the agent gave
 
-Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr3-amount-double-to-decimal_claude_t0.txt`):
+Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr3-amount-double-to-decimal_claude_t0.md`):
 
 ```
 This is a benign, value-preserving, best-practice type refinement for monetary data. The real hazard

@@ -34,7 +34,7 @@ VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>
 
 ## Reasoning the agent gave
 
-Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr2-refactor-cte-to-models_claude_t0.txt`):
+Verbatim verdict-bearing passage (full trace: `../../runs/2026-06-09/traces/pr2-refactor-cte-to-models_claude_t0.md`):
 
 ```
 The change is correct and behavior-preserving — customers and all downstream tables produce identical

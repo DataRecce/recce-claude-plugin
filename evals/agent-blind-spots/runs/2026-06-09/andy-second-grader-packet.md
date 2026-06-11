@@ -8,7 +8,7 @@
 
 12 cells = 6 fixtures × Claude Code × {Tier-0, Tier-1}, all `claude-opus-4-8`. One agent PR-review transcript per cell.
 
-- **Traces:** `runs/2026-06-09/traces/<fixture>_claude_t{0,1}.txt` (12 files). Each ends with a `VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>` line — that's the *agent's self-report*; your job is to grade it, not copy it.
+- **Traces:** `runs/2026-06-09/traces/<fixture>_claude_t{0,1}.md` (12 files). Each ends with a `VERDICT: <catch|miss|partial> · <approve|request-changes|abstain>` line — that's the *agent's self-report*; your job is to grade it, not copy it.
 - **Rubric:** `evals/agent-blind-spots/RUBRIC.md` — read the three lenses + the **Waffle log** (the W1/W3/W5/W7 clarifications are the whole point of this exercise). Key rules to apply:
   - **Lens 1 (catch):** score against the **decisive issue** named per fixture (RUBRIC.md lens 1).
   - **Lens 2 (evidence tier):** what the agent **actually used**, not what was permitted. `1c` only if the transcript shows a real query result. (In this run Recce was not reachable — expect tier `0` throughout.)

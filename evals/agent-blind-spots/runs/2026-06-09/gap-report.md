@@ -18,7 +18,7 @@ Per `templates/gap-report.md`: judgment factors, not a formula — breadth acros
 ### 1. `eval-base-does-not-run-recce`
 
 - Fixtures where this blocked the agent: **all 6** (every Tier-1 cell).
-- Receipts: all six `*-scoring.md` ("Evidence Recce surfaced: None"); traces `pr1-fix-clv_claude_t1.txt`, `pr44-promotion-flags_claude_t1.txt` ("MCP isn't available"), `pr46-net-clv-segments_claude_t1.txt`.
+- Receipts: all six `*-scoring.md` ("Evidence Recce surfaced: None"); traces `pr1-fix-clv_claude_t1.md`, `pr44-promotion-flags_claude_t1.md` ("MCP isn't available"), `pr46-net-clv-segments_claude_t1.md`.
 - What the gap is, in plain terms: the eval never actually puts Recce in front of the agent, so it cannot measure whether Recce helps.
 - Cheapest fix: **harness change** — (a) materialize a single-env dev DuckDB per fixture (`dbt seed && dbt run` at head) so Recce has data to introspect; (b) make the Tier-1 prompt invoke `/recce-verify`; (c) configure a reachable Recce MCP server in the Tier-1 cell. None is a Recce product change.
 - Why this fix beats the others: until Tier-1 exercises Recce, **no** product-backend gap can be evidenced — this gates the entire DRC-3405 deliverable. It is the prerequisite, not a competing option.
