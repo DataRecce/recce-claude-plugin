@@ -36,7 +36,7 @@ Anchor — what the Tier-0 baseline run *should* look like; not a live run recor
   - **Row-count diff on `orders`** — large negative delta (every non-completed order is dropped).
   - **Schema diff** — new column `is_closed` on both `stg_orders` and `orders`.
   - **Lineage** — any model downstream of `orders` that depends on non-completed orders now silently sees fewer rows.
-- Expected conclusion: "This PR drops X% of rows from `orders` because of the new `where is_closed = true` filter. The `is_closed` column itself is fine; the filter is the breaking change. Either remove the filter or update the model's contract."
+- Expected conclusion: "This PR drops X% of rows from `orders` because of the new `where is_closed = true` filter. The `is_closed` column itself is fine; the filter is the model-wide change. Either remove the filter or update the model's contract."
 
 ## Caveats
 
