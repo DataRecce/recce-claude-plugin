@@ -34,6 +34,20 @@ Computed directly from the frozen baselines (human) vs. the run-1 judge verdicts
 - The judge is a usable **first-pass** screen on the catch axis (100% self-consistent) but **must be overridden by a human at the catch/partial boundary and on evidence-tier** (75% self-consistent, 83% vs human).
 - This validates the DRC-3585 → DRC-3405 ordering: lock the rubric and freeze human baselines first; let the judge run the bulk pass but keep a human override at lens-1 boundaries and lens-3 deltas.
 
+## 4. Resolution — second-grade closed via #42 review (2026-06-22)
+
+The blind grade-first-compare-second pass described above and in `andy-second-grader-packet.md` was **deliberately not performed for v1**. Instead, #42's review-and-merge stands in for the second-grade sign-off (see the PR's reviewer/merge record).
+
+This is a **waiver** of the ≥90% blind measurement, not an achievement of it — and the reason is substantive, not schedule:
+
+- **Two of the three axes are degenerate in this run.** Recce was never exercised (gap report entry 1), so lens-2 (evidence tier) is `0` on all 12 cells and lens-3 (delta) is `n/a` on the 6 Tier-0 cells and `confounded` on the 6 Tier-1 cells. Inter-rater agreement on a constant column is trivially ~100% and measures nothing.
+- **The one live axis has unstable ground truth on 2/6 fixtures.** `pr3` and `pr44` ship a Snowflake `profiles.yml` next to DuckDB-compiled artifacts, so the catch verdict flips with the assumed dialect (gap report entry 4) — and `pr3` is exactly the catch/partial boundary flagged as "expected to discuss" in the second-grader packet. There is no single correct answer to grade against there.
+- A ≥90% number computed over this matrix would therefore be inflated and meaningless.
+
+**What the rubric lock did validate:** the W5 and W7 guards fired correctly — W5 caught the judge hallucinating evidence tiers `1b`/`1c` where only tier-0 artifacts were used; W7 marked every Tier-1 delta `confounded` because no run cited a Recce tool result. The rubric was sharp enough to detect that this run measured nothing about Recce. That detection is the real v1 deliverable, not an agreement score.
+
+**When to run the real second-grade:** after gap report entries 1 and 4 land (eval actually invokes `/recce-verify` against a reachable Recce MCP + a materialized dev env, on dialect-consistent fixtures), re-run the `andy-second-grader-packet.md` pass against a matrix where all three axes vary, and only then measure ≥90%.
+
 ## Reproducing the automated proxy
 
 ```bash
