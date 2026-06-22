@@ -1,0 +1,13 @@
+fixture,agent,tier,catch,evidence_tier,delta,catch_2,tier_2,delta_2,returncode,error
+pr1-fix-clv,claude,0,catch,0,same,catch,0,same,0,
+pr1-fix-clv,claude,1,catch,0,same,catch,0,same,0,
+pr2-refactor-cte-to-models,claude,0,catch,0,same,catch,0,same,0,
+pr2-refactor-cte-to-models,claude,1,catch,0,same,catch,1b,same,0,
+pr3-amount-double-to-decimal,claude,0,catch,0,same,catch,0,same,0,
+pr3-amount-double-to-decimal,claude,1,catch,0,same,catch,0,same,0,
+pr42-is-closed-filter,claude,0,catch,0,same,catch,1b,improvement,0,
+pr42-is-closed-filter,claude,1,catch,0,same,catch,0,same,0,
+pr44-promotion-flags,claude,0,catch,0,same,catch,0,same,0,
+pr44-promotion-flags,claude,1,catch,0,same,catch,0,same,0,
+pr46-net-clv-segments,claude,0,catch,0,same,catch,0,same,0,
+pr46-net-clv-segments,claude,1,catch,0,same,catch,1b,improvement,0,

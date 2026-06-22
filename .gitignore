@@ -53,6 +53,7 @@ evals/agent-blind-spots/fixtures/*/artifacts/
 # the runs/ root is NOT ignored — only the transient subdirs are.
 evals/agent-blind-spots/runs/*/spike-driver/transcripts/
 evals/agent-blind-spots/runs/*/spike-driver/_claude_cfg/
+evals/agent-blind-spots/runs/*/spike-driver/_settings/
 
 # Coverage / editor logs
 .coverage
