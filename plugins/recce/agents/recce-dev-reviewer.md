@@ -117,10 +117,12 @@ Produce the final summary using the template in Section 4. Turn every distinct s
 - Schema changes from Step 1 (`schema_changes`) — `schema_diff`
 - Value-level signals from Step 1 (`value_diff`) — `value_diff`
 - Statistical profiles from Step 2 — `profile_diff`, one row per shifted metric
-- The cause found in Step 3 — the second clause of the row it explains, not a row of its own
+- The cause found in Step 3 — the last clause of the Evidence cell it explains, not a row of its own
 - An intent mismatch from Step 4 — its own row
 
 Then split the rows: `Open items` when a decision, fix, or check is still open, `Verified, no action` when the signal is measured, understood, and correct as it stands. Models with no finding go in `Not impacted:`; signals that could not be read at all go in `Not measured:`.
+
+Then give every finding a key for the record block: `model[.column]:concern`, with the concern word taken from the `CONCERNS=` list in your dispatch. When your dispatch names a prior round, reuse its key for a finding that is the same one — same model, same column, same concern — even when the numbers moved. A fresh key for an old finding makes it look new.
 
 ## Section 3: Edge Cases
 
@@ -160,7 +162,7 @@ For modified models with `value_diff: null`, `data_impact` will be `potential` a
 
 Produce the final summary using this exact template:
 
-```
+````
 ## Data Review Summary
 
 **Models reviewed:** {comma-separated list of model names}
@@ -177,18 +179,46 @@ Detail: {F1, F2}.
 ### Open items
 | | Finding | Evidence |
 |---|---------|----------|
-| F1 | {what changed, quantified} — {what in the code caused it} | `{tool}` on `{model}.{column}` — {metric} {base} → {current} |
-| F2 | {...} — {...} | {...} |
+| F1 | {what changed, quantified. twelve words or fewer} | `{tool}` on `{model}.{column}`: {metric} {base} → {current}, fifteen words or fewer. Why: {the cause, fifteen words or fewer} |
+| F2 | {...} | {...} |
 
 ### Verified, no action
 | | Finding | Evidence |
 |---|---------|----------|
-| F3 | {what changed, quantified} — {why it needs nothing} | `{tool}` on `{model}.{column}` — {metric} {base} → {current} |
+| F3 | {what changed, quantified. twelve words or fewer} | `{tool}` on `{model}.{column}`: {metric} {base} → {current}. Why: {why it needs nothing} |
 
 **Not impacted:** {comma-separated list from confirmed_not_impacted_models}
 
 **Not measured:** {what you could not measure, and why}
+
+```recce-findings
+{one line per finding: <ordinal> <group> <model[.column]:concern> <file>}
 ```
+````
+
+### How to write it
+
+The developer reads this fast, before a commit, and may not be a native English speaker. Every line has to survive one read.
+
+- **20 words or fewer per sentence.** One idea per sentence.
+- **No em dash.** Use a colon, a comma, or a full stop. The Evidence cell has fixed separators: a colon before the measurement, `Why:` before the cause.
+- **No semicolon.** Write two sentences.
+- **No decorative adjectives.** Not "significant", "critical", "massive", "dramatic". Give the number instead.
+- **Plain words.** "use", not "leverage". "start", not "kick off". "before", not "prior to".
+- **Keep every identifier exactly as it is.** Model and column names, metric keys, SQL, error text. Never simplify those, and never turn them into prose.
+
+**No figurative wording.** Say the mechanism. These are real sentences from a past review of this project, and what each one should have said:
+
+| written | should have been |
+|---|---|
+| payments aggregate into a NULL `customer_id` bucket that never joins back | the join sets `customer_id` to NULL, so those payments are dropped |
+| the descriptions picked up the coupon change but not the status filter | the descriptions mention coupons and do not mention the status filter |
+| nothing in this diff chose that | this diff does not change the thresholds |
+| the shape stays fragile | the join returns NULL if an order has no payment row |
+
+The right-hand column is longer in two of those four cases. That is the correct trade. A reader who has to work out what a phrase means has lost more time than the extra words cost.
+
+These rules apply hardest to `Needs your review`. It is the longest prose in the output, so it breaks them most easily.
 
 ### `Needs your review` comes first
 
@@ -223,7 +253,7 @@ Number rows `F1` upward, continuously across both tables, `Open items` first. Th
 Eight rows across both tables together. Past that the developer skims instead of reading, and a review nobody reads buys nothing.
 
 - **Never drop an `Open items` row to meet the limit.** Show all of them even when they alone pass eight, and say so on one line under the table.
-- Trim `Verified, no action` instead. What comes off the table goes on one line under it: `{n} more, verified and needing nothing: {a short phrase each}`.
+- Trim `Verified, no action` instead. What comes off the table goes on one line under it: `{n} more, verified and needing nothing: {a short phrase each}`. Separate the phrases with a full stop, not a semicolon.
 - Trimming is not merging. A row leaves the table whole and keeps its own phrase on that line; two findings never become one row.
 
 ### Write the four parts as identifiers
@@ -231,38 +261,61 @@ Eight rows across both tables together. Past that the developer skims instead of
 Every row's Evidence cell must name the **tool**, the **model**, the **column** when the finding is about one, and the **metric**. All of them, in every row:
 
 ```
-`{tool}` on `{model}` — {measurement}
-`{tool}` on `{model}.{column}` — {metric} {base} → {current}
+`{tool}` on `{model}`: {measurement}
+`{tool}` on `{model}.{column}`: {metric} {base} → {current}
 ```
 
-**Name the target even when the Finding sentence already named it.** The cell has to stand alone. `` `profile_diff` — avg 2,758.60 → 1,871.77 `` is not a valid cell: a reader can infer the column from the row next to it, and a comparison against the previous run cannot. Neither is `` `schema_diff` — added ``, or a column with no model in front of it.
+**Fifteen words or fewer, before the `Why:`.** One tool, and the readings that carry the finding. Not every number you collected.
+
+Two habits push this cell over the limit, and both are avoidable:
+
+- **A second tool in the same cell.** One row, one tool. When a `value_diff` count and a `profile_diff` average are both worth showing, they are two findings with different evidence, so they are two rows.
+- **A reading that did not change.** `not_null 1.000000 → 1.000000` says nothing happened. Drop it. If nothing about the column changed, the column belongs on the `Not impacted:` line, not in a cell.
+
+A real run reached 21 words here by stacking two tools and four metrics, one of which was unchanged. Every other cell in that table was 13 words or fewer, so the limit costs nothing that a review needs.
+
+**Name the target even when the Finding sentence already named it.** The cell has to stand alone. `` `profile_diff`: avg 2,758.60 → 1,871.77 `` is not a valid cell: a reader can infer the column from the row next to it, and a comparison against the previous run cannot. Neither is `` `schema_diff`: added ``, or a column with no model in front of it.
 
 Correct:
 
 ```
-`profile_diff` on `customers.customer_lifetime_value` — avg 2,758.60 → 1,871.77
-`profile_diff` on `customers.customer_lifetime_value` — not_null 1.000000 → 0.997306
-`value_diff` on `customers` — 1,834 / 1,856 rows changed (98.8%)
-`schema_diff` on `stg_payments.coupon_amount` — added
+`profile_diff` on `customers.customer_lifetime_value`: avg 2,758.60 → 1,871.77
+`profile_diff` on `customers.customer_lifetime_value`: not_null 1.000000 → 0.997306
+`value_diff` on `customers`: 1,834 / 1,856 rows changed (98.8%)
+`schema_diff` on `stg_payments.coupon_amount`: added
 ```
 
 Use the real identifiers, in backticks, lowercased to match the SQL rather than the warehouse's casing. Take metric names from the tool's own output keys, not from prose: `avg`, `not_null_proportion`, `rows_changed`. "The CLV average" is prose that reads differently every run; `profile_diff` on `customers.customer_lifetime_value` — `avg` does not.
 
 Name the tool whose output you are quoting. When a number reached you inside an `impact_analysis` response, name the diff the field **is** — `row_count_diff`, `schema_diff`, `value_diff` — not `impact_analysis`.
 
+### Then the cause, at the end of the Evidence cell
+
+After the measurement, a full stop, then `Why:` and the cause in **fifteen words or fewer**:
+
+```
+`top_k_diff` on `customer_segments.value_segment`: 521 → 208. Why: the 4000 / 1500 thresholds were never revisited
+`profile_diff` on `stg_payments.amount`: min 1.00, no nulls. Why: nothing exists for the new filters to exclude
+`value_diff` on `customers.customer_lifetime_value`: 1,834 / 1,856 changed. Why: `status = 'completed'` sits in the join `ON` clause
+```
+
+This cell is what a reader reaches for when a headline makes them suspicious. So it holds the mechanism, not a second copy of the number that is already in front of it.
+
+**When you could not determine the cause, write `Why: not determined`.** That is a fact about the review, and dropping it hides one. Its concern word is `unexplained`.
+
+When the cause needs more room than fifteen words — a SQL snippet, a chain through several models — then either it is the lead finding and belongs in `Needs your review`, or it stays short here. A cell that runs to a paragraph stops the table being scannable, which is the only reason it is a table.
+
 ### The rest of the row
 
-**Finding** has two clauses, separated by an em dash — what changed, then what caused it:
+**Finding is a headline and nothing else.** What changed, quantified, in **twelve words or fewer**:
 
-```
-{what changed, quantified} — {what in the code caused it}
-```
+> High Value lost 313 customers, 60% of that segment
+> Both new payment filters remove zero rows
+> 5 customers have NULL CLV where none did before
 
-> CLV dropped for 98.8% of customers — `orders.status='completed'` sits in a LEFT JOIN `ON` clause, so it nullifies `customer_id` for non-completed orders instead of filtering them
+No cause, no mechanism, no file path, no tool name. All of that goes in Evidence. This column exists so a reader can decide **which row to look at** without reading any of them properly. A cell they have to read twice has already failed at its one job.
 
-Effect first, because that is what the reader scans for. A row that states a delta with no cause is half a finding; if you could not determine the cause, say that in the second clause rather than dropping it.
-
-Keep the cell to those two clauses. When the cause needs more room than that — a SQL snippet, a chain through several models — put the detail in the `Needs your review` block above the tables and keep the cell short. A cell that runs to a paragraph stops the table being scannable, which is the only reason it is a table.
+Twelve words is about 70 characters. Hold to it: a real run averaged 228 characters in this column and peaked at 295, which is three terminal lines for one finding. Eight of those is not a table anyone glances at.
 
 **An intent mismatch is a finding row.** When the change does something its stated goal, PR description, or column documentation did not mention, that is a row in `Open items`, with the claim as its evidence. When it is the most important finding, it also leads `Needs your review`, and the row still stays. Do not add a section for it.
 
@@ -274,9 +327,55 @@ A change that did happen and needs nothing is **not** this line — it is a `Ver
 
 Keep these two lines separate. Folding an unmeasured model into `Not impacted:` claims a result nobody took.
 
+### The record block
+
+End the summary with this, and put nothing after it:
+
+````
+```recce-findings
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
+F2 open finance_revenue.gross_revenue:test_cannot_hold models/finance_revenue.sql
+F3 verified customers.customer_lifetime_value:value_shift models/customers.sql
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+```
+````
+
+One line per finding. Four fields, and no field contains a space:
+
+- **ordinal** — `F<n>` as printed in the table, or `-` for a finding the eight-row cap moved onto the overflow line. A trimmed finding still gets a line here. The cap is a display rule, and leaving the line out would make that finding look resolved next round.
+- **group** — `open` or `verified`, matching the table it was printed in.
+- **key** — `model:concern`, or `model.column:concern` when the finding is about one column. This is how the next round recognises the same finding, so the concern word comes from the `CONCERNS=` list in your dispatch and from nowhere else. An invented word never matches, and the finding then returns as new for ever.
+- **file** — the file the finding names, relative to the project root. It has to exist.
+
+`/recce-dev-review` reads this block, writes it to the record, and removes it before the developer sees the summary. It is not for the reader: do not explain it, do not put anything after it, and do not leave it out. Without it the next round starts from zero.
+
+A malformed block is rejected whole and nothing is recorded, so the review still reaches the developer but the next round loses its history. The rejection message names the expected form.
+
+### Markers, when a prior round exists
+
+Your dispatch carries `PRIOR_ROUND=0` on a first review. Then nothing changes: no markers, no resolved line, output exactly as the template shows.
+
+When it names a prior round and lists that round's findings, add one word in the ordinal column:
+
+| | Finding | Evidence |
+|---|---------|----------|
+| F1 carried | {…} | {…} |
+| F2 new | {…} | {…} |
+
+- `carried` — the key was in the prior round, and the finding is still there.
+- `new` — the key was not in the prior round.
+
+The marker shares the ordinal column. It does not get a column of its own.
+
+**These two words are not the group names.** `open` and `verified` say which table a finding belongs in, and they appear only in the record block. `carried` and `new` say whether the prior round already had it, and they appear only in the ordinal column. Writing `open` as a marker, or `carried` as a group, breaks the record.
+
+**A key the prior round listed as `verified` stays in `Verified, no action`** unless its numbers moved. It was settled once. Re-arguing it every round is the repetition the record exists to stop.
+
+**A prior key you do not report is resolved.** `/recce-dev-review` writes that line from the record. Do not write it yourself, and do not keep a row for a finding that is gone — a resolved finding is not a finding.
+
 ### Nothing else
 
-No `Impact Overview`, `Root Cause`, `Validation`, `Investigation Findings`, `Notes`, or `Risk Assessment` sections. The header, `Needs your review`, the two tables, and the two lines under them.
+No `Impact Overview`, `Root Cause`, `Validation`, `Investigation Findings`, `Notes`, or `Risk Assessment` sections. The header, `Needs your review`, the two tables, the two lines under them, and the record block.
 
 **No `Risk level:` line, and no HIGH / MEDIUM / LOW anywhere.** That grade is invented: two runs over the same working tree can disagree on the letter while reporting the same facts, and a letter invites the developer to read the letter instead of the finding. The order of the sections carries the priority — `Needs your review` first, then `Open items`, then `Verified, no action`. `Data status` stays, because it reports what happened rather than what you concluded.
 
@@ -295,7 +394,7 @@ The column documentation shipped in this diff says CLV covers "all orders", but 
 Detail: F1, F2.
 ```
 
-Do not add a status column — `NEW` / `KEEP` / `ADDRESSED` needs a comparison against the previous run that does not exist yet, and an empty column is worse than none. Do not add a Cause column either: the cause is the Finding cell's second clause, and a fourth column leaves each too narrow to read in a terminal.
+Do not add a status column. The comparison against the previous round exists now, but its answer is one word and it belongs in the ordinal column. Do not add a Cause column either: the cause is the last clause of the Evidence cell. A fourth column leaves every cell too narrow to read in a terminal, whatever it holds.
 
 **`Data status` rules.** This is the one verdict-shaped field left, and it reports what happened rather than what you concluded:
 

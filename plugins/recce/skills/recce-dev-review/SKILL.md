@@ -347,9 +347,24 @@ Outcomes:
 
 ## Step 5: Dispatch the reviewer
 
+First read what the last round found, so this one does not repeat it:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py read
+```
+
+It prints `PRIOR_ROUND=<n>`, one line per prior finding, and a `CONCERNS=` list. `PRIOR_ROUND=0` means there is no usable record — a first review, a different branch, or a record that did not survive a reboot. Pass the output either way: the `CONCERNS=` list is what the agent builds its keys from, and it is needed on a first round too.
+
 Use the `agent:` tool to dispatch `recce-dev-reviewer`. The MCP server is owned by Claude Code (stdio child of `.mcp.json`); the skill does not start or health-check it.
 
 Include in the dispatch context:
+
+> "Prior findings for this working tree, from `findings.py read`:
+> ```
+> {the script's output, verbatim}
+> ```
+> Take every concern word for your record block from the `CONCERNS=` line. When `PRIOR_ROUND` is not 0, reuse a listed key for a finding that is the same one, and mark each row `carried` or `new` in the ordinal column — those two words are markers, not the `open` / `verified` groups of the record block. A key listed `verified` stays in `Verified, no action` unless its numbers moved. Do not add a row for a prior key you are not reporting — that one is resolved, and this skill writes that line."
+
 
 > "Active backend is cloud (session `<SESSION_ID>`), uploaded from this working tree. Use `state:modified+` as the selector — the MCP server resolves it against the session's stored base and head manifests, which are the authoritative pair. Do **not** read the local tracked-changes file; it adds nothing here."
 
@@ -373,9 +388,36 @@ Check whether the agent's output contains `## Data Review Summary`.
 
 **If it does not** — the review did not complete. Say: "Review did not complete successfully. Tracked changes preserved for retry. Run /recce-dev-review again." Then stop. Do not clear anything, and do not assemble a summary of your own.
 
-**If it does** — surface the summary unchanged, then:
+**If it does**, record the findings first, then surface the summary:
 
-1. Clear the tracked-change record — **only when the summary reports `Data status: measured`**. On `Data status: unmeasured`, leave the file alone and say one line: "Data comparison did not run, so these models stay marked as unreviewed." Clearing it silences the pre-commit guard, and a review with no data evidence has not earned that.
+1. **Write the findings record — only when the summary reports `Data status: measured`.** Save the agent's output and pipe it in. The script finds its own block, so the whole summary is fine:
+
+   ```bash
+   OUT=$(mktemp /tmp/recce-review-output.XXXXXX)
+   cat > "$OUT" <<'AGENT_OUTPUT'
+   {the agent's output, verbatim}
+   AGENT_OUTPUT
+   python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py write --session-id <SESSION_ID> < "$OUT"
+   rm -f "$OUT"
+   ```
+
+   Keep it in one command block: `$OUT` does not survive into a second one.
+
+   It prints `ROUND=`, `NEW=`, `CARRIED=`, `RETURNED=`, `RESOLVED=`, and one `RESOLVED_KEY=` line per finding that is gone since last round. `RETURNED=` counts findings that were fixed earlier and are back; nothing displays those yet, and the record keeps them so a later change can.
+
+   **On exit 2** the block was malformed and nothing was written. Say one line — "The reviewer's finding record was rejected, so the next review starts fresh" — and carry on with the rest of this step. A bad block is not a bad review, and the developer still gets the findings.
+
+   **On `Data status: unmeasured`, skip this.** An unmeasured round has nothing to carry, and recording it as an empty round would report every live finding as resolved next time.
+
+2. **Surface the summary with the ```recce-findings block removed** — everything above it, unchanged. That block is bookkeeping; the developer has no use for it.
+
+3. When the write printed `RESOLVED_KEY=` lines, add one line under the tables, naming the keys:
+
+   > Resolved since last review: `customers.customer_lifetime_value:null_introduced`
+
+   Only from those lines. Do not infer a resolution from the agent's prose.
+
+4. Clear the tracked-change record — **only when the summary reports `Data status: measured`**. On `Data status: unmeasured`, leave the file alone and say one line: "Data comparison did not run, so these models stay marked as unreviewed." Clearing it silences the pre-commit guard, and a review with no data evidence has not earned that.
 
    When the data did run, the session under review is an upload of *this* working tree, so those edits are exactly what was reviewed:
 
@@ -385,7 +427,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    **Do not report this to the user.** The path is internal bookkeeping — a temp file keyed by a hash of the project directory.
 
-2. Add one next step. There is no risk grade to key off, so read it from the shape of the summary, checking these in order:
+5. Add one next step. There is no risk grade to key off, so read it from the shape of the summary, checking these in order:
 
    - **`Data status: unmeasured`**, whatever else the summary holds: "The comparison did not run, so this is not an all-clear." When the `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models — retrying now will hit the same error." Otherwise offer `/recce-verify` for a Tier-1 read.
    - **A `Needs your review` block is present**: "Read `Needs your review` above before committing."
@@ -394,7 +436,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    `Data status` comes first because an unmeasured review can still carry findings read from code alone. Those are worth reporting, and they must not read as a data verdict.
 
-3. Append one line, and only this line:
+6. Append one line, and only this line:
 
    > Open this session in Recce: `<host>/launch/<SESSION_ID>`
 
