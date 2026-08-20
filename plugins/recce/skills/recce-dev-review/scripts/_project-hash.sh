@@ -12,7 +12,13 @@
 #
 # Hash scheme matches plugins/recce/hooks/scripts/track-changes.sh and the
 # copy under skills/recce-review/scripts/, so the tracked file written by the
-# hook is the same one this skill clears. Change all three together.
+# hook is the same one this skill clears. findings.py in this directory derives
+# the same 8 characters for its own record. Change all four together.
+#
+# RECCE_CHANGES_FILE and the findings record are different files with different
+# lifetimes: clear-tracked-models.sh removes the first after a measured review,
+# and must never touch the second -- that record is the carry-over between
+# review rounds.
 
 # Use an explicit `command -v md5` branch instead of `md5 ... || md5sum ...`.
 # The pipeline form returns `cut`'s exit status (which is 0 on empty input),
