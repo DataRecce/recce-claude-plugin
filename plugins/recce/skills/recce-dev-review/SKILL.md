@@ -363,7 +363,7 @@ Wait for the agent to complete and capture its full output.
 
 > The review agent could not run: {the agent's own words}. Nothing was reviewed. Check that `/mcp` shows `plugin:recce:recce` connected, then re-run `/recce-dev-review`.
 
-Calling the diff tools directly and assembling a summary looks like success and is not. `recce-dev-reviewer.md` carries the tool sequence, the summary template, and the risk rules; a summary written here follows none of them, and the reader cannot tell the two apart.
+Calling the diff tools directly and assembling a summary looks like success and is not. `recce-dev-reviewer.md` carries the tool sequence, the summary template, and the `Data status` rules; a summary written here follows none of them, and the reader cannot tell the two apart.
 
 ---
 
@@ -371,11 +371,11 @@ Calling the diff tools directly and assembling a summary looks like success and 
 
 Check whether the agent's output contains `## Data Review Summary`.
 
-**If it does not** — the review did not complete. Say: "Review did not complete successfully. Tracked changes preserved for retry. Run /recce-dev-review again." Then stop. Do not clear anything and do not report a risk level.
+**If it does not** — the review did not complete. Say: "Review did not complete successfully. Tracked changes preserved for retry. Run /recce-dev-review again." Then stop. Do not clear anything, and do not assemble a summary of your own.
 
 **If it does** — surface the summary unchanged, then:
 
-1. Clear the tracked-change record — **only when the summary reports `Data status: measured`**. On `Data status: unmeasured`, or on `Risk level: UNKNOWN`, leave the file alone and say one line: "Data comparison did not run, so these models stay marked as unreviewed." Clearing it silences the pre-commit guard, and a review with no data evidence has not earned that.
+1. Clear the tracked-change record — **only when the summary reports `Data status: measured`**. On `Data status: unmeasured`, leave the file alone and say one line: "Data comparison did not run, so these models stay marked as unreviewed." Clearing it silences the pre-commit guard, and a review with no data evidence has not earned that.
 
    When the data did run, the session under review is an upload of *this* working tree, so those edits are exactly what was reviewed:
 
@@ -385,12 +385,14 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    **Do not report this to the user.** The path is internal bookkeeping — a temp file keyed by a hash of the project directory.
 
-2. Add one next step, from the risk level in the summary (`Risk level: HIGH | MEDIUM | LOW | UNKNOWN`):
+2. Add one next step. There is no risk grade to key off, so read it from the shape of the summary, checking these in order:
 
-   - **HIGH**: "High-impact changes detected. Read the root cause above before committing."
-   - **MEDIUM**: "Row count changes detected. Review the deltas above, then commit when satisfied."
-   - **LOW**: "No significant data impact detected. Looks safe to commit."
-   - **UNKNOWN**: "The comparison could not run, so there is no data verdict — this is not an all-clear." When the summary's `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models — retrying now will hit the same error." Otherwise offer `/recce-verify` for a Tier-1 read.
+   - **`Data status: unmeasured`**, whatever else the summary holds: "The comparison did not run, so this is not an all-clear." When the `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models — retrying now will hit the same error." Otherwise offer `/recce-verify` for a Tier-1 read.
+   - **A `Needs your review` block is present**: "Read `Needs your review` above before committing."
+   - **No block, and `Open items` has rows**: "Nothing is blocking. Read the open items above when you can, then commit."
+   - **No block and no open items**: "No data impact needing attention. Looks safe to commit."
+
+   `Data status` comes first because an unmeasured review can still carry findings read from code alone. Those are worth reporting, and they must not read as a data verdict.
 
 3. Append one line, and only this line:
 
