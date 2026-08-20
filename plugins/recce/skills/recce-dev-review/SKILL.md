@@ -216,6 +216,31 @@ git rev-parse --abbrev-ref HEAD
 
 More generally in this step: never run a command for something an earlier step already returned. Each one costs the user an approval prompt in the middle of a review they asked for.
 
+### Check the artifacts describe the working tree
+
+Before deciding anything about the upload, run:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/check-artifacts.py
+```
+
+It prints one `ARTIFACTS` verdict, plus `STALE_MODELS` when there is something to name.
+
+| `ARTIFACTS` | What to do |
+|---|---|
+| `ok` | Say nothing. Continue. |
+| `stale_docs` | Ask them to run `dbt docs generate`, then stop. |
+| `stale_tables` | Ask them to run `dbt run`, then stop. |
+| `stale_both` | Ask them to run `dbt run && dbt docs generate`, then stop. |
+
+Word it as one line naming the models and the command, and nothing else:
+
+> `<STALE_MODELS>` changed after your last `<dbt run / dbt docs generate>`, so `target/` no longer matches your working tree. Run `<command>`, then `/recce-dev-review` again.
+
+**Stop there. Do not upload and do not offer to review anyway.** The upload decision below compares timestamps against the Cloud session, and a stale `target/` passes that check while describing code the user no longer has — the review then reports on the previous version and reads as current. This is the one case where the timestamp comparison is confidently wrong.
+
+The check reads file modification times, so a `git checkout`, a formatter, or a `touch` can make it ask for a rebuild that changes nothing. That direction is cheap. It never reports fresh for a file that changed later, which is the direction that matters.
+
 ### Decide whether to upload
 
 Find the session with this exact name and compare its timestamp against the local manifest:
