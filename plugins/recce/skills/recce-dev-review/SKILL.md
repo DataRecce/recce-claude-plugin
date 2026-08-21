@@ -366,6 +366,8 @@ Include in the dispatch context:
 > Take every concern word for your record block from the `CONCERNS=` line. When `PRIOR_ROUND` is not 0, reuse a listed key for a finding that is the same one, and mark each row `carried` or `new` in the ordinal column — those two words are markers, not the `open` / `verified` groups of the record block. A key listed `verified` stays in `Verified, no action` unless its numbers moved. Do not add a row for a prior key you are not reporting — that one is resolved, and this skill writes that line."
 
 
+> "Put this line directly under your `Open items` table, unchanged: `Open this session in Recce: <host>/launch/<SESSION_ID>`. It is the tool for investigating those rows, so it belongs with them and not at the end."
+
 > "Active backend is cloud (session `<SESSION_ID>`), uploaded from this working tree. Use `state:modified+` as the selector — the MCP server resolves it against the session's stored base and head manifests, which are the authoritative pair. Do **not** read the local tracked-changes file; it adds nothing here."
 
 > "The data path either works for this session or it does not, and the first data-path call tells you which. If your first two data-path calls both come back `null` or with an HTTP error, stop calling data tools: report `Data status: unmeasured`, quote the error text if you got one, and score from metadata and code. A `null` on a later call, when earlier ones returned data, means that one measurement is unavailable — record it in `Not measured:` and carry on. Do **not** wait and retry with `sleep`; this harness runs `sleep` in the background, so the wait never happens and you only burn turns."
@@ -403,7 +405,9 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    Keep it in one command block: `$OUT` does not survive into a second one.
 
-   It prints `ROUND=`, `NEW=`, `CARRIED=`, `RETURNED=`, `RESOLVED=`, and one `RESOLVED_KEY=` line per finding that is gone since last round. `RETURNED=` counts findings that were fixed earlier and are back; nothing displays those yet, and the record keeps them so a later change can.
+   It prints `ROUND=`, `NEW=`, `CARRIED=`, `RETURNED=`, `RESOLVED=`, one `RESOLVED_KEY=` line per finding fixed since last round, and one `RETURNED_KEY=` line per finding that was fixed earlier and is back.
+
+   Only findings that were **open** appear on those two lines. A verified finding dropping out is not a fix, so it is not reported.
 
    **On exit 2** the block was malformed and nothing was written. Say one line — "The reviewer's finding record was rejected, so the next review starts fresh" — and carry on with the rest of this step. A bad block is not a bad review, and the developer still gets the findings.
 
@@ -427,20 +431,25 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    **Do not report this to the user.** The path is internal bookkeeping — a temp file keyed by a hash of the project directory.
 
-5. Add one next step. There is no risk grade to key off, so read it from the shape of the summary, checking these in order:
+5. Close with one line that reports state, and nothing more.
 
-   - **`Data status: unmeasured`**, whatever else the summary holds: "The comparison did not run, so this is not an all-clear." When the `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models — retrying now will hit the same error." Otherwise offer `/recce-verify` for a Tier-1 read.
-   - **A `Needs your review` block is present**: "Read `Needs your review` above before committing."
-   - **No block, and `Open items` has rows**: "Nothing is blocking. Read the open items above when you can, then commit."
-   - **No block and no open items**: "No data impact needing attention. Looks safe to commit."
+   **Never advise on committing.** Not "safe to commit", not "before committing", not "looks fine". Whether to commit is the developer's decision, and they may read a finding and decide it needs no fix. The review reports what it found; it has no standing to approve the commit. A verdict-shaped line here is the same overreach as the risk grade this summary used to carry.
+
+   Report, checking these in order:
+
+   - **`Data status: unmeasured`**, whatever else the summary holds: "The comparison did not run, so these findings rest on code and schema only." When the `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models, so retrying now will hit the same error." Otherwise mention `/recce-verify` for a Tier-1 read.
+   - **A second or later round**: the counts, from the `findings.py write` output and never from the agent's prose. "2 of 5 previous findings are fixed. 1 new finding." When `RETURNED=` is not 0, add: "1 finding is back after being fixed earlier."
+   - **A first round**: the count. "6 open items, 4 verified."
 
    `Data status` comes first because an unmeasured review can still carry findings read from code alone. Those are worth reporting, and they must not read as a data verdict.
 
-6. Append one line, and only this line:
+6. Check the Recce link sits directly under the `Open items` table, and fix its host if the agent guessed:
 
    > Open this session in Recce: `<host>/launch/<SESSION_ID>`
 
-   Take `<host>` from `RECCE_CLOUD_BASE_URL` when it is set, otherwise `RECCE_CLOUD_API_HOST`, otherwise `https://cloud.reccehq.com` — the same order `recce-cloud` itself uses. The path is `/launch/`, not `/sessions/`; the web app serves no `/sessions` route, so that form 404s.
+   Take `<host>` from `RECCE_CLOUD_BASE_URL` when it is set, otherwise `RECCE_CLOUD_API_HOST`, otherwise `https://cloud.reccehq.com`. That is the order `recce-cloud` itself uses. The path is `/launch/`, not `/sessions/`. The web app serves no `/sessions` route, so that form 404s.
+
+   The link belongs under `Open items` because it is the tool for investigating those rows. Do not move it to the end, and do not add a second copy there.
 
 Offer nothing else here — no login prompt, since the user is already authenticated, and no local `recce server`, since the data is in the cloud.
 

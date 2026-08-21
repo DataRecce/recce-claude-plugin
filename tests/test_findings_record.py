@@ -55,7 +55,7 @@ def _project(tmp_path):
 ROUND_1 = """```recce-findings
 F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
 F2 open customers.customer_lifetime_value:null_introduced models/customers.sql
-F3 verified customers.customer_lifetime_value:value_shift models/customers.sql
+- verified customers.customer_lifetime_value:value_shift models/customers.sql
 - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
 ```
 """
@@ -87,7 +87,7 @@ def test_valid_block_writes_the_record(tmp_path):
         "customers.customer_lifetime_value:value_shift",
         "stg_payments.coupon_amount:schema_add",
     ]
-    assert written["findings"][3]["ordinal"] == "-"
+    assert written["findings"][3]["ordinal"] is None
     assert all(f["first_seen"] == 1 and f["last_seen"] == 1 for f in written["findings"])
 
 
@@ -115,7 +115,7 @@ def test_second_round_splits_new_open_and_resolved(tmp_path):
     round_2 = """```recce-findings
 F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
 F2 open customers:join_shape models/customers.sql
-F3 verified customers.customer_lifetime_value:value_shift models/customers.sql
+- verified customers.customer_lifetime_value:value_shift models/customers.sql
 - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
 ```
 """
@@ -148,11 +148,18 @@ F3 verified customers.customer_lifetime_value:value_shift models/customers.sql
     assert gone["last_seen"] == 1
     assert written["round"] == 2
     # It gave up its ordinal: this round's F2 belongs to another finding.
-    assert gone["ordinal"] == "-"
-    live_ordinals = [
-        f["ordinal"] for f in written["findings"] if f["last_seen"] == 2
+    assert gone["ordinal"] is None
+    # Open ordinals only: every verified finding carries None, which collides.
+    live_open = [
+        f["ordinal"]
+        for f in written["findings"]
+        if f["last_seen"] == 2 and f["group"] == "open"
     ]
-    assert len(live_ordinals) == len(set(live_ordinals)), "an ordinal is ambiguous"
+    assert len(live_open) == len(set(live_open)), "an ordinal is ambiguous"
+    assert [f["ordinal"] for f in written["findings"] if f["group"] == "verified"] == [
+        None,
+        None,
+    ]
 
 
 def test_read_reports_the_prior_round_and_always_the_concerns(tmp_path):
@@ -175,7 +182,7 @@ def test_read_reports_the_prior_round_and_always_the_concerns(tmp_path):
 
 ROUND_2_WITHOUT_NULLS = """```recce-findings
 F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-F2 verified customers.customer_lifetime_value:value_shift models/customers.sql
+- verified customers.customer_lifetime_value:value_shift models/customers.sql
 - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
 ```
 """
@@ -311,6 +318,192 @@ def test_a_record_without_timestamps_reports_unknown_not_now(tmp_path):
     assert after["customers.customer_lifetime_value:doc_mismatch"]["first_seen_at"] is None
 
 
+def test_an_open_finding_must_carry_an_ordinal(tmp_path):
+    """The summary prints it, so it has to be there."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = """```recce-findings
+- open customers.clv:doc_mismatch models/schema.yml
+```
+"""
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2
+    assert "An open finding needs a number" in result.stderr
+    assert not record.exists()
+
+
+def test_a_verified_finding_must_not_carry_an_ordinal(tmp_path):
+    """A number on a verified line means the summary printed one."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = """```recce-findings
+F1 open customers.clv:doc_mismatch models/schema.yml
+F2 verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+```
+"""
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2
+    assert "never numbers a verified bullet" in result.stderr
+    assert not record.exists()
+
+
+def test_open_ordinals_are_numbered_independently_of_verified(tmp_path):
+    """Verified findings take no number, so the open ones stay F1..Fn."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = """```recce-findings
+F1 open customers.clv:doc_mismatch models/schema.yml
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+F2 open customers.clv:null_introduced models/customers.sql
+```
+"""
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 0, result.stderr
+    written = json.loads(record.read_text())
+    by_key = {f["key"]: f for f in written["findings"]}
+    assert by_key["customers.clv:doc_mismatch"]["ordinal"] == "F1"
+    assert by_key["customers.clv:null_introduced"]["ordinal"] == "F2"
+    assert by_key["stg_payments.coupon_amount:schema_add"]["ordinal"] is None
+
+
+def test_a_gap_in_the_ordinals_is_rejected(tmp_path):
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = """```recce-findings
+F1 open customers.clv:doc_mismatch models/schema.yml
+F3 open customers.clv:null_introduced models/customers.sql
+```
+"""
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2
+    assert "expected F1..F2" in result.stderr
+    assert not record.exists()
+
+
+def test_a_repeated_ordinal_is_rejected(tmp_path):
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = """```recce-findings
+F1 open customers.clv:doc_mismatch models/schema.yml
+F1 open customers.clv:null_introduced models/customers.sql
+```
+"""
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2
+    assert not record.exists()
+
+
+def test_a_verified_finding_dropping_out_is_not_reported_as_resolved(tmp_path):
+    """Nothing was fixed: a new column is still there, the agent just moved on."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    _run(["write", "--record", str(record), "--project-dir", str(project)], stdin=ROUND_1)
+
+    # Round 2 keeps the open findings and drops the verified ones.
+    round_2 = """```recce-findings
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
+F2 open customers.customer_lifetime_value:null_introduced models/customers.sql
+```
+"""
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=round_2,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RESOLVED=0" in result.stdout
+    assert "RESOLVED_KEY=" not in result.stdout
+    # Still recorded, so its key stays stable for later rounds.
+    keys = {f["key"] for f in json.loads(record.read_text())["findings"]}
+    assert "stg_payments.coupon_amount:schema_add" in keys
+
+
+def test_a_verified_finding_coming_back_is_not_reported_as_returned(tmp_path):
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    _run(["write", "--record", str(record), "--project-dir", str(project)], stdin=ROUND_1)
+    # Drop only the verified findings. Both open ones stay, so nothing that
+    # returns here was ever open.
+    _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin="""```recce-findings
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
+F2 open customers.customer_lifetime_value:null_introduced models/customers.sql
+```
+""",
+    )
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=ROUND_1,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RETURNED=0" in result.stdout, "a verified finding is not tracked"
+    assert "RETURNED_KEY=" not in result.stdout
+
+
+def test_an_all_fixed_round_is_recorded_and_reports_the_fixes(tmp_path):
+    """The best outcome in the loop used to be the one path that crashed."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    _run(["write", "--record", str(record), "--project-dir", str(project)], stdin=ROUND_1)
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin="```recce-findings\nnone\n```\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ROUND=2" in result.stdout
+    assert "FINDINGS=0" in result.stdout
+    assert "RESOLVED=2" in result.stdout
+    assert "RESOLVED_KEY=customers.customer_lifetime_value:doc_mismatch" in result.stdout
+    written = json.loads(record.read_text())
+    assert written["round"] == 2
+    assert all(f["last_seen"] == 1 for f in written["findings"])
+
+
+def test_an_empty_block_is_still_an_error(tmp_path):
+    """A forgotten block must not look like an all-fixed round."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin="```recce-findings\n```\n",
+    )
+
+    assert result.returncode == 2
+    assert "the block is empty" in result.stderr
+    assert not record.exists()
+
+
 def test_a_record_from_another_branch_is_ignored(tmp_path):
     project = _project(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=project, check=True)
@@ -342,6 +535,8 @@ def test_a_record_from_another_project_is_ignored(tmp_path):
 BAD_BLOCKS = {
     "unknown_concern": "F1 open customers.clv:doc_missmatch models/schema.yml",
     "bad_ordinal": "X1 open customers.clv:doc_mismatch models/schema.yml",
+    "no_ordinal": "- open customers.clv:doc_mismatch models/schema.yml",
+    "numbered_verified": "F1 verified customers.clv:value_shift models/customers.sql",
     "bad_group": "F1 maybe customers.clv:doc_mismatch models/schema.yml",
     "no_colon": "F1 open customers.clv.doc_mismatch models/schema.yml",
     "missing_file": "F1 open customers.clv:doc_mismatch models/nope.sql",
@@ -388,7 +583,7 @@ def test_a_duplicate_key_is_rejected(tmp_path):
     record = tmp_path / "record.json"
     block = """```recce-findings
 F1 open customers.clv:doc_mismatch models/schema.yml
-F2 verified customers.clv:doc_mismatch models/customers.sql
+- verified customers.clv:doc_mismatch models/customers.sql
 ```
 """
 

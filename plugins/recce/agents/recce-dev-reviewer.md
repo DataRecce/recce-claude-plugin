@@ -168,24 +168,16 @@ Produce the final summary using this exact template:
 **Models reviewed:** {comma-separated list of model names}
 **Data status:** {measured | unmeasured}
 
-### Needs your review
-{2-3 sentences: what the code now does, what that did to the data, and whether it matches the stated intent}
-
-    {the SQL, or the documented line, that decides it}
-
-`{file}:{lines}`. {the decision to make, or the fix}
-Detail: {F1, F2}.
-
 ### Open items
 | | Finding | Evidence |
 |---|---------|----------|
 | F1 | {what changed, quantified. twelve words or fewer} | `{tool}` on `{model}.{column}`: {metric} {base} → {current}, fifteen words or fewer. Why: {the cause, fifteen words or fewer} |
 | F2 | {...} | {...} |
 
+Open this session in Recce: {host}/launch/{SESSION_ID}
+
 ### Verified, no action
-| | Finding | Evidence |
-|---|---------|----------|
-| F3 | {what changed, quantified. twelve words or fewer} | `{tool}` on `{model}.{column}`: {metric} {base} → {current}. Why: {why it needs nothing} |
+- {what changed, quantified} `{tool}` on `{model}.{column}`: {metric} {base} → {current}. Why: {why it needs nothing}
 
 **Not impacted:** {comma-separated list from confirmed_not_impacted_models}
 
@@ -218,21 +210,17 @@ The developer reads this fast, before a commit, and may not be a native English 
 
 The right-hand column is longer in two of those four cases. That is the correct trade. A reader who has to work out what a phrase means has lost more time than the extra words cost.
 
-These rules apply hardest to `Needs your review`. It is the longest prose in the output, so it breaks them most easily.
+### Row order in `Open items`
 
-### `Needs your review` comes first
+Two keys, in this order. The rule is fixed, so the same findings sort the same way every round.
 
-This block is the one thing the developer has to read before committing, so it goes above the tables. Eight rows of findings ahead of it buries it.
+**First key: does the change contradict something that was stated?** A column description, a test, a documented intent, a stakeholder's request. Someone promised something that is not true, and only a person can decide which side is wrong. These rows go first, whether or not they touch any data. Their concern words are usually `doc_mismatch` and `test_cannot_hold`.
 
-It is about **the single most important finding** — the one you would raise first if you had the developer's attention for ten seconds. Not the first one measured, and not the most interesting one. If the shipped column documentation contradicts the new logic, this block is about that contradiction, even when a fragile join you also noticed is the better story.
+**Second key: how much data the finding touches.** Rows or percent affected, largest first. A finding with no reading at all sorts after every finding that has one, because there is nothing to weigh it by.
 
-Nothing grades the review, so this block is what says "this one matters most". Choosing the wrong finding for it is the one mistake that cannot be recovered by reading further.
+Inside each key, keep the order stable: same input, same output.
 
-Shape: two or three sentences, then the SQL or documented line that decides it, then `file:lines` and one line naming the decision or the fix. Close with `Detail: F1, F2.` — the ordinals of the rows holding its evidence, so the tables become a lookup instead of a second read.
-
-Do not label the block with a diagnosis, and never write "root cause": the change is often entirely intended, and "intended, and here is what the column now means" is exactly what needs a person. The block states what happened and what the developer has to decide. It does not rule.
-
-Omit it only when nothing needs a person: every finding sits in `Verified, no action`, or there are no findings at all.
+Nothing else outranks these. A finding is not promoted because its cause is interesting, or because it took the most work to find.
 
 ### Two groups, split by whether anyone has to act
 
@@ -240,21 +228,37 @@ Omit it only when nothing needs a person: every finding sits in `Verified, no ac
 
 **`Verified, no action`** — measured, understood, and correct as it stands.
 
-The split is not "bad" against "good". A 98.8% row change the developer meant to make belongs in `Verified, no action` as a full row with its numbers: that number is the proof the intent landed. Drop an empty group's heading rather than printing an empty table.
+The split is not "bad" against "good". A 98.8% row change the developer meant to make belongs in `Verified, no action` with its numbers: that number is the proof the intent landed.
+
+**`Verified, no action` is a bullet list, not a table.** Nothing here needs acting on, so it must not carry the same visual weight as the rows that do. One bullet per finding, no number, carrying the same content a row would hold:
+
+```
+- CLV changed for 98.8% of customers, average down 32%. `value_diff` on `customers.customer_lifetime_value`: 1,834 / 1,856 changed. Why: the completed-orders restriction is the confirmed intent.
+```
+
+Keep the numbers. A verified finding without its measurement is an unsupported claim that something is fine, which is the false all-clear these rules exist to prevent.
+
+Drop an empty group's heading rather than printing an empty table or an empty list.
 
 ### One row per finding, not per model
 
 A single model usually carries several findings. A shifted average, new nulls in the same column, and a downstream reclassification are **three** rows, not one — they have different evidence and a reader may act on one and accept another. Never merge findings to keep a table short.
 
-Number rows `F1` upward, continuously across both tables, `Open items` first. The ordinal is how the user refers to a finding when replying to you. Inside `Open items`, order worst first.
+Number the `Open items` rows `F1` upward, in the order below. `Verified, no action` bullets are not numbered at all.
+
+**The ordinal is a position in this round's list, and nothing more.** It is not a name for a finding. Sort the list again and the numbers move: in two real consecutive rounds, `F2` and `F3` swapped while the findings themselves were unchanged. So the number tells the reader what to look at first, within this round, and it expires when the next round prints.
+
+What identifies a finding across rounds is its key, `model[.column]:concern`. That is what the record compares, and it is what to use when you refer to a finding from an earlier round.
+
+`Verified, no action` gets no number because nothing there needs acting on. A number in front of such a bullet invites the reader to look for an action that does not exist, and there is nothing to address later either.
 
 ### Eight rows is the limit
 
-Eight rows across both tables together. Past that the developer skims instead of reading, and a review nobody reads buys nothing.
+Eight findings in total: the `Open items` rows plus the `Verified, no action` bullets. Past that the developer skims instead of reading, and a review nobody reads buys nothing.
 
 - **Never drop an `Open items` row to meet the limit.** Show all of them even when they alone pass eight, and say so on one line under the table.
-- Trim `Verified, no action` instead. What comes off the table goes on one line under it: `{n} more, verified and needing nothing: {a short phrase each}`. Separate the phrases with a full stop, not a semicolon.
-- Trimming is not merging. A row leaves the table whole and keeps its own phrase on that line; two findings never become one row.
+- Trim `Verified, no action` instead. What comes off goes on one line under the list: `{n} more, verified and needing nothing: {a short phrase each}`. Separate the phrases with a full stop, not a semicolon.
+- Trimming is not merging. A finding leaves the list whole and keeps its own phrase on that line. Two findings never become one bullet.
 
 ### Write the four parts as identifiers
 
@@ -303,7 +307,7 @@ This cell is what a reader reaches for when a headline makes them suspicious. So
 
 **When you could not determine the cause, write `Why: not determined`.** That is a fact about the review, and dropping it hides one. Its concern word is `unexplained`.
 
-When the cause needs more room than fifteen words — a SQL snippet, a chain through several models — then either it is the lead finding and belongs in `Needs your review`, or it stays short here. A cell that runs to a paragraph stops the table being scannable, which is the only reason it is a table.
+When the cause needs more room than fifteen words, it still gets fifteen. Name the mechanism in the shortest form that is true and stop. No row is an exception, and there is nowhere else in the output to put the rest. A cell that runs to a paragraph stops the table being scannable, which is the only reason it is a table.
 
 ### The rest of the row
 
@@ -317,7 +321,7 @@ No cause, no mechanism, no file path, no tool name. All of that goes in Evidence
 
 Twelve words is about 70 characters. Hold to it: a real run averaged 228 characters in this column and peaked at 295, which is three terminal lines for one finding. Eight of those is not a table anyone glances at.
 
-**An intent mismatch is a finding row.** When the change does something its stated goal, PR description, or column documentation did not mention, that is a row in `Open items`, with the claim as its evidence. When it is the most important finding, it also leads `Needs your review`, and the row still stays. Do not add a section for it.
+**An intent mismatch is a finding row.** When the change does something its stated goal, PR description, or column documentation did not mention, that is a row in `Open items`, with the claim as its evidence. It sorts first under the row-order rule. Do not add a section for it.
 
 **`Not impacted:`** lists models `impact_analysis` confirmed are unaffected, **and** any model you measured and found unchanged. Nothing moved there, so "row counts are stable everywhere" and "no downstream drift" belong on this line, not in rows of their own. Name the tool that cleared them, so the reader can see the check ran.
 
@@ -342,10 +346,20 @@ F3 verified customers.customer_lifetime_value:value_shift models/customers.sql
 
 One line per finding. Four fields, and no field contains a space:
 
-- **ordinal** — `F<n>` as printed in the table, or `-` for a finding the eight-row cap moved onto the overflow line. A trimmed finding still gets a line here. The cap is a display rule, and leaving the line out would make that finding look resolved next round.
+- **ordinal** — `F<n>` for an `open` finding, `-` for a `verified` one. The open ordinals must be exactly `F1` to `Fn` with no gap and no repeat, and every verified line must carry `-`. `findings.py` rejects the block otherwise, so a number on a verified line is an error: it means the summary printed one. A finding moved onto the overflow line by the cap still gets a line here, with the same ordinal rule for its group. Leaving a finding out of the block makes it look resolved next round.
 - **group** — `open` or `verified`, matching the table it was printed in.
 - **key** — `model:concern`, or `model.column:concern` when the finding is about one column. This is how the next round recognises the same finding, so the concern word comes from the `CONCERNS=` list in your dispatch and from nowhere else. An invented word never matches, and the finding then returns as new for ever.
 - **file** — the file the finding names, relative to the project root. It has to exist.
+
+**When the review found nothing at all, the block is the single word `none`:**
+
+````
+```recce-findings
+none
+```
+````
+
+Never send an empty block. `none` says the review ran and found nothing, which is worth recording: it is how the next round learns that everything previously open is fixed. An empty block is what a forgotten block looks like, so `findings.py` rejects it.
 
 `/recce-dev-review` reads this block, writes it to the record, and removes it before the developer sees the summary. It is not for the reader: do not explain it, do not put anything after it, and do not leave it out. Without it the next round starts from zero.
 
@@ -371,30 +385,21 @@ The marker shares the ordinal column. It does not get a column of its own.
 
 **A key the prior round listed as `verified` stays in `Verified, no action`** unless its numbers moved. It was settled once. Re-arguing it every round is the repetition the record exists to stop.
 
-**A prior key you do not report is resolved.** `/recce-dev-review` writes that line from the record. Do not write it yourself, and do not keep a row for a finding that is gone — a resolved finding is not a finding.
+**A prior open key you do not report is treated as fixed.** `/recce-dev-review` writes that line from the record. Do not write it yourself, and do not keep a row for a finding that is gone: a fixed finding is not a finding.
+
+Dropping a `verified` key reports nothing, because a verified finding is not something the developer fixed. Only findings that were open are tracked that way.
 
 ### Nothing else
 
-No `Impact Overview`, `Root Cause`, `Validation`, `Investigation Findings`, `Notes`, or `Risk Assessment` sections. The header, `Needs your review`, the two tables, the two lines under them, and the record block.
+No `Impact Overview`, `Root Cause`, `Validation`, `Investigation Findings`, `Notes`, or `Risk Assessment` sections, and no `Needs your review` section. The output is the header, `Open items`, the Recce link, `Verified, no action`, the two lines under them, and the record block. Nothing else.
 
-**No `Risk level:` line, and no HIGH / MEDIUM / LOW anywhere.** That grade is invented: two runs over the same working tree can disagree on the letter while reporting the same facts, and a letter invites the developer to read the letter instead of the finding. The order of the sections carries the priority — `Needs your review` first, then `Open items`, then `Verified, no action`. `Data status` stays, because it reports what happened rather than what you concluded.
+**Nothing goes outside the table and the bullets.** No SQL snippet, no `file:lines` line, no quoted description, no `Decide:` line, no `Detail:` line. The top row of `Open items` is the most important finding and it gets the same two cells as every other row. When its cause needs code to show, the reader opens the file or the Recce link.
 
-`Needs your review` is the only block outside the tables, and it covers one finding, not each of them. Nothing a table cell can hold goes in it:
+**The Recce link goes directly under `Open items`.** It is the tool for investigating those rows, so it sits where they are, not at the end of the output. `/recce-dev-review` supplies the host and the session ID.
 
-```
-### Needs your review
+**No `Risk level:` line, and no HIGH / MEDIUM / LOW anywhere.** That grade is invented: two runs over the same working tree can disagree on the letter while reporting the same facts, and a letter invites the developer to read the letter instead of the finding. The order and the shape carry the priority: `Open items` is a table, sorted by the row-order rule, and `Verified, no action` is a bullet list below it. `Data status` stays, because it reports what happened rather than what you concluded.
 
-The column documentation shipped in this diff says CLV covers "all orders", but the model now counts completed orders only and fills 0 when a customer has none. The data change is confirmed intended; the description was rewritten in the same diff and picked up neither the filter nor the zero-fill.
-
-    left join orders on
-         payments.order_id = orders.order_id
-        and orders.status = 'completed'
-
-`models/customers.sql:40-49`, documented at `models/schema.yml:52`. Decide which one is right: describe the completed-orders restriction, or drop it from the join.
-Detail: F1, F2.
-```
-
-Do not add a status column. The comparison against the previous round exists now, but its answer is one word and it belongs in the ordinal column. Do not add a Cause column either: the cause is the last clause of the Evidence cell. A fourth column leaves every cell too narrow to read in a terminal, whatever it holds.
+`Open items` has two columns and keeps them. Do not add a status column: the comparison against the previous round exists now, but its answer is one word and it belongs in the ordinal column. Do not add a Cause column either: the cause is the last clause of the Evidence cell. With eight rows competing for terminal width, a third column leaves every cell too narrow to read. Do not add a `Decide` column: a decision that fits a cell is already the `Why:` clause, and one that does not fit belongs to the reader, not to the table.
 
 **`Data status` rules.** This is the one verdict-shaped field left, and it reports what happened rather than what you concluded:
 

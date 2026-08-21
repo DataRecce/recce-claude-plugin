@@ -18,6 +18,20 @@ Stdin:   write only. The agent's output, or just its block. The fenced
          ```recce-findings block is extracted from whatever is given, so the
          caller does not have to cut it out first.
 
+         A review that finds nothing writes a block holding the single word
+         `none`. An empty block is an error, because a forgotten block looks
+         exactly like an all-fixed round, and the two must not be confused: one
+         should be reported as a success, the other loudly as a fault.
+
+         An open finding carries an ordinal, F1..Fn with no gap and no
+         repeat. A verified finding carries "-", because the summary never
+         prints a number for one.
+
+         The ordinal is a position in one round's list, not a name. Sorting the
+         list again moves the numbers, so nothing compares ordinals between
+         rounds. It is stored only so a reply in the same sitting can say "F2"
+         and be understood. `key` is what identifies a finding over time.
+
 Stdout:  read      PRIOR_ROUND=<n>
                    <group> <key> <file>        (one per live prior finding)
                    CONCERNS=<comma separated>
@@ -39,6 +53,12 @@ against the round number, so no field stores it:
     last_seen == prior round, not in the block    -> resolved, reported once
     last_seen <  prior round, in the block        -> returned, it came back
     last_seen <  prior round, not in the block    -> still resolved, silent
+
+`resolved` and `returned` are reported for findings that were **open**. Only an
+open finding is something the developer acts on, so only an open one can be
+fixed or come back. A verified finding that stops being reported is not a fix:
+the column is still there, the agent just did not repeat it. Reporting that as
+resolved is noise the developer cannot act on, and it was doing so.
 
 Deleting a resolved finding would make the fourth case impossible to see: the
 same problem coming back would be indistinguishable from a first sighting, for
@@ -86,7 +106,11 @@ CONCERNS = [
 ]
 
 GROUPS = ("open", "verified")
-ORDINAL_RE = re.compile(r"^(F\d+|-)$")
+# A review that found nothing says so, rather than sending an empty block. An
+# empty block stays an error: it is what a forgotten block looks like.
+NO_FINDINGS = "none"
+ORDINAL_RE = re.compile(r"^F(\d+)$")
+NO_ORDINAL = "-"
 MODEL_RE = re.compile(r"^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)?$")
 BLOCK_RE = re.compile(r"^```recce-findings\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
 
@@ -94,8 +118,9 @@ EXPECTED = """Expected form, one line per finding:
 
   <ordinal> <group> <model[.column]:concern> <file>
 
-  ordinal   F1, F2, ... as printed in the table, or - for a finding the
-            eight-row cap moved onto the overflow line
+  ordinal   F1, F2, ... for an open finding: exactly F1..Fn, no gap, no
+            repeat. "-" for a verified one, which is never numbered in the
+            summary. A number on a verified line is an error
   group     open | verified
   concern   one of: {concerns}
   file      path relative to the project root, and it must exist
@@ -105,6 +130,12 @@ Wrapped in a fence:
   ```recce-findings
   F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
   - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+  ```
+
+When the review found nothing at all, the whole block is one word:
+
+  ```recce-findings
+  none
   ```"""
 
 
@@ -170,8 +201,13 @@ def parse_block(text):
     for offset, raw in enumerate(body.splitlines(), start=1):
         if raw.strip():
             lines.append((offset, raw.strip()))
+    if len(lines) == 1 and lines[0][1] == NO_FINDINGS:
+        return [], None
     if not lines:
-        return [], "no finding lines were given"
+        return [], (
+            "the block is empty. A review that found nothing writes %r; an "
+            "empty block is what a forgotten block looks like" % NO_FINDINGS
+        )
     return lines, None
 
 
@@ -186,8 +222,18 @@ def validate(lines, project_dir):
             )
             continue
         ordinal, group, key, path = parts
-        if not ORDINAL_RE.match(ordinal):
-            errors.append("line %d: ordinal %r is not F<n> or -" % (lineno, ordinal))
+        if group == "verified":
+            if ordinal != NO_ORDINAL:
+                errors.append(
+                    "line %d: ordinal %r on a verified finding. Use %r: the "
+                    "summary never numbers a verified bullet"
+                    % (lineno, ordinal, NO_ORDINAL)
+                )
+        elif not ORDINAL_RE.match(ordinal):
+            errors.append(
+                "line %d: ordinal %r is not F<n>. An open finding needs a "
+                "number, because the summary prints one" % (lineno, ordinal)
+            )
         if group not in GROUPS:
             errors.append(
                 "line %d: group %r is not %s" % (lineno, group, " or ".join(GROUPS))
@@ -212,7 +258,28 @@ def validate(lines, project_dir):
             )
         else:
             seen[key] = lineno
-        findings.append({"key": key, "group": group, "file": path, "ordinal": ordinal})
+        findings.append(
+            {
+                "key": key,
+                "group": group,
+                "file": path,
+                # Stored as None rather than "-" so the record says "no number"
+                # instead of carrying a placeholder that reads like one.
+                "ordinal": None if ordinal == NO_ORDINAL else ordinal,
+            }
+        )
+
+    # F1..Fn exactly, over the open findings only. One check catches a gap, a
+    # repeat and an off-by-one start, and each of those breaks the mapping from
+    # a number the reader saw to the finding it named.
+    open_count = sum(1 for f in findings if f["group"] == "open")
+    matches = (ORDINAL_RE.match(f["ordinal"] or "") for f in findings)
+    numbers = sorted(int(m.group(1)) for m in matches if m)
+    if not errors and numbers != list(range(1, open_count + 1)):
+        errors.append(
+            "open ordinals are %s, expected F1..F%d with no gap and no repeat"
+            % (", ".join("F%d" % n for n in numbers) or "(none)", open_count)
+        )
     return ([], errors) if errors else (findings, [])
 
 
@@ -260,6 +327,11 @@ def cmd_write(args):
 
     now = utc_now()
     reported = {f["key"] for f in findings}
+    # A finding is trackable if the record last saw it as open. Its group this
+    # round does not decide that: a fix removes the line entirely, so there is
+    # no current group to read.
+    def was_open(entry):
+        return entry.get("group") == "open"
     merged, new_count, carried, returned = [], 0, 0, []
     for finding in findings:
         was = prior_findings.get(finding["key"])
@@ -274,8 +346,12 @@ def cmd_write(args):
             finding["first_seen_at"] = was.get("first_seen_at")
             if was.get("last_seen") == prior_round:
                 carried += 1
-            else:
+            elif was_open(was):
                 returned.append(finding["key"])
+            else:
+                # Known to the record, and it was never open, so nothing was
+                # fixed and nothing came back. Not news.
+                carried += 1
         finding["last_seen"] = round_number
         finding["last_seen_at"] = now
         merged.append(finding)
@@ -287,12 +363,11 @@ def cmd_write(args):
     for key, was in prior_findings.items():
         if key in reported:
             continue
-        if was.get("last_seen") == prior_round:
+        if was.get("last_seen") == prior_round and was_open(was):
             resolved.append(key)
-        # Drop the ordinal. It addressed a row in the round that reported it,
-        # and this round reuses the same F<n> for something else -- two
-        # findings answering to F1 would make addressing one impossible.
-        merged.append(dict(was, ordinal="-"))
+        # Drop the ordinal. It pointed at a position in the round that
+        # reported it, and this round has given that number to something else.
+        merged.append(dict(was, ordinal=None))
 
     record = {
         "version": RECORD_VERSION,
