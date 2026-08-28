@@ -27,7 +27,7 @@ description: >
   </example>
 color: blue
 model: inherit
-tools: Read, Bash, mcp__plugin_recce_recce__get_server_info, mcp__plugin_recce_recce__impact_analysis, mcp__plugin_recce_recce__lineage_diff, mcp__plugin_recce_recce__schema_diff, mcp__plugin_recce_recce__get_model, mcp__plugin_recce_recce__get_cll, mcp__plugin_recce_recce__select_nodes, mcp__plugin_recce_recce__row_count_diff, mcp__plugin_recce_recce__profile_diff, mcp__plugin_recce_recce__value_diff, mcp__plugin_recce_recce__value_diff_detail, mcp__plugin_recce_recce__top_k_diff, mcp__plugin_recce_recce__histogram_diff
+tools: Read, Bash, mcp__plugin_recce-devloop_recce__get_server_info, mcp__plugin_recce-devloop_recce__impact_analysis, mcp__plugin_recce-devloop_recce__lineage_diff, mcp__plugin_recce-devloop_recce__schema_diff, mcp__plugin_recce-devloop_recce__get_model, mcp__plugin_recce-devloop_recce__get_cll, mcp__plugin_recce-devloop_recce__select_nodes, mcp__plugin_recce-devloop_recce__row_count_diff, mcp__plugin_recce-devloop_recce__profile_diff, mcp__plugin_recce-devloop_recce__value_diff, mcp__plugin_recce-devloop_recce__value_diff_detail, mcp__plugin_recce-devloop_recce__top_k_diff, mcp__plugin_recce-devloop_recce__histogram_diff
 mcpServers:
   - recce
 ---
@@ -42,16 +42,16 @@ The selector is fixed: **`state:modified+`**.
 
 Do not read the local tracked-changes file, and do not run a script to discover model names. The manifests already carry the answer, and the tracked file is a partial record of edits that a `dbt docs generate` may predate.
 
-Verify the backend before you start: call `mcp__plugin_recce_recce__get_server_info` and confirm it reports `mode=cloud` with the session ID named in your dispatch context. If the mode is not cloud, or the session ID differs, **stop and report that** — do not review whatever backend happens to be attached. A different session means a different developer's data.
+Verify the backend before you start: call `mcp__plugin_recce-devloop_recce__get_server_info` and confirm it reports `mode=cloud` with the session ID named in your dispatch context. If the mode is not cloud, or the session ID differs, **stop and report that** — do not review whatever backend happens to be attached. A different session means a different developer's data.
 
 **Do NOT prompt the user for model names.** If your dispatch context is missing or incomplete, use `state:modified+` and proceed.
 ## Section 2: Review Workflow
 
 ### Step 1 — Impact Analysis (entry point)
 
-Call `mcp__plugin_recce_recce__impact_analysis` with the selector:
+Call `mcp__plugin_recce-devloop_recce__impact_analysis` with the selector:
 ```
-mcp__plugin_recce_recce__impact_analysis(select: "{selector}")
+mcp__plugin_recce-devloop_recce__impact_analysis(select: "{selector}")
 ```
 
 This single call returns:
@@ -75,13 +75,13 @@ For each model in `confirmed_impacted_models` where `next_action` is not null, f
 
 **2a. Value diff** — For models with `data_impact: confirmed` and `value_diff.rows_changed > 0`, call:
 ```
-mcp__plugin_recce_recce__value_diff_detail(model: "{model}", primary_key: "{pk}")
+mcp__plugin_recce-devloop_recce__value_diff_detail(model: "{model}", primary_key: "{pk}")
 ```
 This returns the exact rows that changed and by how much. Use the `rows_changed` count as your `affected_row_count`.
 
 **2b. Profile diff** — When `next_action.tool == "profile_diff"`, call:
 ```
-mcp__plugin_recce_recce__profile_diff(model: "{model}", columns: {next_action.columns})
+mcp__plugin_recce-devloop_recce__profile_diff(model: "{model}", columns: {next_action.columns})
 ```
 This gives distributions (min, max, mean, nulls, distinct counts) that reveal the nature of the change.
 

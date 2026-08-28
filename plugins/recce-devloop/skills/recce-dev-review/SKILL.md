@@ -6,9 +6,8 @@ description: >
   attaches the Recce MCP server to that session, and produces an impact report.
   Triggers when: user asks to review their local dbt changes through Recce
   Cloud, run a dev review, upload their working tree and review it, or review
-  this branch against the cloud base. For a PR, MR, or an existing Cloud
-  session URL, use /recce-review. For a quick single-environment read with no
-  base at all, use /recce-verify.
+  this branch against the cloud base. Does not attach to a session that already
+  exists — this skill prepares one from the working tree.
 ---
 
 # /recce-dev-review — Cloud dev-session review of the current working tree
@@ -29,7 +28,7 @@ This skill owns one input: the current dbt project and its working tree.
 
 If the user supplied a **GitHub PR URL, a GitLab MR URL, a Recce Cloud session or launch URL, or a bare session UUID**, that is a different journey — someone else's session already exists and nothing needs preparing. Say one line and stop:
 
-> That's an existing session, so `/recce-review <the URL they gave>` is the one to run — it attaches to that session directly.
+> That session already exists, so there is nothing here to prepare. This skill reviews the dbt changes in your own working tree. Open that session in Recce Cloud directly.
 
 Do not prepare a dev session, and do not upload anything, when an explicit session was named.
 
@@ -37,7 +36,7 @@ Do not prepare a dev session, and do not upload anything, when an explicit sessi
 
 ## Step 1: Precondition — the Recce MCP server
 
-Look at whether the `recce` MCP tools (`mcp__plugin_recce_recce__*`) are available in this session. Every step below needs them.
+Look at whether the `recce` MCP tools (`mcp__plugin_recce-devloop_recce__*`) are available in this session. Every step below needs them.
 
 That is the only judgement you make here. No script can read your tool list. Pass what you saw:
 
@@ -83,7 +82,7 @@ Say nothing beyond the line for your `REMEDY`. In particular:
 
 Three things have to be in place beyond `recce`: `recce-cloud`, a login, and a project binding.
 
-**Ask about each missing piece. Never skip one silently.** The local fallback exists for a user who *declines*, not for a user who has not been asked. The target user is an existing Recce Cloud client whose team already maintains a prod base — for them the base is not missing, only unreached, and quietly serving a single-environment estimate hands them a guess in place of a diff they already have.
+**Ask about each missing piece. Never skip one silently.** The local fallback exists for a user who *declines*, not for a user who has not been asked. The target user is an existing Recce Cloud client whose team already maintains a prod base — for them the base is not missing, only unreached, and the fallback ends with no review at all. A piece they were never asked about costs them the whole review over something they would have fixed in a minute.
 
 Use the `RECCE_CLOUD` value Step 1 printed. **Do not re-resolve it** — re-asking costs the user an approval prompt in the middle of a review they requested. Use that path for **every** `recce-cloud` call; a bare `recce-cloud` reports missing for a correctly installed project.
 
@@ -127,7 +126,7 @@ Handle three outcomes:
   > pip install recce-cloud
   > ```
   >
-  > Or say "skip" and I'll do a local check instead — a rougher read, since it estimates from one environment rather than diffing against your base.
+  > Or say "skip" and I'll stop here. Your team's base is the only thing these changes get compared against, so without the CLI there is no review to give.
 
   Do **not** run `pip install` yourself. It mutates the user's virtualenv, and in `auto` permission mode a Bash call can execute with no prompt at all — so the harness's approval dialog cannot be relied on as their consent. The `recce-cloud login` offer below is different: it writes only a credential the user asked for, and it cannot proceed without them clicking in their own browser.
 
@@ -308,9 +307,9 @@ Take the `id` of the entry whose `name` equals `<SESSION_NAME>` and set `SESSION
 
 Call the `set_backend` MCP tool on the `recce` server:
 
-> `mcp__plugin_recce_recce__set_backend(mode="cloud", session_id="<SESSION_ID>")`
+> `mcp__plugin_recce-devloop_recce__set_backend(mode="cloud", session_id="<SESSION_ID>")`
 
-Then call `mcp__plugin_recce_recce__get_server_info` and require **both** `mode=cloud` and a `session_id` equal to `SESSION_ID`. A mismatch is a failure, not a detail — the long-lived MCP process may still be attached to a session from an earlier review.
+Then call `mcp__plugin_recce-devloop_recce__get_server_info` and require **both** `mode=cloud` and a `session_id` equal to `SESSION_ID`. A mismatch is a failure, not a detail — the long-lived MCP process may still be attached to a session from an earlier review.
 
 `set_backend` returns quickly. Two classes of tool behave differently behind it:
 
@@ -333,7 +332,7 @@ Outcomes:
 
 - **A 400 naming the warehouse connection** — the project has no warehouse connection configured, so Recce Cloud cannot launch an instance. `doctor` does not check this, so a project can pass every readiness check and still land here:
 
-  > Recce Cloud cannot start an instance for this project — it has no warehouse connection configured. A project admin needs to add one. Falling back to a local review.
+  > Recce Cloud cannot start an instance for this project — it has no warehouse connection configured. A project admin needs to add one.
 
   Then take the **local fallback**.
 
@@ -378,7 +377,7 @@ Wait for the agent to complete and capture its full output.
 
 **If the agent reports it cannot run** — its MCP tools are missing, no backend is attached, or any other blocker — **do not run the review yourself.** Report what it said and stop:
 
-> The review agent could not run: {the agent's own words}. Nothing was reviewed. Check that `/mcp` shows `plugin:recce:recce` connected, then re-run `/recce-dev-review`.
+> The review agent could not run: {the agent's own words}. Nothing was reviewed. Check that `/mcp` shows `plugin:recce-devloop:recce` connected, then re-run `/recce-dev-review`.
 
 Calling the diff tools directly and assembling a summary looks like success and is not. `recce-dev-reviewer.md` carries the tool sequence, the summary template, and the `Data status` rules; a summary written here follows none of them, and the reader cannot tell the two apart.
 
@@ -395,7 +394,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 1. **Write the findings record — only when the summary reports `Data status: measured`.** Save the agent's output and pipe it in. The script finds its own block, so the whole summary is fine:
 
    ```bash
-   OUT=$(mktemp /tmp/recce-review-output.XXXXXX)
+   OUT=$(mktemp /tmp/recce-dev-review-output.XXXXXX)
    cat > "$OUT" <<'AGENT_OUTPUT'
    {the agent's output, verbatim}
    AGENT_OUTPUT
@@ -437,7 +436,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    Report, checking these in order:
 
-   - **`Data status: unmeasured`**, whatever else the summary holds: "The comparison did not run, so these findings rest on code and schema only." When the `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models, so retrying now will hit the same error." Otherwise mention `/recce-verify` for a Tier-1 read.
+   - **`Data status: unmeasured`**, whatever else the summary holds: "The comparison did not run, so these findings rest on code and schema only." When the `Not measured:` line carries a Cloud error, quote it and add: "That is a Recce Cloud problem, not a problem with your models, so retrying now will hit the same error."
    - **A second or later round**: the counts, from the `findings.py write` output and never from the agent's prose. "2 of 5 previous findings are fixed. 1 new finding." When `RETURNED=` is not 0, add: "1 finding is back after being fixed earlier."
    - **A first round**: the count. "6 open items, 4 verified."
 
@@ -459,15 +458,15 @@ Offer nothing else here — no login prompt, since the user is already authentic
 
 Reached when the user declines a setup step, or when Cloud preparation fails in a way this skill cannot fix. It is a normal ending, not an error.
 
-**Restore local mode explicitly and verify it first:**
+**Restore local mode explicitly and verify it:**
 
-> `mcp__plugin_recce_recce__set_backend(mode="local", project_dir="<absolute project path>")`
-> `mcp__plugin_recce_recce__get_server_info()` → require `mode=local`
+> `mcp__plugin_recce-devloop_recce__set_backend(mode="local", project_dir="<absolute project path>")`
+> `mcp__plugin_recce-devloop_recce__get_server_info()` → require `mode=local`
 
-Never treat an already-active cloud backend as a local fallback. A review earlier in the same Claude Code session may have left the long-lived MCP process attached to an unrelated session, and the local review would then silently describe someone else's data.
+This restore is the whole point of the fallback. A cloud flip earlier in the same Claude Code session leaves the long-lived MCP process attached to that session, and every later tool call in this project would then read someone else's data. Never leave it attached to a session this skill could not verify.
 
-Then hand off to `/recce-review`, which owns local review — the base check, the local model scope, and its own handoff to `/recce-verify` when there is no base to diff against. Say one line about why, then let that skill run:
+Then say one line naming what stopped, and stop:
 
-> Reviewing locally instead.
+> Cloud preparation did not finish, so there is nothing to compare your working tree against. Your Recce MCP server is back in local mode.
 
-Do not duplicate the local review here, and do not append a Cloud launch link to a review that never reached the cloud.
+There is no review to give. Comparing against the team's base is the only thing this skill does, so a run that never reached the cloud produced no evidence. Do not assemble a summary from the model SQL, do not call the diff tools against local mode and present the result as a review, and do not append a Cloud launch link to a run that never reached the cloud.

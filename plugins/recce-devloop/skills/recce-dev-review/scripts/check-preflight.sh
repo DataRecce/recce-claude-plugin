@@ -4,7 +4,7 @@
 #
 # Used by /recce-dev-review's Precondition step, on every invocation.
 #
-# Whether the recce MCP tools (mcp__plugin_recce_recce__*) are bound in this
+# Whether the recce MCP tools (mcp__plugin_recce-devloop_recce__*) are bound in this
 # session is the one fact no script can read -- only the model can see its own
 # tool list. The caller passes that in as one word; every other decision is
 # made here.

@@ -15,7 +15,7 @@ from pathlib import Path
 SCRIPT = (
     Path(__file__).parent.parent
     / "plugins"
-    / "recce"
+    / "recce-devloop"
     / "skills"
     / "recce-dev-review"
     / "scripts"

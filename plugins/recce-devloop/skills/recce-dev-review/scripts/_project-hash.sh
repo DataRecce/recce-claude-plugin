@@ -10,10 +10,15 @@
 #   RECCE_PROJECT_HASH  -- 8-char md5 of $PWD
 #   RECCE_CHANGES_FILE  -- /tmp/recce-changed-<hash>.txt
 #
-# Hash scheme matches plugins/recce/hooks/scripts/track-changes.sh and the
-# copy under skills/recce-review/scripts/, so the tracked file written by the
+# Hash scheme matches hooks/scripts/track-changes.sh and hooks/scripts/
+# pre-commit-guard.sh, which both inline it, so the tracked file written by the
 # hook is the same one this skill clears. findings.py in this directory derives
 # the same 8 characters for its own record. Change all four together.
+#
+# plugins/recce carries its own copies of the same scheme. They are separate
+# plugins and cannot share a file, but they do share /tmp: a project with both
+# installed must still resolve to one hash, so the scheme cannot change here
+# alone.
 #
 # RECCE_CHANGES_FILE and the findings record are different files with different
 # lifetimes: clear-tracked-models.sh removes the first after a measured review,
