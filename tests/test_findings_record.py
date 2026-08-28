@@ -642,3 +642,88 @@ def test_the_record_path_matches_the_shell_hash_scheme(tmp_path):
     digest = shell.stdout.split()[0][:8]
 
     assert findings.record_path(project) == "/tmp/recce-findings-%s.json" % digest
+
+
+# --- `table`: the open findings the PR-prep step writes up -------------------
+
+ROUND_2_ONE_FIX = """```recce-findings
+F1 open customers:join_shape models/customers.sql
+F2 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
+- verified customers.customer_lifetime_value:value_shift models/customers.sql
+```
+"""
+
+
+def _two_rounds(tmp_path):
+    """Round 1, then a round that drops one open and one verified finding."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    _run(["write"] + args, stdin=ROUND_2_ONE_FIX)
+    return project, record, args
+
+
+def test_table_lists_an_open_finding_that_stopped_being_reported(tmp_path):
+    """The row `read` hides is the row a resolution can be written for."""
+    project, record, args = _two_rounds(tmp_path)
+    gone = "customers.customer_lifetime_value:null_introduced"
+
+    assert gone not in _run(["read"] + args).stdout
+
+    result = _run(["table"] + args)
+
+    assert result.returncode == 0, result.stderr
+    assert "ROUND=2" in result.stdout
+    assert "stopped  %s models/customers.sql" % gone in result.stdout
+
+
+def test_table_omits_every_verified_finding(tmp_path):
+    """The table is the list of things someone still has to decide about."""
+    project, record, args = _two_rounds(tmp_path)
+
+    result = _run(["table"] + args)
+
+    assert result.returncode == 0, result.stderr
+    # Still reported as verified, and verified but no longer reported.
+    assert "customers.customer_lifetime_value:value_shift" not in result.stdout
+    assert "stg_payments.coupon_amount:schema_add" not in result.stdout
+    assert "verified" not in result.stdout
+
+
+def test_table_prints_no_ordinal(tmp_path):
+    """An ordinal belongs to the round that printed it, so this view has none."""
+    project, record, args = _two_rounds(tmp_path)
+    stored = json.loads(record.read_text())["findings"]
+    assert [f["ordinal"] for f in stored if f["key"].endswith("join_shape")] == ["F1"]
+
+    result = _run(["table"] + args)
+
+    assert result.returncode == 0, result.stderr
+    assert not re.search(r"\bF\d+\b", result.stdout)
+
+
+def test_table_prints_one_order_for_one_record(tmp_path):
+    """Reported before stopped, and by key inside each, whatever the round printed."""
+    project, record, args = _two_rounds(tmp_path)
+
+    result = _run(["table"] + args)
+
+    assert result.stdout.splitlines() == [
+        "ROUND=2",
+        "reported customers.customer_lifetime_value:doc_mismatch models/schema.yml",
+        "reported customers:join_shape models/customers.sql",
+        "stopped  customers.customer_lifetime_value:null_introduced models/customers.sql",
+    ]
+
+
+def test_table_reports_round_zero_when_there_is_no_record(tmp_path):
+    """No review has run on this branch, so there is nothing to write up."""
+    project = _project(tmp_path)
+
+    result = _run(
+        ["table", "--record", str(tmp_path / "absent.json"), "--project-dir", str(project)]
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "ROUND=0\n"

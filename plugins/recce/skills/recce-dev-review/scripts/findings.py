@@ -12,6 +12,7 @@ enforced (plugin scripts cannot assume `pip install`) and would go stale.
 
 Args:    read  [--record PATH] [--project-dir PATH]
          write [--record PATH] [--project-dir PATH] [--session-id ID]
+         table [--record PATH] [--project-dir PATH]
          concerns
 
 Stdin:   write only. The agent's output, or just its block. The fenced
@@ -39,6 +40,9 @@ Stdout:  read      PRIOR_ROUND=<n>
                    RETURNED=<n> RESOLVED=<n>
                    RESOLVED_KEY=<key>          (one per newly resolved finding)
                    RETURNED_KEY=<key>          (one per finding that came back)
+         table     ROUND=<n>
+                   <state> <key> <file>        (one per open finding)
+                   state is reported | stopped
          concerns  CONCERNS=<comma separated>
 
 Exit:    0 on success. 2 when a block fails validation, and then nothing is
@@ -64,6 +68,16 @@ Deleting a resolved finding would make the fourth case impossible to see: the
 same problem coming back would be indistinguishable from a first sighting, for
 ever, including for any display written later. `read` lists live findings only,
 so the reviewer's view is unchanged by the ones being kept.
+
+`table` is the other view of the same record, for the step that prepares a PR.
+It lists only what the record last saw as open, because the table it feeds is
+the list of things someone still has to decide about, and a verified finding
+needs no decision from anyone. It lists an open finding whether or not it is
+still reported, because a finding that stopped being reported is exactly the
+one a resolution can be written for. It prints no ordinal, because an ordinal
+belongs to the round that printed it. The PR-prep step resolves "F2" against
+that round's own summary, and a number from here would resolve it against the
+wrong round.
 
 Round numbers drive every comparison above, because ordering is all the
 comparison needs and integers cannot drift. Timestamps are stored alongside
@@ -303,6 +317,34 @@ def cmd_read(args):
     return 0
 
 
+def cmd_table(args):
+    project_dir = args.project_dir
+    branch = current_branch(project_dir)
+    record = load_record(args.record or record_path(project_dir), project_dir, branch)
+    if record is None:
+        print("ROUND=0")
+        return 0
+    current = record.get("round", 0)
+    print("ROUND=%d" % current)
+    rows = []
+    for finding in record["findings"]:
+        if finding.get("group") != "open":
+            continue
+        reported = finding.get("last_seen") == current
+        rows.append(
+            (
+                "reported" if reported else "stopped",
+                finding["key"],
+                finding["file"],
+            )
+        )
+    # Still-reported first, then by key. One record always prints one order.
+    rows.sort(key=lambda row: (row[0] != "reported", row[1]))
+    for row in rows:
+        print("%-8s %s %s" % row)
+    return 0
+
+
 def cmd_write(args):
     project_dir = args.project_dir
     path = args.record or record_path(project_dir)
@@ -405,7 +447,7 @@ def cmd_concerns(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, handler in (("read", cmd_read), ("write", cmd_write)):
+    for name, handler in (("read", cmd_read), ("write", cmd_write), ("table", cmd_table)):
         child = sub.add_parser(name)
         child.add_argument("--record", default=None)
         child.add_argument("--project-dir", default=os.getcwd())
