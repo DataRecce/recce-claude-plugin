@@ -33,16 +33,18 @@ Follow these steps in order.
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py table
 ```
 
-It prints `ROUND=<n>` and one line per finding:
+It prints `ROUND=<n>`, `SESSION_ID=<id>`, and one line per finding:
 
 ```
 ROUND=2
-reported customers.customer_lifetime_value:doc_mismatch models/schema.yml
-reported customers:join_shape models/customers.sql
-stopped  customers.customer_lifetime_value:null_introduced models/customers.sql
+SESSION_ID=c29669b4-64ea-4592-be99-0ae5d6f1cfb0
+reported customers.customer_lifetime_value:doc_mismatch models/schema.yml - -
+reported customers:value_shift models/customers.sql value_diff {"model":"customers","primary_key":"customer_id"}
+stopped  customers.customer_lifetime_value:null_introduced models/customers.sql - -
 ```
 
 - `reported` — the newest round reported it. `stopped` — an earlier round reported it and the newest one did not.
+- The last two fields are the diff call the review measured that finding with. When the developer agreed to checks, `/recce-dev-review` made that call a check on the session named by `SESSION_ID=`. `-` means no diff re-runs that finding, so it never had one. The table below uses none of this: it is here so you can see which findings the Recce checklist can cover.
 - Only findings the record last saw as **open** are listed. A verified finding needs no decision from anyone, so it is not in this output and not in the table.
 
 **On `ROUND=0`** there is no usable record for this branch: no review has run here, or the record was written on another branch or before a reboot. Say one line and stop.

@@ -711,9 +711,10 @@ def test_table_prints_one_order_for_one_record(tmp_path):
 
     assert result.stdout.splitlines() == [
         "ROUND=2",
-        "reported customers.customer_lifetime_value:doc_mismatch models/schema.yml",
-        "reported customers:join_shape models/customers.sql",
-        "stopped  customers.customer_lifetime_value:null_introduced models/customers.sql",
+        "SESSION_ID=",
+        "reported customers.customer_lifetime_value:doc_mismatch models/schema.yml - -",
+        "reported customers:join_shape models/customers.sql - -",
+        "stopped  customers.customer_lifetime_value:null_introduced models/customers.sql - -",
     ]
 
 
@@ -727,3 +728,460 @@ def test_table_reports_round_zero_when_there_is_no_record(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "ROUND=0\n"
+
+
+# --- the check-params block: which check backs which finding ----------------
+
+ROUND_1_WITH_CHECKS = (
+    ROUND_1
+    + """
+```recce-check-params
+customers.customer_lifetime_value:null_introduced profile_diff {"model":"customers","columns":["customer_lifetime_value"]}
+customers.customer_lifetime_value:value_shift value_diff {"model":"customers","primary_key":"customer_id"}
+```
+"""
+)
+
+
+def _bad_check_params(line):
+    """One valid finding, and one check-params line that must be rejected."""
+    return """```recce-findings
+F1 open customers.customer_lifetime_value:null_introduced models/customers.sql
+```
+
+```recce-check-params
+%s
+```
+""" % line
+
+
+def test_the_check_params_block_reaches_the_record_and_the_table(tmp_path):
+    """The reviewer's own diff call, stored against the finding it produced."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project),
+         "--session-id", "c29669b4"],
+        stdin=ROUND_1_WITH_CHECKS,
+    )
+
+    assert result.returncode == 0, result.stderr
+    # Two of the four findings were measured with a diff; two were read from
+    # code and can never have a check.
+    assert "NO_CHECK_PARAMS=2" in result.stdout
+    stored = {f["key"]: f["check"] for f in json.loads(record.read_text())["findings"]}
+    assert stored["customers.customer_lifetime_value:null_introduced"] == {
+        "type": "profile_diff",
+        "params": {"model": "customers", "columns": ["customer_lifetime_value"]},
+    }
+    assert stored["customers.customer_lifetime_value:doc_mismatch"] is None
+
+    table = _run(["table", "--record", str(record), "--project-dir", str(project)])
+
+    assert table.stdout.splitlines() == [
+        "ROUND=1",
+        "SESSION_ID=c29669b4",
+        "reported customers.customer_lifetime_value:doc_mismatch models/schema.yml - -",
+        'reported customers.customer_lifetime_value:null_introduced models/customers.sql'
+        ' profile_diff {"model":"customers","columns":["customer_lifetime_value"]}',
+    ]
+
+
+def test_a_check_params_key_no_finding_uses_is_rejected(tmp_path):
+    """A typo drops the params for the finding it meant, silently. Not silently."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = _bad_check_params(
+        'customers.custome_lifetime_value:null_introduced profile_diff {"model":"customers"}'
+    )
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2, result.stdout
+    assert "is not a finding in this round" in result.stderr
+    assert not record.exists()
+
+
+def test_a_check_type_create_check_does_not_accept_is_rejected(tmp_path):
+    """The server refuses it after the run is paid for, so refuse it here."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = _bad_check_params(
+        'customers.customer_lifetime_value:null_introduced column_diff {"model":"customers"}'
+    )
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2, result.stdout
+    assert "is not one create_check accepts" in result.stderr
+    assert not record.exists()
+
+
+def test_check_params_that_is_not_json_is_rejected(tmp_path):
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = _bad_check_params(
+        "customers.customer_lifetime_value:null_introduced profile_diff {model: customers}"
+    )
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2, result.stdout
+    assert "params is not JSON" in result.stderr
+    assert not record.exists()
+
+
+def test_a_review_with_no_check_params_block_still_writes_its_record(tmp_path):
+    """Five of the ten concerns can never carry one, so the block is optional."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=ROUND_1,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "NO_CHECK_PARAMS=4" in result.stdout
+    assert all(f["check"] is None for f in json.loads(record.read_text())["findings"])
+
+
+def test_a_record_written_before_the_check_field_still_tables(tmp_path):
+    """RECORD_VERSION did not move, so live records have neither field."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    record.write_text(
+        json.dumps(
+            {
+                "version": findings.RECORD_VERSION,
+                "project": str(project),
+                "branch": None,
+                "round": 3,
+                "updated_at": "2026-08-20T00:00:00Z",
+                "findings": [
+                    {
+                        "key": "customers:join_shape",
+                        "group": "open",
+                        "file": "models/customers.sql",
+                        "ordinal": "F1",
+                        "first_seen": 3,
+                        "last_seen": 3,
+                    }
+                ],
+            }
+        )
+    )
+
+    result = _run(["table", "--record", str(record), "--project-dir", str(project)])
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "ROUND=3",
+        "SESSION_ID=",
+        "reported customers:join_shape models/customers.sql - -",
+    ]
+
+
+# --- `match-checks`: is this check already on the session? -------------------
+
+# The two checks that were on session 3a5fa9a6 during the 2026-08-31 run,
+# copied from artifacts/stream.jsonl line 91. Both are Recce presets.
+LIVE_CHECKS = {
+    "checks": [
+        {
+            "check_id": "54363d01-7fe8-4b2f-b543-ec061f8e8c2a",
+            "type": "schema_diff",
+            "params": {"node_id": "model.jaffle_shop.customers"},
+            "is_preset": True,
+        },
+        {
+            "check_id": "b0e7d841-be6d-471b-8a53-18b9e835eecf",
+            "type": "top_k_diff",
+            # Snowflake uppercases the column, and the preset carries `k`.
+            "params": {"model": "customer_segments", "column_name": "VALUE_SEGMENT", "k": 50},
+            "is_preset": True,
+        },
+    ],
+    "total": 2,
+}
+
+
+def _match(tmp_path, candidates, checks=LIVE_CHECKS):
+    existing = tmp_path / "existing.json"
+    existing.write_text(json.dumps(checks))
+    return _run(["match-checks", "--existing", str(existing)], stdin=candidates)
+
+
+def test_a_check_differing_only_in_case_and_extra_keys_is_the_same_check(tmp_path):
+    """The live pair. Key for key these are unequal, and they are one check."""
+    result = _match(
+        tmp_path,
+        'customer_segments.value_segment:value_shift top_k_diff'
+        ' {"model":"customer_segments","column_name":"value_segment"}\n',
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        "SKIP=customer_segments.value_segment:value_shift"
+        " b0e7d841-be6d-471b-8a53-18b9e835eecf\n"
+    )
+
+
+def test_a_different_model_or_column_is_a_different_check(tmp_path):
+    """Folding case must not fold away a real difference."""
+    result = _match(
+        tmp_path,
+        'a:value_shift top_k_diff {"model":"customers","column_name":"value_segment"}\n'
+        'b:value_shift top_k_diff {"model":"customer_segments","column_name":"size_segment"}\n',
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert [line.split("=")[0] for line in result.stdout.splitlines()] == [
+        "CREATE",
+        "CREATE",
+    ]
+
+
+def test_a_candidate_naming_a_param_the_existing_check_lacks_does_not_match(tmp_path):
+    """Extra keys are ignored on the existing check only, never on the candidate."""
+    # `primary_key` is on no check in LIVE_CHECKS, so the existing check does
+    # not make the comparison this candidate asks for.
+    result = _match(
+        tmp_path,
+        'a:value_shift top_k_diff'
+        ' {"model":"customer_segments","column_name":"value_segment","primary_key":"id"}\n',
+    )
+
+    assert result.stdout.startswith("CREATE="), result.stdout
+
+
+def test_a_candidate_with_no_params_matches_nothing(tmp_path):
+    """It names no comparison, so nothing can be the same comparison."""
+    result = _match(tmp_path, "a:value_shift top_k_diff {}\n")
+
+    assert result.stdout.startswith("CREATE="), result.stdout
+
+
+def test_match_checks_reads_the_block_the_reviewer_already_writes(tmp_path):
+    """The fenced form is accepted, so the agent pipes the same lines twice."""
+    block = """```recce-check-params
+customer_segments.value_segment:value_shift top_k_diff {"model":"customer_segments","column_name":"value_segment"}
+customers.customer_lifetime_value:value_shift value_diff {"model":"customers","primary_key":"customer_id"}
+```
+"""
+    result = _match(tmp_path, block)
+
+    assert result.returncode == 0, result.stderr
+    assert "SKIP=customer_segments.value_segment:value_shift" in result.stdout
+    assert "CREATE=customers.customer_lifetime_value:value_shift" in result.stdout
+
+
+def test_match_checks_stops_when_it_cannot_read_the_existing_checks(tmp_path):
+    """Silently treating them as absent would create a duplicate of every one."""
+    result = _run(
+        ["match-checks", "--existing", str(tmp_path / "absent.json")],
+        stdin='a:value_shift top_k_diff {"model":"m","column_name":"c"}\n',
+    )
+
+    assert result.returncode == 2
+    assert "cannot read" in result.stderr
+    assert result.stdout == ""
+
+
+# --- the five concerns no diff re-runs ---------------------------------------
+
+# The reviewer's own check-params block from the 2026-08-31 round-3 run,
+# verbatim from artifacts/r2-summary.md. Its fourth line created check
+# 0c4e12fa, a profile_diff of stg_payments standing in for "two filters remove
+# zero rows" -- a check that passes whatever those filters do, and that nothing
+# in Recce can delete.
+LIVE_BLOCK_LINES = [
+    'customers.customer_lifetime_value:value_shift value_diff'
+    ' {"model":"customers","primary_key":"customer_id"}',
+    'customer_segments.value_segment:value_shift top_k_diff'
+    ' {"model":"customer_segments","column_name":"value_segment"}',
+    'customers.customer_lifetime_value:null_introduced profile_diff'
+    ' {"model":"customers","columns":["customer_lifetime_value","profit_based_customer_lifetime_value"]}',
+    'customers:dead_filter profile_diff'
+    ' {"model":"stg_payments","columns":["amount","coupon_amount"]}',
+    'stg_payments.coupon_amount:schema_add profile_diff'
+    ' {"model":"stg_payments","columns":["amount","coupon_amount"]}',
+    'customers.profit_based_customer_lifetime_value:schema_add profile_diff'
+    ' {"model":"customers","columns":["customer_lifetime_value","profit_based_customer_lifetime_value"]}',
+    'customer_segments.profit_based_value_segment:schema_add schema_diff'
+    ' {"select":"state:modified+"}',
+]
+DEAD_FILTER_LINE = LIVE_BLOCK_LINES[3]
+# The three the reviewer actually offered as open candidates, minus that one.
+LIVE_OPEN_CANDIDATES = LIVE_BLOCK_LINES[:3]
+
+# The four checks on the session at that moment, verbatim from the file the
+# reviewer piped into match-checks (artifacts/r2-stream.jsonl line 100). The
+# two presets, plus the two the round before had created.
+LIVE_CHECKS_ROUND3 = {
+    "checks": LIVE_CHECKS["checks"]
+    + [
+        {
+            "check_id": "37e396cd-3352-4ab9-9f54-def110841bcf",
+            "type": "value_diff",
+            "params": {"model": "customers", "primary_key": "customer_id"},
+            "is_preset": False,
+        },
+        {
+            "check_id": "8baeb9a3-99ca-4396-9b03-67f7f29908a4",
+            "type": "profile_diff",
+            "params": {
+                "model": "customers",
+                "columns": [
+                    "customer_lifetime_value",
+                    "profit_based_customer_lifetime_value",
+                ],
+            },
+            "is_preset": False,
+        },
+    ],
+    "total": 4,
+}
+
+
+def test_the_five_no_check_concerns_partition_the_concern_list(tmp_path):
+    """A concern word added later must be put on one side or the other."""
+    assert set(findings.NO_CHECK_CONCERNS) < set(findings.CONCERNS)
+    checkable = set(findings.CONCERNS) - set(findings.NO_CHECK_CONCERNS)
+    assert checkable == {
+        "value_shift",
+        "row_count_shift",
+        "schema_add",
+        "schema_drop",
+        "null_introduced",
+    }
+
+
+def test_the_live_dead_filter_line_is_refused(tmp_path):
+    """The exact line that created check 0c4e12fa on 2026-08-31."""
+    result = _match(tmp_path, DEAD_FILTER_LINE + "\n")
+
+    assert result.returncode == 2, result.stdout
+    assert "customers:dead_filter" in result.stderr
+    assert "no check" in result.stderr
+    # Nothing to create from, so nothing the agent could have acted on. The
+    # agent's own instruction states this, so it has to stay true.
+    assert result.stdout == ""
+    assert result.stderr.count("ERROR=") == 1
+
+
+def test_match_checks_prints_nothing_at_all_when_one_candidate_is_refused(tmp_path):
+    """One good candidate and one refused: no partial CREATE= or SKIP= output.
+
+    `recce-dev-reviewer` is told the script prints no CREATE or SKIP lines when
+    it exits non-zero. A partial list would be worse than none: the agent would
+    act on half a decision.
+    """
+    result = _match(
+        tmp_path,
+        LIVE_OPEN_CANDIDATES[1] + "\n" + DEAD_FILTER_LINE + "\n",
+        LIVE_CHECKS_ROUND3,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr.count("ERROR=") == 1
+    assert "customers:dead_filter" in result.stderr
+
+
+def test_write_drops_the_refused_line_and_keeps_the_round(tmp_path):
+    """`write` runs after the agent returned, so losing the round buys nothing.
+
+    The whole seven-line block from the round-3 run, including the line that
+    created check 0c4e12fa. Every finding is still recorded; only that line's
+    params are dropped, and the drop is printed.
+    """
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = "```recce-findings\n%s\n```\n\n```recce-check-params\n%s\n```\n" % (
+        "\n".join(
+            [
+                "F1 open customers.customer_lifetime_value:value_shift models/customers.sql",
+                "F2 open customer_segments.value_segment:value_shift models/customers.sql",
+                "F3 open customers.customer_lifetime_value:null_introduced models/customers.sql",
+                "F4 open customers:dead_filter models/customers.sql",
+            ]
+        ),
+        "\n".join(LIVE_BLOCK_LINES[:4]),
+    )
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "FINDINGS=4" in result.stdout
+    assert "DROPPED_CHECK_PARAMS=1" in result.stdout
+    assert "DROPPED_CHECK_PARAMS_KEY=customers:dead_filter" in result.stdout
+
+    stored = {f["key"]: f["check"] for f in json.loads(record.read_text())["findings"]}
+    # The round survived whole: four findings, three carrying their diff call.
+    assert len(stored) == 4
+    assert stored["customers:dead_filter"] is None
+    assert stored["customers.customer_lifetime_value:value_shift"]["type"] == "value_diff"
+
+
+def test_a_check_params_error_that_is_not_a_refusal_still_loses_the_round(tmp_path):
+    """Only the concern guard is a drop. An unknown type is still fatal."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    block = """```recce-findings
+F1 open customers.customer_lifetime_value:value_shift models/customers.sql
+```
+
+```recce-check-params
+customers.customer_lifetime_value:value_shift column_diff {"model":"customers"}
+```
+"""
+
+    result = _run(
+        ["write", "--record", str(record), "--project-dir", str(project)],
+        stdin=block,
+    )
+
+    assert result.returncode == 2, result.stdout
+    assert not record.exists()
+
+
+def test_the_legitimate_live_candidates_still_match_as_they_did(tmp_path):
+    """The guard must not change the answer for the other lines."""
+    result = _match(
+        tmp_path, "\n".join(LIVE_OPEN_CANDIDATES) + "\n", LIVE_CHECKS_ROUND3
+    )
+
+    assert result.returncode == 0, result.stderr
+    # The same three SKIP lines, with the same check ids, that
+    # artifacts/r2-stream.jsonl line 101 recorded for these candidates.
+    assert result.stdout.splitlines() == [
+        "SKIP=customer_segments.value_segment:value_shift"
+        " b0e7d841-be6d-471b-8a53-18b9e835eecf",
+        "SKIP=customers.customer_lifetime_value:null_introduced"
+        " 8baeb9a3-99ca-4396-9b03-67f7f29908a4",
+        "SKIP=customers.customer_lifetime_value:value_shift"
+        " 37e396cd-3352-4ab9-9f54-def110841bcf",
+    ]
+
+
+def test_the_whole_live_block_is_refused_only_for_that_one_line(tmp_path):
+    """One bad line, one error. The other six are not implicated."""
+    result = _match(tmp_path, "\n".join(LIVE_BLOCK_LINES) + "\n")
+
+    assert result.returncode == 2
+    assert result.stderr.count("ERROR=") == 1
+    assert "customers:dead_filter" in result.stderr

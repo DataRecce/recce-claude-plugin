@@ -27,7 +27,7 @@ description: >
   </example>
 color: blue
 model: inherit
-tools: Read, Bash, mcp__plugin_recce-devloop_recce__get_server_info, mcp__plugin_recce-devloop_recce__impact_analysis, mcp__plugin_recce-devloop_recce__lineage_diff, mcp__plugin_recce-devloop_recce__schema_diff, mcp__plugin_recce-devloop_recce__get_model, mcp__plugin_recce-devloop_recce__get_cll, mcp__plugin_recce-devloop_recce__select_nodes, mcp__plugin_recce-devloop_recce__row_count_diff, mcp__plugin_recce-devloop_recce__profile_diff, mcp__plugin_recce-devloop_recce__value_diff, mcp__plugin_recce-devloop_recce__value_diff_detail, mcp__plugin_recce-devloop_recce__top_k_diff, mcp__plugin_recce-devloop_recce__histogram_diff
+tools: Read, Bash, mcp__plugin_recce-devloop_recce__get_server_info, mcp__plugin_recce-devloop_recce__impact_analysis, mcp__plugin_recce-devloop_recce__lineage_diff, mcp__plugin_recce-devloop_recce__schema_diff, mcp__plugin_recce-devloop_recce__get_model, mcp__plugin_recce-devloop_recce__get_cll, mcp__plugin_recce-devloop_recce__select_nodes, mcp__plugin_recce-devloop_recce__row_count_diff, mcp__plugin_recce-devloop_recce__profile_diff, mcp__plugin_recce-devloop_recce__value_diff, mcp__plugin_recce-devloop_recce__value_diff_detail, mcp__plugin_recce-devloop_recce__top_k_diff, mcp__plugin_recce-devloop_recce__histogram_diff, mcp__plugin_recce-devloop_recce__list_checks, mcp__plugin_recce-devloop_recce__create_check
 mcpServers:
   - recce
 ---
@@ -110,9 +110,9 @@ If the dispatch message includes context about the change (PR description, stake
 
 If no context was provided, skip this step.
 
-### Step 5 — Summary
+### Step 5 — Settle the findings
 
-Produce the final summary using the template in Section 4. Turn every distinct signal below into its **own** finding row, each carrying the tool that produced it:
+Build the summary's contents using the template in Section 4, and do Step 6 before you print it. Turn every distinct signal below into its **own** finding row, each carrying the tool that produced it:
 - Row count deltas from Step 1 (`row_count`) — `row_count_diff`
 - Schema changes from Step 1 (`schema_changes`) — `schema_diff`
 - Value-level signals from Step 1 (`value_diff`) — `value_diff`
@@ -123,6 +123,55 @@ Produce the final summary using the template in Section 4. Turn every distinct s
 Then split the rows: `Open items` when a decision, fix, or check is still open, `Verified, no action` when the signal is measured, understood, and correct as it stands. Models with no finding go in `Not impacted:`; signals that could not be read at all go in `Not measured:`.
 
 Then give every finding a key for the record block: `model[.column]:concern`, with the concern word taken from the `CONCERNS=` list in your dispatch. When your dispatch names a prior round, reuse its key for a finding that is the same one — same model, same column, same concern — even when the numbers moved. A fresh key for an old finding makes it look new.
+
+### Step 6 — Create a check for each open finding a diff can re-run
+
+Your findings are settled by now, and the summary is not printed yet. Step 6 runs between the two, because its result is the summary's `**Checks:**` line.
+
+A finding lives in one conversation and in a record under `/tmp`. Both go away. A check lives on the Recce session, so the finding outlives the branch, the reboot and the transcript, and it can be re-run later.
+
+**Do this only when your dispatch says `Checks: create them.`** On `Checks: do not create any.`, and when neither line is there, skip this step and leave the `**Checks:**` line out of the summary. The developer is asked once per session, and that answer is what the dispatch carries.
+
+1. **One candidate per `open` finding that has a line in your check-params block.** A `verified` finding gets no check: nobody has to act on it. A finding with no line gets no check: no diff type re-runs it.
+
+2. **Call `mcp__plugin_recce-devloop_recce__list_checks` once, then let the script decide what is already covered.** Your dispatch carries `FINDINGS_SCRIPT=<path>`. Save the tool's result and pipe your candidate lines in:
+
+```bash
+cat > /tmp/recce-existing-checks.json <<'CHECKS'
+{the list_checks result, verbatim}
+CHECKS
+python3 <FINDINGS_SCRIPT> match-checks --existing /tmp/recce-existing-checks.json <<'CANDIDATES'
+{one line per candidate: the same three fields as your check-params block}
+CANDIDATES
+rm -f /tmp/recce-existing-checks.json
+```
+
+It prints `CREATE=<key> <type> <params>` for a finding no check covers yet, and `SKIP=<key> <check_id>` for one that is already there.
+
+**If the script exits non-zero, create nothing.** It prints one `ERROR=` line naming the candidate it refuses and why, and prints no `CREATE=` or `SKIP=` lines at all. The refusal is a mistake in your own check-params block — most often a finding whose concern no diff type re-runs. Remove that line from your check-params block and from your candidates, then run the command again. Repeating it costs nothing: it reads the `list_checks` result you already have and spends no warehouse query.
+
+**Do not decide this by eye.** A check on the session often names the same column in a different case, because Snowflake returns column names uppercased, and Recce's preset checks carry extra params such as `k`. Compared key for key those read as a different check, and the cost of that mistake is a second permanent check plus the warehouse query that creates it. The script folds case and ignores keys only the existing check has.
+
+Do **not** call `create_check` for a `SKIP=` line, not even to refresh that check's name or description: the call runs the query a second time, and on a Cloud session it leaves a second check rather than updating the first. The server only replaces a matching check in local mode, and this review never runs in local mode.
+
+3. **One `create_check` call per `CREATE=` line, and no others:**
+
+```
+mcp__plugin_recce-devloop_recce__create_check(
+  type: "<the type from that finding's check-params line>",
+  params: <the params from that finding's check-params line>,
+  name: "Open finding: <key>",
+  description: "Open at round <ROUND> of /recce-dev-review. Approved here means the check ran, not that the finding was accepted. File: <file>."
+)
+```
+
+`<ROUND>` is one more than the `PRIOR_ROUND=` in your dispatch. `<key>` and `<file>` are the record block's own fields, unchanged. Take `type` and `params` from your check-params line and change nothing: a params key Recce does not recognise is dropped without an error, and the check then measures nothing.
+
+**The name has to say the finding is open, because the tick will not.** Recce approves a check as soon as its run succeeds, and no argument turns that off. It also records the check as created and approved by the developer, by name, because the MCP server authenticates with their token. So the name is the only field that reaches the reader before the tick does.
+
+**One check per finding, for ever.** Never call `create_check` a second time for a finding, in this round or a later one: not to add what the developer decided, not to correct the wording. Every call costs a warehouse query, a second call on a Cloud session leaves a second check, and nothing in Recce deletes a single check. What the developer decided belongs in the PR table `/recce-pr-prep` prints.
+
+If a call fails, do not retry it. Count it as not created and say so on the `**Checks:**` line.
 
 ## Section 3: Edge Cases
 
@@ -182,6 +231,8 @@ Open this session in Recce: {host}/launch/{SESSION_ID}
 **Not impacted:** {comma-separated list from confirmed_not_impacted_models}
 
 **Not measured:** {what you could not measure, and why}
+
+**Checks:** {n} created on this Recce session. No check for {keys}: no diff re-runs them.
 
 ```recce-findings
 {one line per finding: <ordinal> <group> <model[.column]:concern> <file>}
@@ -331,15 +382,25 @@ A change that did happen and needs nothing is **not** this line — it is a `Ver
 
 Keep these two lines separate. Folding an unmeasured model into `Not impacted:` claims a result nobody took.
 
+**`Checks:`** reports Step 6, and only when Step 6 ran. Two facts, both needed:
+
+```
+**Checks:** 2 created on this Recce session. No check for `customers.customer_lifetime_value:doc_mismatch`, `stg_payments.amount:dead_filter`: no diff re-runs them.
+```
+
+- The count is checks you created this round. A candidate `list_checks` showed was already there is not one, so say `1 created, 1 already on the session.` when that happened.
+- Name every open finding that got no check, by key. The Recce checklist is not the whole list, and a reader who thinks it is stops at it. When every open finding got a check, drop the second sentence.
+- When Step 6 created nothing at all and had nothing to create, the line is `**Checks:** none created. No diff re-runs these findings.` When the dispatch did not ask for checks, leave the line out entirely.
+
 ### The record block
 
-End the summary with this, and put nothing after it:
+End the summary with this. Only the check-params block below may follow it:
 
 ````
 ```recce-findings
 F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
 F2 open finance_revenue.gross_revenue:test_cannot_hold models/finance_revenue.sql
-F3 verified customers.customer_lifetime_value:value_shift models/customers.sql
+- verified customers.customer_lifetime_value:value_shift models/customers.sql
 - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
 ```
 ````
@@ -361,9 +422,34 @@ none
 
 Never send an empty block. `none` says the review ran and found nothing, which is worth recording: it is how the next round learns that everything previously open is fixed. An empty block is what a forgotten block looks like, so `findings.py` rejects it.
 
-`/recce-dev-review` reads this block, writes it to the record, and removes it before the developer sees the summary. It is not for the reader: do not explain it, do not put anything after it, and do not leave it out. Without it the next round starts from zero.
+`/recce-dev-review` reads this block, writes it to the record, and removes it before the developer sees the summary. It is not for the reader: do not explain it, do not put anything after it except the check-params block below, and do not leave it out. Without it the next round starts from zero.
 
 A malformed block is rejected whole and nothing is recorded, so the review still reaches the developer but the next round loses its history. The rejection message names the expected form.
+
+### The check-params block
+
+After the record block, and only when at least one finding was measured with a diff tool, add a second block. It records which check backs which finding, so the record says later what you created during this round:
+
+````
+```recce-check-params
+customers.customer_lifetime_value:value_shift value_diff {"model":"customers","primary_key":"customer_id"}
+orders:row_count_shift row_count_diff {"node_names":["orders"]}
+```
+````
+
+One line per finding you measured. Three fields:
+
+- **key** — the same `model[.column]:concern` you used in the record block, character for character. A key that is not in that block is rejected.
+- **type** — one of `row_count_diff`, `schema_diff`, `query_diff`, `profile_diff`, `value_diff`, `value_diff_detail`, `top_k_diff`, `histogram_diff`.
+- **params** — the arguments you actually passed to that tool, as JSON, taking the rest of the line.
+
+**Write the call you made, not a call you could have made.** These are the arguments that produced the number in the Evidence cell. Copy them from the call, do not retype them from the finding: a check built from invented params measures something the finding never measured, and nothing in Recce deletes a check afterwards.
+
+**Use each tool's own argument names.** `row_count_diff` takes `node_names`, not `model`. Recce drops a params key it does not recognise, with no error, so `{"model": "orders"}` creates a check with no model selected at all.
+
+A finding you read from code or documentation has no line here. `doc_mismatch`, `test_cannot_hold`, `dead_filter`, `join_shape` and `unexplained` never do, and leaving them out is correct. When no finding was measured, leave the whole block out.
+
+This block is bookkeeping like the record block: `/recce-dev-review` removes it before the developer sees the summary.
 
 ### Markers, when a prior round exists
 
@@ -391,7 +477,7 @@ Dropping a `verified` key reports nothing, because a verified finding is not som
 
 ### Nothing else
 
-No `Impact Overview`, `Root Cause`, `Validation`, `Investigation Findings`, `Notes`, or `Risk Assessment` sections, and no `Needs your review` section. The output is the header, `Open items`, the Recce link, `Verified, no action`, the two lines under them, and the record block. Nothing else.
+No `Impact Overview`, `Root Cause`, `Validation`, `Investigation Findings`, `Notes`, or `Risk Assessment` sections, and no `Needs your review` section. The output is the header, `Open items`, the Recce link, `Verified, no action`, the three lines under them, the record block, and the check-params block. Nothing else.
 
 **Nothing goes outside the table and the bullets.** No SQL snippet, no `file:lines` line, no quoted description, no `Decide:` line, no `Detail:` line. The top row of `Open items` is the most important finding and it gets the same two cells as every other row. When its cause needs code to show, the reader opens the file or the Recce link.
 

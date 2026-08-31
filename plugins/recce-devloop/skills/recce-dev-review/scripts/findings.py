@@ -14,10 +14,17 @@ Args:    read  [--record PATH] [--project-dir PATH]
          write [--record PATH] [--project-dir PATH] [--session-id ID]
          table [--record PATH] [--project-dir PATH]
          concerns
+         match-checks --existing PATH
 
-Stdin:   write only. The agent's output, or just its block. The fenced
+Stdin:   write and match-checks. The agent's output, or just its block. The fenced
          ```recce-findings block is extracted from whatever is given, so the
          caller does not have to cut it out first.
+
+         A second block, ```recce-check-params, carries the (type, params) of
+         the diff call that produced each finding. It is optional: five of the
+         ten concerns are read from code and no diff re-runs them. The reviewer
+         creates the check itself during the round, so what is stored here is
+         the record of which check backs which finding.
 
          A review that finds nothing writes a block holding the single word
          `none`. An empty block is an error, because a forgotten block looks
@@ -40,10 +47,22 @@ Stdout:  read      PRIOR_ROUND=<n>
                    RETURNED=<n> RESOLVED=<n>
                    RESOLVED_KEY=<key>          (one per newly resolved finding)
                    RETURNED_KEY=<key>          (one per finding that came back)
+                   NO_CHECK_PARAMS=<n>
+                   DROPPED_CHECK_PARAMS=<n>
+                   DROPPED_CHECK_PARAMS_KEY=<key>
+                                               (one per line the concern guard
+                                               dropped; the round is still
+                                               written)
          table     ROUND=<n>
-                   <state> <key> <file>        (one per open finding)
+                   SESSION_ID=<id>
+                   <state> <key> <file> <type> <params>
+                                               (one per open finding)
                    state is reported | stopped
+                   type and params are "-" when no diff re-runs the finding
          concerns  CONCERNS=<comma separated>
+         match-checks
+                   CREATE=<key> <type> <params>   (no check covers it yet)
+                   SKIP=<key> <check_id>          (this check already does)
 
 Exit:    0 on success. 2 when a block fails validation, and then nothing is
          written -- a half-written record is worse than none, because next
@@ -119,14 +138,45 @@ CONCERNS = [
     "unexplained",  # measured, cause not determined
 ]
 
+# The five concerns read from code or documentation. create_check's type is one
+# of eight diff types, and none of them re-runs a claim about a document, a
+# test, a filter, a join grain, or a cause nobody determined. A check built from
+# one of these measures something the finding never measured, it arrives
+# approved, and nothing in Recce deletes it afterwards.
+NO_CHECK_CONCERNS = (
+    "doc_mismatch",
+    "test_cannot_hold",
+    "dead_filter",
+    "join_shape",
+    "unexplained",
+)
+
 GROUPS = ("open", "verified")
 # A review that found nothing says so, rather than sending an empty block. An
 # empty block stays an error: it is what a forgotten block looks like.
 NO_FINDINGS = "none"
 ORDINAL_RE = re.compile(r"^F(\d+)$")
 NO_ORDINAL = "-"
+# Printed by `table` for a finding no diff can re-run, so it has no check.
+NO_CHECK = "-"
 MODEL_RE = re.compile(r"^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)?$")
 BLOCK_RE = re.compile(r"^```recce-findings\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
+CHECK_BLOCK_RE = re.compile(
+    r"^```recce-check-params\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL
+)
+# The eight types create_check accepts. A type outside this list is refused by
+# the server, and on the cloud path only after the run has been paid for, so it
+# is refused here first.
+CHECK_TYPES = (
+    "row_count_diff",
+    "schema_diff",
+    "query_diff",
+    "profile_diff",
+    "value_diff",
+    "value_diff_detail",
+    "top_k_diff",
+    "histogram_diff",
+)
 
 EXPECTED = """Expected form, one line per finding:
 
@@ -223,6 +273,156 @@ def parse_block(text):
             "empty block is what a forgotten block looks like" % NO_FINDINGS
         )
     return lines, None
+
+
+def parse_check_params(text):
+    """Pull the (key, type, params) lines out of the agent's second block.
+
+    The block is optional. A review whose findings all come from code has no
+    diff call to record, and five of the ten concerns can never have one --
+    a line for one of those is an error, not an omission, because the check it
+    would build is permanent and measures something else.
+
+    Returns (mapping, errors, refused), keyed by finding key. `refused` holds
+    the lines the concern guard rejected, as (key, concern) pairs. They are
+    separate from `errors` because the two callers owe them different answers:
+    `match-checks` runs before any check exists and must stop, while `write`
+    runs after and must keep the round.
+    """
+    match = CHECK_BLOCK_RE.search(text)
+    if not match:
+        return {}, [], []
+    return check_param_lines(match.group(1))
+
+
+def check_param_lines(body):
+    """Parse the body of a check-params block. See parse_check_params."""
+    mapping, errors, refused = {}, [], []
+    for offset, raw in enumerate(body.lstrip("\n").splitlines(), start=1):
+        raw = raw.strip()
+        if not raw:
+            continue
+        # Two splits only: params is JSON and owns the rest of the line.
+        parts = raw.split(None, 2)
+        if len(parts) != 3:
+            errors.append(
+                "check-params line %d: %d fields, expected 3 -- %r"
+                % (offset, len(parts), raw)
+            )
+            continue
+        key, check_type, blob = parts
+        concern = key.rsplit(":", 1)[-1] if ":" in key else ""
+        if concern in NO_CHECK_CONCERNS:
+            refused.append((key, concern))
+            continue
+        if check_type not in CHECK_TYPES:
+            errors.append(
+                "check-params line %d: type %r is not one create_check accepts"
+                % (offset, check_type)
+            )
+            continue
+        try:
+            params = json.loads(blob)
+        except ValueError as exc:
+            errors.append(
+                "check-params line %d: params is not JSON -- %s" % (offset, exc)
+            )
+            continue
+        if not isinstance(params, dict):
+            errors.append("check-params line %d: params must be an object" % offset)
+            continue
+        if key in mapping:
+            errors.append("check-params line %d: key %r already given" % (offset, key))
+            continue
+        mapping[key] = {"type": check_type, "params": params}
+    return mapping, errors, refused
+
+
+def fold(value):
+    """Lowercase every string inside a params value, leaving structure alone."""
+    if isinstance(value, str):
+        return value.lower()
+    if isinstance(value, list):
+        return [fold(item) for item in value]
+    if isinstance(value, dict):
+        return dict((key, fold(item)) for key, item in value.items())
+    return value
+
+
+def check_matches(candidate, existing):
+    """Is `existing` already the check `candidate` describes?
+
+    Same type, and every param the candidate names is on the existing check
+    with the same value. Two allowances, both from what the live data does:
+
+    - Case is ignored. Snowflake returns column names uppercased, so a
+      candidate built from the model's SQL says `value_segment` where the
+      check on the session says `VALUE_SEGMENT`. They are one column.
+    - Keys only the existing check has are ignored. Recce's preset checks
+      carry extras such as `k`, which narrow the same comparison rather than
+      make it a different one.
+
+    Equality key for key fails both, and the cost of that failure is a second
+    permanent check plus the warehouse query that creates it.
+
+    A candidate with no params matches nothing: it names no comparison, so
+    "the same one" cannot be true of it.
+    """
+    if candidate.get("type") != existing.get("type"):
+        return False
+    want = candidate.get("params") or {}
+    have = existing.get("params") or {}
+    if not want:
+        return False
+    for key, value in want.items():
+        if key not in have or fold(have[key]) != fold(value):
+            return False
+    return True
+
+
+def cmd_match_checks(args):
+    text = sys.stdin.read()
+    if CHECK_BLOCK_RE.search(text):
+        candidates, errors, refused = parse_check_params(text)
+    else:
+        candidates, errors, refused = check_param_lines(text)
+    try:
+        with open(args.existing) as fh:
+            listed = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print("ERROR=cannot read %r -- %s" % (args.existing, exc), file=sys.stderr)
+        return 2
+    if isinstance(listed, dict):
+        listed = listed.get("checks", [])
+    if not isinstance(listed, list):
+        print("ERROR=%r holds no list of checks" % args.existing, file=sys.stderr)
+        return 2
+    # Refusals stop this call. It runs before any create_check, so stopping
+    # here is what keeps a check that should never exist from being made.
+    for key, concern in refused:
+        errors.append(
+            "%r is a %s finding. No diff type re-runs one, so it gets no check"
+            % (key, concern)
+        )
+    if errors:
+        for message in errors:
+            print("ERROR=%s" % message, file=sys.stderr)
+        return 2
+    for key in sorted(candidates):
+        candidate = candidates[key]
+        match = next((c for c in listed if check_matches(candidate, c)), None)
+        if match:
+            print("SKIP=%s %s" % (key, match.get("check_id", "")))
+        else:
+            print(
+                "CREATE=%s %s %s"
+                % (
+                    key,
+                    candidate["type"],
+                    json.dumps(candidate["params"], separators=(",", ":")),
+                )
+            )
+    return 0
 
 
 def validate(lines, project_dir):
@@ -326,22 +526,32 @@ def cmd_table(args):
         return 0
     current = record.get("round", 0)
     print("ROUND=%d" % current)
+    # The checks were created on a session, so a reader of this table has to be
+    # told which one. A record written before this field prints empty.
+    print("SESSION_ID=%s" % (record.get("session_id") or ""))
     rows = []
     for finding in record["findings"]:
         if finding.get("group") != "open":
             continue
         reported = finding.get("last_seen") == current
+        # .get, not [...]: a record written before this field still loads, and
+        # its findings simply have no diff call to offer.
+        check = finding.get("check")
         rows.append(
             (
                 "reported" if reported else "stopped",
                 finding["key"],
                 finding["file"],
+                check["type"] if check else NO_CHECK,
+                json.dumps(check["params"], separators=(",", ":"))
+                if check
+                else NO_CHECK,
             )
         )
     # Still-reported first, then by key. One record always prints one order.
     rows.sort(key=lambda row: (row[0] != "reported", row[1]))
     for row in rows:
-        print("%-8s %s %s" % row)
+        print("%-8s %s %s %s %s" % row)
     return 0
 
 
@@ -350,7 +560,8 @@ def cmd_write(args):
     path = args.record or record_path(project_dir)
     branch = current_branch(project_dir)
 
-    lines, error = parse_block(sys.stdin.read())
+    text = sys.stdin.read()
+    lines, error = parse_block(text)
     if error:
         print("ERROR=%s" % error, file=sys.stderr)
         print(EXPECTED.format(concerns=", ".join(CONCERNS)), file=sys.stderr)
@@ -361,6 +572,29 @@ def cmd_write(args):
             print("ERROR=%s" % message, file=sys.stderr)
         print(EXPECTED.format(concerns=", ".join(CONCERNS)), file=sys.stderr)
         return 2
+
+    check_params, param_errors, refused = parse_check_params(text)
+    # A refused line is dropped, not fatal. By the time this runs the agent has
+    # returned and any check it made already exists, so rejecting the block
+    # would destroy this round's history over damage that match-checks either
+    # prevented or did not. The dropped keys are printed so it is not silent.
+    # A key here that no finding uses is a typo, and a typo silently drops the
+    # params for the finding it meant. Catch it while the block is still
+    # rejectable as a whole.
+    named = {f["key"] for f in findings}
+    for key in sorted(check_params):
+        if key not in named:
+            param_errors.append(
+                "check-params: key %r is not a finding in this round" % key
+            )
+    if param_errors:
+        for message in param_errors:
+            print("ERROR=%s" % message, file=sys.stderr)
+        return 2
+    for finding in findings:
+        # None when the finding was read from code, which is correct for five
+        # of the ten concerns and never becomes a check.
+        finding["check"] = check_params.get(finding["key"])
 
     prior = load_record(path, project_dir, branch)
     prior_findings = {f["key"]: f for f in prior["findings"]} if prior else {}
@@ -436,6 +670,10 @@ def cmd_write(args):
         print("RESOLVED_KEY=%s" % key)
     for key in returned:
         print("RETURNED_KEY=%s" % key)
+    print("NO_CHECK_PARAMS=%d" % sum(1 for f in findings if f.get("check") is None))
+    print("DROPPED_CHECK_PARAMS=%d" % len(refused))
+    for key, _ in refused:
+        print("DROPPED_CHECK_PARAMS_KEY=%s" % key)
     return 0
 
 
@@ -455,6 +693,9 @@ def main(argv=None):
             child.add_argument("--session-id", default="")
         child.set_defaults(handler=handler)
     sub.add_parser("concerns").set_defaults(handler=cmd_concerns)
+    matcher = sub.add_parser("match-checks")
+    matcher.add_argument("--existing", required=True)
+    matcher.set_defaults(handler=cmd_match_checks, project_dir=os.getcwd())
 
     args = parser.parse_args(argv)
     args.project_dir = os.path.abspath(args.project_dir)

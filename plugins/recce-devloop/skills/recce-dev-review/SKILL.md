@@ -354,6 +354,19 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py read
 
 It prints `PRIOR_ROUND=<n>`, one line per prior finding, and a `CONCERNS=` list. `PRIOR_ROUND=0` means there is no usable record — a first review, a different branch, or a record that did not survive a reboot. Pass the output either way: the `CONCERNS=` list is what the agent builds its keys from, and it is needed on a first round too.
 
+### Checks: ask once per session
+
+The reviewer can turn each open finding a diff re-runs into a check on this Recce session, so the finding outlives this conversation. It creates them during the round, while it still holds the call that produced the finding. Nothing here writes back to a check afterwards.
+
+That costs something, so the developer decides. Ask once, before the first dispatch in this session:
+
+> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created. Recce records it as created and approved by you, by name, and it cannot delete a single check afterwards.
+
+Asking means ending your turn. Ask **once per session**: later rounds use the same answer, because the developer already decided for this session.
+
+- **Yes** — put `Checks: create them.` in the dispatch.
+- **No, or the answer settles nothing** — put `Checks: do not create any.` in the dispatch. A review still runs; it just leaves the session as it found it.
+
 Use the `agent:` tool to dispatch `recce-dev-reviewer`. The MCP server is owned by Claude Code (stdio child of `.mcp.json`); the skill does not start or health-check it.
 
 Include in the dispatch context:
@@ -364,6 +377,8 @@ Include in the dispatch context:
 > ```
 > Take every concern word for your record block from the `CONCERNS=` line. When `PRIOR_ROUND` is not 0, reuse a listed key for a finding that is the same one, and mark each row `carried` or `new` in the ordinal column — those two words are markers, not the `open` / `verified` groups of the record block. A key listed `verified` stays in `Verified, no action` unless its numbers moved. Do not add a row for a prior key you are not reporting — that one is resolved, and this skill writes that line."
 
+
+> "Checks: {create them. | do not create any.} Your Step 6 follows this line and nothing else. FINDINGS_SCRIPT=`${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py`, expanded to its absolute path — Step 6 runs `match-checks` with it."
 
 > "Put this line directly under your `Open items` table, unchanged: `Open this session in Recce: <host>/launch/<SESSION_ID>`. It is the tool for investigating those rows, so it belongs with them and not at the end."
 
@@ -391,7 +406,9 @@ Check whether the agent's output contains `## Data Review Summary`.
 
 **If it does**, record the findings first, then surface the summary:
 
-1. **Write the findings record — only when the summary reports `Data status: measured`.** Save the agent's output and pipe it in. The script finds its own block, so the whole summary is fine:
+1. **Write the findings record — only when the summary reports `Data status: measured`.** Save the agent's output **whole** and pipe it in. The script finds its own blocks, so no cutting is needed — and cutting is the failure here.
+
+   **Copy the agent's output to the last character.** It ends with two fenced blocks, ```` ```recce-findings ```` and ```` ```recce-check-params ````, and the second one comes last. Stopping at the end of the first block is the mistake to avoid: the record is then written with no check params at all, `NO_CHECK_PARAMS` equals the finding count, and nothing can say later which check belongs to which finding. The removal in point 2 below is about what the developer sees, and it happens after this command, never before it.
 
    ```bash
    OUT=$(mktemp /tmp/recce-dev-review-output.XXXXXX)
@@ -404,7 +421,9 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    Keep it in one command block: `$OUT` does not survive into a second one.
 
-   It prints `ROUND=`, `NEW=`, `CARRIED=`, `RETURNED=`, `RESOLVED=`, one `RESOLVED_KEY=` line per finding fixed since last round, and one `RETURNED_KEY=` line per finding that was fixed earlier and is back.
+   It prints `ROUND=`, `NEW=`, `CARRIED=`, `RETURNED=`, `RESOLVED=`, one `RESOLVED_KEY=` line per finding fixed since last round, one `RETURNED_KEY=` line per finding that was fixed earlier and is back, and `NO_CHECK_PARAMS=` — how many of this round's findings no diff can re-run. Report none of that last number: the reviewer's `**Checks:**` line already names those findings for the developer.
+
+   `DROPPED_CHECK_PARAMS=` is not 0 when the reviewer offered a check for a finding no diff type re-runs. That line was dropped and the rest of the round was written, so the record is complete and one finding simply carries no check. Nothing to report to the developer; a `DROPPED_CHECK_PARAMS_KEY=` line names each one for whoever reads the output.
 
    Only findings that were **open** appear on those two lines. A verified finding dropping out is not a fix, so it is not reported.
 
@@ -412,7 +431,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    **On `Data status: unmeasured`, skip this.** An unmeasured round has nothing to carry, and recording it as an empty round would report every live finding as resolved next time.
 
-2. **Surface the summary with the ```recce-findings block removed** — everything above it, unchanged. That block is bookkeeping; the developer has no use for it.
+2. **Show the developer the summary with the ```recce-findings and ```recce-check-params blocks removed** — everything above them, unchanged. This is about what is displayed, and nothing else: point 1 has already written the record from the whole output. Both blocks are bookkeeping; the developer has no use for either. The `**Checks:**` line above them is not a block: keep it.
 
 3. When the write printed `RESOLVED_KEY=` lines, add one line under the tables, naming the keys:
 
