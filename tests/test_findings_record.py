@@ -1,8 +1,9 @@
 """findings.py -- the record that carries findings between review rounds.
 
 Covers the contract the agent and the skill both depend on: what a valid block
-produces, what is rejected (and that nothing is written when it is), and the
-new / open / resolved split across two rounds.
+produces, what is rejected (and that nothing is written when it is), the
+new / open / resolved split across two rounds, and the decisions the PR table
+is built from.
 """
 
 import importlib.util
@@ -44,19 +45,20 @@ def _run(args, stdin=""):
 
 
 def _project(tmp_path):
-    """A directory with the two model files the fixtures name."""
+    """A directory with the model files the fixtures name."""
     (tmp_path / "models" / "staging").mkdir(parents=True)
     (tmp_path / "models" / "customers.sql").write_text("select 1\n")
+    (tmp_path / "models" / "daily_metrics.sql").write_text("select 1\n")
     (tmp_path / "models" / "schema.yml").write_text("version: 2\n")
     (tmp_path / "models" / "staging" / "stg_payments.sql").write_text("select 1\n")
     return tmp_path
 
 
 ROUND_1 = """```recce-findings
-F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-F2 open customers.customer_lifetime_value:null_introduced models/customers.sql
-- verified customers.customer_lifetime_value:value_shift models/customers.sql
-- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+F2 open customers.customer_lifetime_value:null_introduced models/customers.sql 5 customers have NULL CLV where none did before
+- verified customers.customer_lifetime_value:value_shift models/customers.sql CLV moved on 12 of 998 customers
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
 ```
 """
 
@@ -87,7 +89,16 @@ def test_valid_block_writes_the_record(tmp_path):
         "customers.customer_lifetime_value:value_shift",
         "stg_payments.coupon_amount:schema_add",
     ]
-    assert written["findings"][3]["ordinal"] is None
+    # The title the summary printed, kept so no later step reads it back out
+    # of the conversation.
+    assert (
+        written["findings"][0]["title"]
+        == "CLV documentation omits the completed-orders restriction"
+    )
+    assert written["findings"][3]["title"] == "coupon_amount is a new column"
+    # A verified finding is never numbered, so it has no round to file under.
+    assert written["findings"][3]["ordinals"] == {}
+    assert written["findings"][0]["ordinals"] == {"1": "F1"}
     assert all(f["first_seen"] == 1 and f["last_seen"] == 1 for f in written["findings"])
 
 
@@ -113,10 +124,10 @@ def test_second_round_splits_new_open_and_resolved(tmp_path):
 
     # doc_mismatch stays, null_introduced was fixed, join_shape is new.
     round_2 = """```recce-findings
-F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-F2 open customers:join_shape models/customers.sql
-- verified customers.customer_lifetime_value:value_shift models/customers.sql
-- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+F2 open customers:join_shape models/customers.sql The new join changes the grain of the customer table
+- verified customers.customer_lifetime_value:value_shift models/customers.sql CLV moved on 12 of 998 customers
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
 ```
 """
     result = _run(
@@ -147,18 +158,20 @@ F2 open customers:join_shape models/customers.sql
     gone = by_key["customers.customer_lifetime_value:null_introduced"]
     assert gone["last_seen"] == 1
     assert written["round"] == 2
-    # It gave up its ordinal: this round's F2 belongs to another finding.
-    assert gone["ordinal"] is None
-    # Open ordinals only: every verified finding carries None, which collides.
+    # Its number is filed under the round that printed it, so round 2 giving F2
+    # to another finding takes nothing away from it.
+    assert gone["ordinals"] == {"1": "F2"}
+    assert by_key["customers:join_shape"]["ordinals"] == {"2": "F2"}
+    # Open ordinals only, and unambiguous within the round.
     live_open = [
-        f["ordinal"]
+        f["ordinals"]["2"]
         for f in written["findings"]
         if f["last_seen"] == 2 and f["group"] == "open"
     ]
     assert len(live_open) == len(set(live_open)), "an ordinal is ambiguous"
-    assert [f["ordinal"] for f in written["findings"] if f["group"] == "verified"] == [
-        None,
-        None,
+    assert [f["ordinals"] for f in written["findings"] if f["group"] == "verified"] == [
+        {},
+        {},
     ]
 
 
@@ -181,9 +194,9 @@ def test_read_reports_the_prior_round_and_always_the_concerns(tmp_path):
 
 
 ROUND_2_WITHOUT_NULLS = """```recce-findings
-F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-- verified customers.customer_lifetime_value:value_shift models/customers.sql
-- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+- verified customers.customer_lifetime_value:value_shift models/customers.sql CLV moved on 12 of 998 customers
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
 ```
 """
 
@@ -323,7 +336,7 @@ def test_an_open_finding_must_carry_an_ordinal(tmp_path):
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     block = """```recce-findings
-- open customers.clv:doc_mismatch models/schema.yml
+- open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
 ```
 """
 
@@ -342,8 +355,8 @@ def test_a_verified_finding_must_not_carry_an_ordinal(tmp_path):
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml
-F2 verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
+F2 verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
 ```
 """
 
@@ -362,9 +375,9 @@ def test_open_ordinals_are_numbered_independently_of_verified(tmp_path):
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml
-- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
-F2 open customers.clv:null_introduced models/customers.sql
+F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
+F2 open customers.clv:null_introduced models/customers.sql 5 customers have NULL CLV
 ```
 """
 
@@ -376,17 +389,17 @@ F2 open customers.clv:null_introduced models/customers.sql
     assert result.returncode == 0, result.stderr
     written = json.loads(record.read_text())
     by_key = {f["key"]: f for f in written["findings"]}
-    assert by_key["customers.clv:doc_mismatch"]["ordinal"] == "F1"
-    assert by_key["customers.clv:null_introduced"]["ordinal"] == "F2"
-    assert by_key["stg_payments.coupon_amount:schema_add"]["ordinal"] is None
+    assert by_key["customers.clv:doc_mismatch"]["ordinals"] == {"1": "F1"}
+    assert by_key["customers.clv:null_introduced"]["ordinals"] == {"1": "F2"}
+    assert by_key["stg_payments.coupon_amount:schema_add"]["ordinals"] == {}
 
 
 def test_a_gap_in_the_ordinals_is_rejected(tmp_path):
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml
-F3 open customers.clv:null_introduced models/customers.sql
+F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
+F3 open customers.clv:null_introduced models/customers.sql 5 customers have NULL CLV
 ```
 """
 
@@ -404,8 +417,8 @@ def test_a_repeated_ordinal_is_rejected(tmp_path):
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml
-F1 open customers.clv:null_introduced models/customers.sql
+F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
+F1 open customers.clv:null_introduced models/customers.sql 5 customers have NULL CLV
 ```
 """
 
@@ -426,8 +439,8 @@ def test_a_verified_finding_dropping_out_is_not_reported_as_resolved(tmp_path):
 
     # Round 2 keeps the open findings and drops the verified ones.
     round_2 = """```recce-findings
-F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-F2 open customers.customer_lifetime_value:null_introduced models/customers.sql
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+F2 open customers.customer_lifetime_value:null_introduced models/customers.sql 5 customers have NULL CLV where none did before
 ```
 """
     result = _run(
@@ -452,8 +465,8 @@ def test_a_verified_finding_coming_back_is_not_reported_as_returned(tmp_path):
     _run(
         ["write", "--record", str(record), "--project-dir", str(project)],
         stdin="""```recce-findings
-F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-F2 open customers.customer_lifetime_value:null_introduced models/customers.sql
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+F2 open customers.customer_lifetime_value:null_introduced models/customers.sql 5 customers have NULL CLV where none did before
 ```
 """,
     )
@@ -533,16 +546,37 @@ def test_a_record_from_another_project_is_ignored(tmp_path):
 
 
 BAD_BLOCKS = {
-    "unknown_concern": "F1 open customers.clv:doc_missmatch models/schema.yml",
-    "bad_ordinal": "X1 open customers.clv:doc_mismatch models/schema.yml",
-    "no_ordinal": "- open customers.clv:doc_mismatch models/schema.yml",
-    "numbered_verified": "F1 verified customers.clv:value_shift models/customers.sql",
-    "bad_group": "F1 maybe customers.clv:doc_mismatch models/schema.yml",
-    "no_colon": "F1 open customers.clv.doc_mismatch models/schema.yml",
-    "missing_file": "F1 open customers.clv:doc_mismatch models/nope.sql",
-    "absolute_file": "F1 open customers.clv:doc_mismatch /etc/passwd",
-    "escaping_file": "F1 open customers.clv:doc_mismatch ../outside.sql",
+    "unknown_concern": (
+        "F1 open customers.clv:doc_missmatch models/schema.yml CLV docs omit the restriction"
+    ),
+    "bad_ordinal": (
+        "X1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction"
+    ),
+    "no_ordinal": (
+        "- open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction"
+    ),
+    "numbered_verified": (
+        "F1 verified customers.clv:value_shift models/customers.sql CLV moved on 12 customers"
+    ),
+    "bad_group": (
+        "F1 maybe customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction"
+    ),
+    "no_colon": (
+        "F1 open customers.clv.doc_mismatch models/schema.yml CLV docs omit the restriction"
+    ),
+    "missing_file": (
+        "F1 open customers.clv:doc_mismatch models/nope.sql CLV docs omit the restriction"
+    ),
+    "absolute_file": (
+        "F1 open customers.clv:doc_mismatch /etc/passwd CLV docs omit the restriction"
+    ),
+    "escaping_file": (
+        "F1 open customers.clv:doc_mismatch ../outside.sql CLV docs omit the restriction"
+    ),
     "wrong_field_count": "F1 open customers.clv:doc_mismatch",
+    "pipe_in_title": (
+        "F1 open customers.clv:doc_mismatch models/schema.yml CLV docs | omit the restriction"
+    ),
 }
 
 
@@ -564,9 +598,48 @@ def test_each_malformed_line_is_rejected(tmp_path):
         assert not record.exists(), "%s wrote a record anyway" % name
 
 
+def test_a_line_without_a_title_is_short_a_field(tmp_path):
+    """The title is a field, so a four-field line is now incomplete."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    line = "F1 open customers.clv:doc_mismatch models/schema.yml"
+
+    short = _run(["write"] + args, stdin="```recce-findings\n%s\n```\n" % line)
+    assert short.returncode == 2
+    assert "4 fields, expected 5" in short.stderr
+    assert not record.exists()
+
+    whole = _run(
+        ["write"] + args,
+        stdin="```recce-findings\n%s CLV docs omit the restriction\n```\n" % line,
+    )
+    assert whole.returncode == 0, whole.stderr
+
+
+def test_a_title_with_a_pipe_is_rejected(tmp_path):
+    """It goes in a markdown cell, so a pipe would split the row."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    line = "F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit %s the restriction"
+
+    piped = _run(["write"] + args, stdin="```recce-findings\n%s\n```\n" % (line % "|"))
+    assert piped.returncode == 2
+    assert "contains '|', which breaks the PR table row" in piped.stderr
+    assert not record.exists()
+
+    plain = _run(["write"] + args, stdin="```recce-findings\n%s\n```\n" % (line % "and"))
+    assert plain.returncode == 0, plain.stderr
+
+
 def test_the_rejection_names_the_valid_concern_words(tmp_path):
     project = _project(tmp_path)
-    block = "```recce-findings\nF1 open customers.clv:not_a_word models/schema.yml\n```\n"
+    block = (
+        "```recce-findings\n"
+        "F1 open customers.clv:not_a_word models/schema.yml CLV docs omit the restriction\n"
+        "```\n"
+    )
 
     result = _run(
         ["write", "--record", str(tmp_path / "r.json"), "--project-dir", str(project)],
@@ -574,6 +647,8 @@ def test_the_rejection_names_the_valid_concern_words(tmp_path):
     )
 
     assert result.returncode == 2
+    # The concern check has to be the thing that fired, not the field count.
+    assert "concern 'not_a_word' is not in the list" in result.stderr
     for word in findings.CONCERNS:
         assert word in result.stderr
 
@@ -582,8 +657,8 @@ def test_a_duplicate_key_is_rejected(tmp_path):
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml
-- verified customers.clv:doc_mismatch models/customers.sql
+F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
+- verified customers.clv:doc_mismatch models/customers.sql CLV docs omit the restriction
 ```
 """
 
@@ -607,7 +682,11 @@ def test_a_rejected_second_round_leaves_the_first_record_intact(tmp_path):
 
     result = _run(
         ["write", "--record", str(record), "--project-dir", str(project)],
-        stdin="```recce-findings\nF1 open bad:word models/schema.yml\n```\n",
+        stdin=(
+            "```recce-findings\n"
+            "F1 open bad:word models/schema.yml A title on a bad key\n"
+            "```\n"
+        ),
     )
 
     assert result.returncode == 2
@@ -644,87 +723,208 @@ def test_the_record_path_matches_the_shell_hash_scheme(tmp_path):
     assert findings.record_path(project) == "/tmp/recce-findings-%s.json" % digest
 
 
-# --- `table`: the open findings the PR-prep step writes up -------------------
+# --- `decide` and `pr-table`: the decisions the PR description is built from -
 
 ROUND_2_ONE_FIX = """```recce-findings
-F1 open customers:join_shape models/customers.sql
-F2 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-- verified customers.customer_lifetime_value:value_shift models/customers.sql
+F1 open customers:join_shape models/customers.sql The new join changes the grain of the customer table
+F2 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+- verified customers.customer_lifetime_value:value_shift models/customers.sql CLV moved on 12 of 998 customers
 ```
 """
 
 
 def _two_rounds(tmp_path):
-    """Round 1, then a round that drops one open and one verified finding."""
+    """Round 1 with both open findings decided, then a round that drops one
+    open and one verified finding and adds an undecided one."""
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     args = ["--record", str(record), "--project-dir", str(project)]
     _run(["write"] + args, stdin=ROUND_1)
+    _run(
+        ["decide", "F1", "--state", "accepted",
+         "--note", "The docs are rewritten in a follow-up that finance signs off."] + args
+    )
+    _run(
+        ["decide", "F2", "--state", "accepted",
+         "--note", "The nulls are pre-existing rows the new filter does not reach."] + args
+    )
     _run(["write"] + args, stdin=ROUND_2_ONE_FIX)
     return project, record, args
 
 
-def test_table_lists_an_open_finding_that_stopped_being_reported(tmp_path):
-    """The row `read` hides is the row a resolution can be written for."""
+def test_pr_table_keeps_a_decided_finding_the_reviewer_stopped_reporting(tmp_path):
+    """The row `read` hides is still a decision the reviewer may disagree with."""
     project, record, args = _two_rounds(tmp_path)
     gone = "customers.customer_lifetime_value:null_introduced"
 
     assert gone not in _run(["read"] + args).stdout
 
-    result = _run(["table"] + args)
+    result = _run(["pr-table"] + args)
 
     assert result.returncode == 0, result.stderr
-    assert "ROUND=2" in result.stdout
-    assert "stopped  %s models/customers.sql" % gone in result.stdout
+    assert "| 5 customers have NULL CLV where none did before |" in result.stdout
 
 
-def test_table_omits_every_verified_finding(tmp_path):
-    """The table is the list of things someone still has to decide about."""
+def test_pr_table_omits_an_undecided_verified_finding(tmp_path):
+    """A verified finding nobody spoke about needs no decision, so it is not a
+    row and not a note line either. One the developer accepted is a row --
+    test_decide_on_a_verified_finding_takes_accepted_only covers that."""
     project, record, args = _two_rounds(tmp_path)
 
-    result = _run(["table"] + args)
+    result = _run(["pr-table"] + args)
 
     assert result.returncode == 0, result.stderr
     # Still reported as verified, and verified but no longer reported.
-    assert "customers.customer_lifetime_value:value_shift" not in result.stdout
-    assert "stg_payments.coupon_amount:schema_add" not in result.stdout
+    assert "CLV moved on 12 of 998 customers" not in result.stdout
+    assert "coupon_amount is a new column" not in result.stdout
     assert "verified" not in result.stdout
 
 
-def test_table_prints_no_ordinal(tmp_path):
-    """An ordinal belongs to the round that printed it, so this view has none."""
-    project, record, args = _two_rounds(tmp_path)
-    stored = json.loads(record.read_text())["findings"]
-    assert [f["ordinal"] for f in stored if f["key"].endswith("join_shape")] == ["F1"]
-
-    result = _run(["table"] + args)
-
-    assert result.returncode == 0, result.stderr
-    assert not re.search(r"\bF\d+\b", result.stdout)
-
-
-def test_table_prints_one_order_for_one_record(tmp_path):
+def test_pr_table_prints_one_order_for_one_record(tmp_path):
     """Reported before stopped, and by key inside each, whatever the round printed."""
     project, record, args = _two_rounds(tmp_path)
 
-    result = _run(["table"] + args)
+    result = _run(["pr-table"] + args)
 
     assert result.stdout.splitlines() == [
-        "ROUND=2",
-        "SESSION_ID=",
-        "reported customers.customer_lifetime_value:doc_mismatch models/schema.yml - -",
-        "reported customers:join_shape models/customers.sql - -",
-        "stopped  customers.customer_lifetime_value:null_introduced models/customers.sql - -",
+        "| Finding | Why |",
+        "|---|---|",
+        "| CLV documentation omits the completed-orders restriction | The docs are"
+        " rewritten in a follow-up that finance signs off. |",
+        "| 5 customers have NULL CLV where none did before | The nulls are"
+        " pre-existing rows the new filter does not reach. |",
+        "",
+        "Not decided, and round 2 still reports these: `customers:join_shape`.",
     ]
 
 
-def test_table_reports_round_zero_when_there_is_no_record(tmp_path):
+def test_pr_table_errors_when_there_is_no_record(tmp_path):
     """No review has run on this branch, so there is nothing to write up."""
     project = _project(tmp_path)
 
     result = _run(
-        ["table", "--record", str(tmp_path / "absent.json"), "--project-dir", str(project)]
+        [
+            "pr-table",
+            "--record",
+            str(tmp_path / "absent.json"),
+            "--project-dir",
+            str(project),
+        ]
     )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "ERROR=no findings record for this branch" in result.stderr
+
+
+# --- Session 2830c52c, the case the change was written for -------------------
+
+SESSION_ROUND_1 = """```recce-findings
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+F2 open customers:test_cannot_hold models/customers.sql A not_null test the left join can break
+F3 open customers.customer_segment:value_shift models/customers.sql High Value lost 313 customers, 60% of the segment
+F4 open customers.customer_lifetime_value:null_introduced models/customers.sql 5 customers have NULL CLV where none did before
+F5 open stg_payments:dead_filter models/staging/stg_payments.sql Both payment filters remove zero rows
+```
+"""
+
+SESSION_ROUND_2 = """```recce-findings
+F1 open daily_metrics.avg_order_amount:value_shift models/daily_metrics.sql avg_order_amount differs on 678 of 730 days
+F2 open customers.profit_segment:doc_mismatch models/customers.sql Profit segments reuse the gross CLV thresholds 4000 and 1500
+```
+"""
+
+SESSION_DECISIONS = (
+    (
+        1,
+        "F1",
+        "fixed",
+        "Descriptions are being rewritten in this change.",
+    ),
+    (
+        1,
+        "F4",
+        "fixed",
+        "The left join becomes an inner join with coalesce, so no NULL CLV remains.",
+    ),
+    (
+        1,
+        "F2",
+        "accepted",
+        "The not_null test holds today. The join only returns NULL if an order has"
+        " no payment row.",
+    ),
+    (
+        1,
+        "F5",
+        "accepted",
+        "The filters come from the old model and remove nothing yet. Removing them"
+        " is a separate change.",
+    ),
+    (
+        1,
+        "F3",
+        "accepted",
+        "Intended. The completed-orders restriction moves low-activity customers"
+        " down a tier.",
+    ),
+    (
+        2,
+        "F2",
+        "accepted",
+        "Intended. The profit thresholds stay at the gross values until finance"
+        " agrees new ones.",
+    ),
+    (
+        2,
+        "F1",
+        "deferred",
+        "This change does not touch avg_order_amount, so the shift is left for a"
+        " separate change.",
+    ),
+)
+
+SESSION_TABLE = [
+    "| Finding | Why |",
+    "|---|---|",
+    "| Profit segments reuse the gross CLV thresholds 4000 and 1500 | Intended. The"
+    " profit thresholds stay at the gross values until finance agrees new ones. |",
+    "| avg_order_amount differs on 678 of 730 days | This change does not touch"
+    " avg_order_amount, so the shift is left for a separate change. |",
+    "| High Value lost 313 customers, 60% of the segment | Intended. The"
+    " completed-orders restriction moves low-activity customers down a tier. |",
+    "| A not_null test the left join can break | The not_null test holds today. The"
+    " join only returns NULL if an order has no payment row. |",
+    "| Both payment filters remove zero rows | The filters come from the old model"
+    " and remove nothing yet. Removing them is a separate change. |",
+]
+
+
+def _session(tmp_path):
+    """Two rounds, seven findings, and the decisions the developer gave."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    rounds = {1: SESSION_ROUND_1, 2: SESSION_ROUND_2}
+    written = {}
+    for number in (1, 2):
+        written[number] = _run(["write"] + args, stdin=rounds[number])
+        assert written[number].returncode == 0, written[number].stderr
+        for round_number, target, state, note in SESSION_DECISIONS:
+            if round_number != number:
+                continue
+            decided = _run(
+                ["decide", target, "--state", state, "--note", note] + args
+            )
+            assert decided.returncode == 0, decided.stderr
+    return project, record, args, written[2]
+
+
+def test_the_table_carries_the_decisions_and_leaves_out_the_fixes(tmp_path):
+    """AC-1. Two of the seven were fixed, and the diff already shows those."""
+    project, record, args, _ = _session(tmp_path)
+
+    result = _run(["pr-table"] + args)
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "ROUND=0\n"
@@ -746,7 +946,7 @@ customers.customer_lifetime_value:value_shift value_diff {"model":"customers","p
 def _bad_check_params(line):
     """One valid finding, and one check-params line that must be rejected."""
     return """```recce-findings
-F1 open customers.customer_lifetime_value:null_introduced models/customers.sql
+F1 open customers.customer_lifetime_value:null_introduced models/customers.sql 5 customers have NULL CLV where none did before
 ```
 
 ```recce-check-params
@@ -755,7 +955,7 @@ F1 open customers.customer_lifetime_value:null_introduced models/customers.sql
 """ % line
 
 
-def test_the_check_params_block_reaches_the_record_and_the_table(tmp_path):
+def test_the_check_params_block_reaches_the_record(tmp_path):
     """The reviewer's own diff call, stored against the finding it produced."""
     project = _project(tmp_path)
     record = tmp_path / "record.json"
@@ -770,22 +970,20 @@ def test_the_check_params_block_reaches_the_record_and_the_table(tmp_path):
     # Two of the four findings were measured with a diff; two were read from
     # code and can never have a check.
     assert "NO_CHECK_PARAMS=2" in result.stdout
-    stored = {f["key"]: f["check"] for f in json.loads(record.read_text())["findings"]}
+    written = json.loads(record.read_text())
+    stored = {f["key"]: f["check"] for f in written["findings"]}
     assert stored["customers.customer_lifetime_value:null_introduced"] == {
         "type": "profile_diff",
         "params": {"model": "customers", "columns": ["customer_lifetime_value"]},
     }
+    assert stored["customers.customer_lifetime_value:value_shift"] == {
+        "type": "value_diff",
+        "params": {"model": "customers", "primary_key": "customer_id"},
+    }
+    # Read from code, so no diff re-runs it and it carries no check.
     assert stored["customers.customer_lifetime_value:doc_mismatch"] is None
-
-    table = _run(["table", "--record", str(record), "--project-dir", str(project)])
-
-    assert table.stdout.splitlines() == [
-        "ROUND=1",
-        "SESSION_ID=c29669b4",
-        "reported customers.customer_lifetime_value:doc_mismatch models/schema.yml - -",
-        'reported customers.customer_lifetime_value:null_introduced models/customers.sql'
-        ' profile_diff {"model":"customers","columns":["customer_lifetime_value"]}',
-    ]
+    # The checks were created on a session, so the record names which one.
+    assert written["session_id"] == "c29669b4"
 
 
 def test_a_check_params_key_no_finding_uses_is_rejected(tmp_path):
@@ -856,8 +1054,10 @@ def test_a_review_with_no_check_params_block_still_writes_its_record(tmp_path):
     assert all(f["check"] is None for f in json.loads(record.read_text())["findings"])
 
 
-def test_a_record_written_before_the_check_field_still_tables(tmp_path):
-    """RECORD_VERSION did not move, so live records have neither field."""
+def test_a_finding_missing_the_check_and_title_fields_still_reads(tmp_path):
+    """A hand-written or part-built finding has neither `check` nor `title`.
+    `pr-table` reaches it through the undecided path, which touches neither, so
+    it must report the finding rather than raise."""
     project = _project(tmp_path)
     record = tmp_path / "record.json"
     record.write_text(
@@ -882,13 +1082,13 @@ def test_a_record_written_before_the_check_field_still_tables(tmp_path):
         )
     )
 
-    result = _run(["table", "--record", str(record), "--project-dir", str(project)])
+    result = _run(["pr-table", "--record", str(record), "--project-dir", str(project)])
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
-        "ROUND=3",
-        "SESSION_ID=",
-        "reported customers:join_shape models/customers.sql - -",
+        "No findings were decided on this branch.",
+        "",
+        "Not decided, and round 3 still reports these: `customers:join_shape`.",
     ]
 
 
@@ -1111,10 +1311,14 @@ def test_write_drops_the_refused_line_and_keeps_the_round(tmp_path):
     block = "```recce-findings\n%s\n```\n\n```recce-check-params\n%s\n```\n" % (
         "\n".join(
             [
-                "F1 open customers.customer_lifetime_value:value_shift models/customers.sql",
-                "F2 open customer_segments.value_segment:value_shift models/customers.sql",
-                "F3 open customers.customer_lifetime_value:null_introduced models/customers.sql",
-                "F4 open customers:dead_filter models/customers.sql",
+                "F1 open customers.customer_lifetime_value:value_shift"
+                " models/customers.sql CLV average dropped 32%",
+                "F2 open customer_segments.value_segment:value_shift"
+                " models/customers.sql High Value lost 313 customers",
+                "F3 open customers.customer_lifetime_value:null_introduced"
+                " models/customers.sql 5 customers have NULL CLV where none did before",
+                "F4 open customers:dead_filter"
+                " models/customers.sql Both new payment filters remove zero rows",
             ]
         ),
         "\n".join(LIVE_BLOCK_LINES[:4]),
@@ -1185,3 +1389,292 @@ def test_the_whole_live_block_is_refused_only_for_that_one_line(tmp_path):
     assert result.returncode == 2
     assert result.stderr.count("ERROR=") == 1
     assert "customers:dead_filter" in result.stderr
+
+
+def test_the_table_carries_the_decisions_and_leaves_out_the_fixes(tmp_path):
+    """AC-1. Two of the seven were fixed, and the diff already shows those."""
+    project, record, args, _ = _session(tmp_path)
+
+    result = _run(["pr-table"] + args)
+
+    assert result.returncode == 0, result.stderr
+    rows = [line for line in result.stdout.splitlines() if line.startswith("| ")]
+    assert len(rows) == 6, result.stdout  # the header and five decided findings
+    for fixed in (
+        "CLV documentation omits the completed-orders restriction",
+        "5 customers have NULL CLV where none did before",
+    ):
+        assert fixed not in result.stdout
+    # The largest one the old table never printed.
+    assert "High Value lost 313 customers, 60% of the segment" in result.stdout
+
+
+def test_every_row_carries_the_stored_note_and_no_state_word(tmp_path):
+    """AC-2. The note is the reason recorded at decision time, on the finding it
+    was given for, and the state that selected the row is never printed."""
+    project, record, args, _ = _session(tmp_path)
+    notes = {
+        f["title"]: (f.get("decision") or {}).get("note")
+        for f in json.loads(record.read_text())["findings"]
+    }
+
+    result = _run(["pr-table"] + args)
+
+    printed = []
+    for line in result.stdout.splitlines():
+        if not line.startswith("| ") or line == "| Finding | Why |":
+            continue
+        title, why = [cell.strip() for cell in line.strip("|").split(" | ")]
+        assert why, title
+        # Attribution: this row's reason is the one stored on THIS finding.
+        assert why == notes[title], title
+        printed.append(why)
+    # One sentence pasted onto two rows is the defect this change was filed for.
+    # Every decision in the fixture was given its own reason, so no reason may
+    # appear twice.
+    assert len(set(printed)) == len(printed), printed
+    assert len(printed) == 5
+    lowered = result.stdout.lower()
+    for word in findings.DECISIONS:
+        assert word not in lowered, word
+
+
+def test_an_accepted_finding_survives_the_round_after_it(tmp_path):
+    """AC-3. `write` must not overwrite the decision it merges."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    _run(
+        ["decide", "F1", "--state", "accepted",
+         "--note", "Intended. The restriction is the point of the change."] + args
+    )
+
+    _run(["write"] + args, stdin=ROUND_1)
+
+    after = {f["key"]: f for f in json.loads(record.read_text())["findings"]}
+    kept = after["customers.customer_lifetime_value:doc_mismatch"]["decision"]
+    assert kept["state"] == "accepted"
+    assert kept["round"] == 1
+    assert after["customers.customer_lifetime_value:doc_mismatch"]["ordinals"] == {
+        "1": "F1",
+        "2": "F1",
+    }
+
+
+def test_a_decision_survives_the_reviewer_reclassifying_the_finding(tmp_path):
+    """AC-3. Accepted while open in round 1; round 2 calls the same finding
+    verified and nobody says anything, so the decision stands and the row stays.
+    """
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    _run(["decide", "F2", "--state", "accepted",
+          "--note", "Intended. The nulls are rows the new filter does not reach."]
+         + args)
+    before = _run(["pr-table"] + args)
+    assert "5 customers have NULL CLV where none did before" in before.stdout
+
+    _run(["write"] + args, stdin="""```recce-findings
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+- verified customers.customer_lifetime_value:null_introduced models/customers.sql 5 customers have NULL CLV where none did before
+```
+""")
+
+    after = _run(["pr-table"] + args)
+
+    stored = {f["key"]: f for f in json.loads(record.read_text())["findings"]}
+    kept = stored["customers.customer_lifetime_value:null_introduced"]
+    assert kept["group"] == "verified", "the reviewer did reclassify it"
+    assert kept["decision"]["state"] == "accepted", "the decision is still stored"
+    # The row the developer saw in round 1 must still be there in round 2.
+    assert "5 customers have NULL CLV where none did before" in after.stdout
+    assert "No findings were decided on this branch." not in after.stdout
+
+
+def test_the_same_record_always_produces_the_same_table(tmp_path):
+    """AC-4. Nothing in the ordering comes from the clock or from dict order."""
+    project, record, args, _ = _session(tmp_path)
+
+    first = _run(["pr-table"] + args)
+    second = _run(["pr-table"] + args)
+
+    assert first.stdout == second.stdout
+    assert first.stdout.splitlines() == SESSION_TABLE
+
+
+def test_an_ordinal_resolves_by_lookup_against_its_own_round(tmp_path):
+    """AC-5. F2 of round 1 and F2 of round 2 are different findings, and no
+    conversation is read to tell them apart."""
+    project, record, args, _ = _session(tmp_path)
+    stored = {f["key"]: f for f in json.loads(record.read_text())["findings"]}
+    assert stored["customers:test_cannot_hold"]["ordinals"] == {"1": "F2"}
+    assert stored["customers.profit_segment:doc_mismatch"]["ordinals"] == {"2": "F2"}
+
+    one = _run(
+        ["decide", "F2", "--round", "1", "--state", "deferred",
+         "--note", "Named against round one."] + args
+    )
+    two = _run(
+        ["decide", "F2", "--round", "2", "--state", "deferred",
+         "--note", "Named against round two."] + args
+    )
+
+    assert "DECIDED=customers:test_cannot_hold" in one.stdout
+    assert "DECIDED=customers.profit_segment:doc_mismatch" in two.stdout
+    # A number the named round never printed is an error, not a near miss.
+    missing = _run(
+        ["decide", "F9", "--round", "1", "--state", "deferred", "--note", "Nope."] + args
+    )
+    assert missing.returncode == 2
+    assert "round 1 printed no F9" in missing.stderr
+
+
+def test_a_version_1_record_is_not_read(tmp_path):
+    """The block gained a field, so a record written before it cannot be read."""
+    project, record, args, _ = _session(tmp_path)
+    assert _run(["pr-table"] + args).returncode == 0
+
+    stale = json.loads(record.read_text())
+    stale["version"] = 1
+    record.write_text(json.dumps(stale))
+
+    result = _run(["pr-table"] + args)
+
+    assert result.returncode == 2
+    assert "ERROR=no findings record for this branch" in result.stderr
+
+
+def test_decide_on_a_verified_finding_takes_accepted_only(tmp_path):
+    """Nothing is owed on a finding the reviewer settled, so `deferred` and
+    `fixed` are refused. `accepted` is the developer agreeing with it out loud,
+    which is a decision and earns a row."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    verified = "customers.customer_lifetime_value:value_shift"
+    before = record.read_text()
+
+    for state in ("deferred", "fixed"):
+        refused = _run(["decide", verified, "--state", state,
+                        "--note", "Something is owed here."] + args)
+        assert refused.returncode == 2, state
+        assert "Only --state accepted applies" in refused.stderr, state
+    assert record.read_text() == before, "a refused decision was written anyway"
+
+    allowed = _run(["decide", verified, "--state", "accepted",
+                    "--note", "Intended. The restriction is the point of the change."]
+                   + args)
+
+    assert allowed.returncode == 0, allowed.stderr
+    stored = {f["key"]: f for f in json.loads(record.read_text())["findings"]}
+    assert stored[verified]["decision"]["state"] == "accepted"
+    # It reaches the table even though its group is verified.
+    assert "CLV moved on 12 of 998 customers" in _run(["pr-table"] + args).stdout
+
+
+def test_decide_refuses_a_target_it_cannot_resolve(tmp_path):
+    """A wrong key or a word that is neither is an error, not a guess."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    before = record.read_text()
+
+    shapeless = _run(["decide", "the-doc-one", "--state", "accepted",
+                      "--note", "Intended."] + args)
+    unknown = _run(["decide", "customers.clv:join_shape", "--state", "accepted",
+                    "--note", "Intended."] + args)
+
+    assert shapeless.returncode == 2
+    assert "neither F<n> nor a model[.column]:concern key" in shapeless.stderr
+    assert unknown.returncode == 2
+    assert "no finding with key" in unknown.stderr
+    assert record.read_text() == before
+
+    named = _run(["decide", "customers.customer_lifetime_value:doc_mismatch",
+                  "--state", "accepted", "--note", "Intended."] + args)
+    assert named.returncode == 0, named.stderr
+
+
+def test_a_note_that_would_break_the_row_is_refused(tmp_path):
+    """One note is one markdown cell, so a pipe or an essay is rejected."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    before = record.read_text()
+
+    piped = _run(
+        ["decide", "F1", "--state", "accepted", "--note", "Intended | as it is"] + args
+    )
+    too_long = _run(
+        ["decide", "F1", "--state", "accepted",
+         "--note", "x" * (findings.NOTE_MAX + 1)] + args
+    )
+    # Whitespace only: the cell would be blank where the grounds belong.
+    blank = _run(["decide", "F1", "--state", "accepted", "--note", "   \n  "] + args)
+
+    assert piped.returncode == 2
+    assert "breaks the PR table row" in piped.stderr
+    assert too_long.returncode == 2
+    assert "one table cell holds" in too_long.stderr
+    assert blank.returncode == 2
+    assert "--note is empty" in blank.stderr
+    assert record.read_text() == before, "a refused note was written anyway"
+
+    fits = _run(
+        ["decide", "F1", "--state", "accepted", "--note", "x" * findings.NOTE_MAX] + args
+    )
+    assert fits.returncode == 0, fits.stderr
+    # A newline in an otherwise good note is folded, not rejected.
+    folded = _run(
+        ["decide", "F1", "--state", "accepted", "--note", "Intended.\nIt stays."] + args
+    )
+    assert folded.returncode == 0, folded.stderr
+    kept = {f["key"]: f for f in json.loads(record.read_text())["findings"]}
+    assert (
+        kept["customers.customer_lifetime_value:doc_mismatch"]["decision"]["note"]
+        == "Intended. It stays."
+    )
+
+
+def test_a_decision_does_not_survive_the_finding_coming_back(tmp_path):
+    """The answer was about a state of the tree that no longer holds."""
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin=ROUND_1)
+    _run(
+        ["decide", "F2", "--state", "accepted",
+         "--note", "The nulls are pre-existing rows the new filter does not reach."]
+        + args
+    )
+    # Round 2 stops reporting it; round 3 reports it again.
+    _run(["write"] + args, stdin=ROUND_2_WITHOUT_NULLS)
+    _run(["write"] + args, stdin=ROUND_1)
+
+    back = {f["key"]: f for f in json.loads(record.read_text())["findings"]}[
+        "customers.customer_lifetime_value:null_introduced"
+    ]
+    assert back["decision"] is None
+    assert back["ordinals"] == {"1": "F2", "3": "F2"}
+
+
+def test_an_accepted_finding_the_reviewer_drops_is_not_a_fix(tmp_path):
+    """Step 6 would otherwise say five of five were fixed, about three nobody
+    touched."""
+    project, record, args, round_2 = _session(tmp_path)
+
+    assert "RESOLVED=2" in round_2.stdout
+    resolved = [
+        line[len("RESOLVED_KEY="):]
+        for line in round_2.stdout.splitlines()
+        if line.startswith("RESOLVED_KEY=")
+    ]
+    assert sorted(resolved) == [
+        "customers.customer_lifetime_value:doc_mismatch",
+        "customers.customer_lifetime_value:null_introduced",
+    ]

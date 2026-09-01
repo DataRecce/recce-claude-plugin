@@ -375,7 +375,7 @@ Include in the dispatch context:
 > ```
 > {the script's output, verbatim}
 > ```
-> Take every concern word for your record block from the `CONCERNS=` line. When `PRIOR_ROUND` is not 0, reuse a listed key for a finding that is the same one, and mark each row `carried` or `new` in the ordinal column — those two words are markers, not the `open` / `verified` groups of the record block. A key listed `verified` stays in `Verified, no action` unless its numbers moved. Do not add a row for a prior key you are not reporting — that one is resolved, and this skill writes that line."
+> Take every concern word for your record block from the `CONCERNS=` line. When `PRIOR_ROUND` is not 0, reuse a listed key for a finding that is the same one, and mark each row `carried` or `new` in the ordinal column — those two words are markers, not the `open` / `verified` groups of the record block. A key listed `verified` stays in `Verified, no action` unless its numbers moved. Do not add a row for a prior key you are not reporting — that one is resolved, and this skill writes that line. End every record-block line with the finding's title, copied from the line you printed for it: the `Open items` Finding cell, or the opening phrase of the `Verified, no action` bullet."
 
 
 > "Checks: {create them. | do not create any.} Your Step 6 follows this line and nothing else. FINDINGS_SCRIPT=`${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py`, expanded to its absolute path — Step 6 runs `match-checks` with it."
@@ -470,6 +470,47 @@ Check whether the agent's output contains `## Data Review Summary`.
    The link belongs under `Open items` because it is the tool for investigating those rows. Do not move it to the end, and do not add a second copy there.
 
 Offer nothing else here — no login prompt, since the user is already authenticated, and no local `recce server`, since the data is in the cloud.
+
+---
+
+## Step 7: Record what the developer decides
+
+The round does not end with the summary. The developer answers it — "F2, F5 leave them", "F3, acknoledged, it's intended", "please fix F1, F4" — and that answer is the only place the reason for a decision exists. Write it down while the round that printed those numbers is still on screen. Later there is nothing left to write it from: `/recce-pr-prep` runs in another sitting, and it has no conversation to read.
+
+**One call per finding, as soon as you have the answer:**
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py decide F2 \
+  --state accepted \
+  --note "The not_null test holds today. The join only returns NULL if an order has no payment row."
+```
+
+- **the target** — `F<n>` from the round you just printed, or the finding's key. Add `--round <n>` to name an earlier round; without it the target means the newest round, which is what a reply in this sitting means.
+- **`--state`** — one of three words:
+  - `accepted` — the developer looked at it and it stays as it is.
+  - `deferred` — it stays for now, and a later change deals with it.
+  - `fixed` — the developer is changing the code, so the diff will carry it. This records what they said. It is not a check that the fix landed; nothing here reads the tree.
+- **`--note`** — the reason, in your own words, one line, 200 characters at most. The PR table prints this cell, and it is the only thing a reviewer has to disagree with.
+
+**Write the reason, not the reply.** `--note "F2, yes, accept"` puts a quote where the grounds belong, and a reviewer reading it learns nothing. Turn the answer into the reason: `--note "Intended. The profit thresholds stay at the gross values until finance agrees new ones."` You have that round's own evidence in front of you, which is why this happens here and not later.
+
+**One note per finding.** "F2, F5 leave them" settles two findings for two different reasons. Two calls, two notes.
+
+**Only the developer's words count**, and a mention is not a decision. What you said about a finding, and what the reviewer said about it, decide nothing. "What is F2?" and "F2 is intended" both name F2, and only the second settles anything. When nothing was said about a finding, do not call `decide` for it: `/recce-pr-prep` reports it as not decided, which is true.
+
+**Show what you wrote, in your reply, directly under the summary** — one line per call that succeeded, so the developer can correct it now:
+
+> Recorded: F2 accepted — the not_null test holds today. The join only returns NULL if an order has no payment row.
+
+Step 6's "offer nothing else here" governs what you **offer**, not what you **report**. These lines are part of the round's output and are never dropped.
+
+**On exit 2** the script prints one `ERROR=` line and nothing was written for that finding. Print that line too, under the `Recorded:` lines, naming the finding it was about:
+
+> Not recorded: F3 — `customers.customer_segment:value_shift` is verified. Only `--state accepted` applies to one.
+
+Then ask which finding was meant. **If nothing can answer — the turn is ending, or nobody is there — printing the line is still the whole obligation, and you still print it.** A decision the developer gave and the script refused must never disappear in silence: that is the failure this whole step exists to prevent. Do not guess a key to make the error go away.
+
+Fixing a finding is a separate decision from recording it. When the developer asks for a fix, record `fixed` first, then do the work.
 
 ---
 

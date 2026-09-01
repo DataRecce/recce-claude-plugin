@@ -10,9 +10,11 @@ else defines it: the validation here is the specification, and a rejection
 prints the expected form. A separate schema or template file could not be
 enforced (plugin scripts cannot assume `pip install`) and would go stale.
 
-Args:    read  [--record PATH] [--project-dir PATH]
-         write [--record PATH] [--project-dir PATH] [--session-id ID]
-         table [--record PATH] [--project-dir PATH]
+Args:    read     [--record PATH] [--project-dir PATH]
+         write    [--record PATH] [--project-dir PATH] [--session-id ID]
+         decide   <F<n>|key> --state STATE --note TEXT [--round N]
+                  [--record PATH] [--project-dir PATH]
+         pr-table [--record PATH] [--project-dir PATH]
          concerns
          match-checks --existing PATH
 
@@ -33,12 +35,16 @@ Stdin:   write and match-checks. The agent's output, or just its block. The fenc
 
          An open finding carries an ordinal, F1..Fn with no gap and no
          repeat. A verified finding carries "-", because the summary never
-         prints a number for one.
+         prints a number for one. Every finding also carries a title: the
+         Finding cell the summary printed for it, so no later step has to
+         read the title back out of the conversation.
 
-         The ordinal is a position in one round's list, not a name. Sorting the
-         list again moves the numbers, so nothing compares ordinals between
-         rounds. It is stored only so a reply in the same sitting can say "F2"
-         and be understood. `key` is what identifies a finding over time.
+         The ordinal is a position in one round's list, not a name. Sorting
+         the list again moves the numbers, so nothing compares ordinals
+         between rounds. Each round's ordinal is kept under its own round
+         number, which is what lets `decide F2 --round 2` mean one finding
+         and `decide F2 --round 1` mean another. `key` is what identifies a
+         finding over time.
 
 Stdout:  read      PRIOR_ROUND=<n>
                    <group> <key> <file>        (one per live prior finding)
@@ -53,12 +59,9 @@ Stdout:  read      PRIOR_ROUND=<n>
                                                (one per line the concern guard
                                                dropped; the round is still
                                                written)
-         table     ROUND=<n>
-                   SESSION_ID=<id>
-                   <state> <key> <file> <type> <params>
-                                               (one per open finding)
-                   state is reported | stopped
-                   type and params are "-" when no diff re-runs the finding
+         decide    DECIDED=<key>
+                   STATE=<state>
+         pr-table  the finished markdown table, then any note lines
          concerns  CONCERNS=<comma separated>
          match-checks
                    CREATE=<key> <type> <params>   (no check covers it yet)
@@ -83,20 +86,40 @@ fixed or come back. A verified finding that stops being reported is not a fix:
 the column is still there, the agent just did not repeat it. Reporting that as
 resolved is noise the developer cannot act on, and it was doing so.
 
+An accepted or deferred finding that stops being reported is not a fix either.
+The developer said it stays, and the reviewer has stopped repeating it, which
+is the record doing its job. Only `fixed` and undecided findings can be
+resolved.
+
 Deleting a resolved finding would make the fourth case impossible to see: the
 same problem coming back would be indistinguishable from a first sighting, for
 ever, including for any display written later. `read` lists live findings only,
 so the reviewer's view is unchanged by the ones being kept.
 
-`table` is the other view of the same record, for the step that prepares a PR.
-It lists only what the record last saw as open, because the table it feeds is
-the list of things someone still has to decide about, and a verified finding
-needs no decision from anyone. It lists an open finding whether or not it is
-still reported, because a finding that stopped being reported is exactly the
-one a resolution can be written for. It prints no ordinal, because an ordinal
-belongs to the round that printed it. The PR-prep step resolves "F2" against
-that round's own summary, and a number from here would resolve it against the
-wrong round.
+`decide` and `pr-table` are the PR side of the same record. `decide` stores
+what the developer said about one finding at the moment they say it, while the
+round that printed the number is still on screen. `pr-table` prints the
+finished markdown, so one record always gives one table and no agent composes
+any part of it.
+
+A fix is visible in the diff and a decision is not, so `pr-table` prints the
+decisions and leaves the fixes out. `fixed` is therefore a way of saying "drop
+this row", not a claim that the fix landed: nothing in this script reads the
+tree. A finding nobody decided is neither a fix nor a decision, so it goes
+under the table on a note line rather than into a row. Hiding it would lose an
+open problem, and giving it a row would put an empty cell exactly where the
+grounds belong.
+
+A decision owns its row from the round it was made in, whatever group a later
+round gives the finding. The group only decides what happens to a finding
+nobody has spoken about: an open one goes on the note line, and a verified one
+is not printed at all, because it needs no decision from anyone. A verified
+finding can still be `accepted` -- that is the developer agreeing with it out
+loud -- but not `deferred` or `fixed`, because nothing is owed on one the
+reviewer already settled.
+
+The three state words never reach the output. They select which findings get a
+row; the note is what the reader sees, and it says what was decided in prose.
 
 Round numbers drive every comparison above, because ordering is all the
 comparison needs and integers cannot drift. Timestamps are stored alongside
@@ -120,7 +143,7 @@ from datetime import datetime, timezone
 # named in its header comment. Four places now derive this hash; change them
 # together.
 RECORD_DIR = "/tmp"
-RECORD_VERSION = 1
+RECORD_VERSION = 2
 
 # Closed list. A finding's identity across rounds is model[.column]:concern, so
 # two rounds must name the same problem the same way -- an invented word never
@@ -152,13 +175,25 @@ NO_CHECK_CONCERNS = (
 )
 
 GROUPS = ("open", "verified")
+
+# What the developer decided about an open finding. The record had no room for
+# this, so an accepted finding had to sit in `open` and be re-read every round,
+# or be called `verified`, which claims a fix that never happened.
+#
+# `fixed` means "leave this out of the PR table", because the diff already
+# shows it. It is not a check that the fix landed: nothing here reads the tree.
+DECISIONS = ("accepted", "deferred", "fixed")
+# The states that reach a row. `fixed` is the one that does not, because the
+# diff already carries it. None of these words is ever printed: the note says
+# what was decided, in prose.
+IN_TABLE = ("accepted", "deferred")
+# A note is one markdown table cell, so it is one line and it is short.
+NOTE_MAX = 200
 # A review that found nothing says so, rather than sending an empty block. An
 # empty block stays an error: it is what a forgotten block looks like.
 NO_FINDINGS = "none"
 ORDINAL_RE = re.compile(r"^F(\d+)$")
 NO_ORDINAL = "-"
-# Printed by `table` for a finding no diff can re-run, so it has no check.
-NO_CHECK = "-"
 MODEL_RE = re.compile(r"^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)?$")
 BLOCK_RE = re.compile(r"^```recce-findings\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
 CHECK_BLOCK_RE = re.compile(
@@ -180,7 +215,7 @@ CHECK_TYPES = (
 
 EXPECTED = """Expected form, one line per finding:
 
-  <ordinal> <group> <model[.column]:concern> <file>
+  <ordinal> <group> <model[.column]:concern> <file> <title>
 
   ordinal   F1, F2, ... for an open finding: exactly F1..Fn, no gap, no
             repeat. "-" for a verified one, which is never numbered in the
@@ -188,12 +223,15 @@ EXPECTED = """Expected form, one line per finding:
   group     open | verified
   concern   one of: {concerns}
   file      path relative to the project root, and it must exist
+  title     the Finding cell this round printed, running to the end of the
+            line. The PR table prints it, so no later step has to read it
+            back out of the summary. It must not contain "|"
 
 Wrapped in a fence:
 
   ```recce-findings
-  F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-  - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+  F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+  - verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
   ```
 
 When the review found nothing at all, the whole block is one word:
@@ -429,13 +467,15 @@ def validate(lines, project_dir):
     """Return (findings, errors). findings is empty when errors is not."""
     findings, errors, seen = [], [], {}
     for lineno, raw in lines:
-        parts = raw.split()
-        if len(parts) != 4:
+        # The title runs to the end of the line, so it is split off last and it
+        # is the only field that may contain a space.
+        parts = raw.split(None, 4)
+        if len(parts) != 5:
             errors.append(
-                "line %d: %d fields, expected 4 -- %r" % (lineno, len(parts), raw)
+                "line %d: %d fields, expected 5 -- %r" % (lineno, len(parts), raw)
             )
             continue
-        ordinal, group, key, path = parts
+        ordinal, group, key, path, title = parts
         if group == "verified":
             if ordinal != NO_ORDINAL:
                 errors.append(
@@ -466,6 +506,11 @@ def validate(lines, project_dir):
             errors.append("line %d: file %r must be inside the project" % (lineno, path))
         elif not os.path.isfile(os.path.join(project_dir, path)):
             errors.append("line %d: file %r does not exist" % (lineno, path))
+        if "|" in title:
+            errors.append(
+                "line %d: title %r contains '|', which breaks the PR table row"
+                % (lineno, title)
+            )
         if key in seen:
             errors.append(
                 "line %d: key %r already given on line %d" % (lineno, key, seen[key])
@@ -477,8 +522,10 @@ def validate(lines, project_dir):
                 "key": key,
                 "group": group,
                 "file": path,
-                # Stored as None rather than "-" so the record says "no number"
-                # instead of carrying a placeholder that reads like one.
+                "title": title,
+                # None rather than "-" so this says "no number" instead of
+                # carrying a placeholder that reads like one. cmd_write files
+                # it under this round's number and drops the field.
                 "ordinal": None if ordinal == NO_ORDINAL else ordinal,
             }
         )
@@ -517,41 +564,151 @@ def cmd_read(args):
     return 0
 
 
-def cmd_table(args):
+def resolve_target(record, target, round_number):
+    """Return (finding, None), or (None, message) when the target does not fit.
+
+    A key names a finding directly. An ordinal names a position in one round's
+    list, so it means nothing without the round: F2 of round 1 and F2 of round
+    2 are different findings, and the record holds both numbers.
+    """
+    if ":" in target:
+        for finding in record["findings"]:
+            if finding["key"] == target:
+                return finding, None
+        return None, "no finding with key %r in the record" % target
+    if not ORDINAL_RE.match(target):
+        return None, "%r is neither F<n> nor a model[.column]:concern key" % target
+    matched = [
+        finding
+        for finding in record["findings"]
+        if (finding.get("ordinals") or {}).get(str(round_number)) == target
+    ]
+    if len(matched) == 1:
+        return matched[0], None
+    if not matched:
+        return None, "round %d printed no %s" % (round_number, target)
+    # Only reachable on a hand-edited record: validate() rejects a repeat.
+    return None, "round %d has %d findings numbered %s" % (
+        round_number, len(matched), target
+    )
+
+
+def cmd_decide(args):
+    """Store what the developer decided about one finding.
+
+    Called in-round, by the review skill, right after the developer answers.
+    The reason for a decision exists only in that answer, and a later step
+    reconstructing it from the conversation is what this replaces.
+    """
     project_dir = args.project_dir
-    branch = current_branch(project_dir)
-    record = load_record(args.record or record_path(project_dir), project_dir, branch)
+    path = args.record or record_path(project_dir)
+    record = load_record(path, project_dir, current_branch(project_dir))
     if record is None:
-        print("ROUND=0")
-        return 0
+        print("ERROR=no findings record for this branch", file=sys.stderr)
+        return 2
+
+    # One table cell holds one line, so a newline is folded rather than
+    # rejected: the caller's text is fine, its shape is not.
+    note = " ".join(args.note.split())
+    if not note:
+        print("ERROR=--note is empty. The cell it fills is the only thing a "
+              "reviewer can disagree with", file=sys.stderr)
+        return 2
+    if "|" in note:
+        print("ERROR=the note contains '|', which breaks the PR table row",
+              file=sys.stderr)
+        return 2
+    if len(note) > NOTE_MAX:
+        print("ERROR=the note is %d characters and one table cell holds %d"
+              % (len(note), NOTE_MAX), file=sys.stderr)
+        return 2
+
+    # No --round means the newest one, which is what a reply in this sitting
+    # means. An older round has to be named.
+    round_number = record.get("round", 0) if args.round is None else args.round
+    finding, error = resolve_target(record, args.target, round_number)
+    if error:
+        print("ERROR=%s" % error, file=sys.stderr)
+        return 2
+    # `accepted` means "this is fine as it is", which is exactly what a
+    # developer says about a verified finding. `fixed` and `deferred` both
+    # claim work is owed, and nothing is owed on one the reviewer settled.
+    if finding.get("group") != "open" and args.state != "accepted":
+        print("ERROR=%s is verified. Only --state accepted applies to one, "
+              "because nothing is owed on a finding the reviewer settled"
+              % finding["key"], file=sys.stderr)
+        return 2
+
+    finding["decision"] = {
+        "state": args.state,
+        "note": note,
+        "round": round_number,
+        "at": utc_now(),
+    }
+    with open(path, "w") as fh:
+        json.dump(record, fh, indent=2)
+        fh.write("\n")
+    print("DECIDED=%s" % finding["key"])
+    print("STATE=%s" % args.state)
+    return 0
+
+
+def cmd_pr_table(args):
+    """Print the PR table, finished. The whole product of /recce-pr-prep."""
+    project_dir = args.project_dir
+    record = load_record(
+        args.record or record_path(project_dir),
+        project_dir,
+        current_branch(project_dir),
+    )
+    if record is None:
+        print("ERROR=no findings record for this branch", file=sys.stderr)
+        return 2
     current = record.get("round", 0)
-    print("ROUND=%d" % current)
-    # The checks were created on a session, so a reader of this table has to be
-    # told which one. A record written before this field prints empty.
-    print("SESSION_ID=%s" % (record.get("session_id") or ""))
-    rows = []
+
+    rows, undecided = [], []
     for finding in record["findings"]:
-        if finding.get("group") != "open":
+        decision = finding.get("decision") or {}
+        state = decision.get("state")
+        if state == "fixed":
             continue
-        reported = finding.get("last_seen") == current
-        # .get, not [...]: a record written before this field still loads, and
-        # its findings simply have no diff call to offer.
-        check = finding.get("check")
-        rows.append(
-            (
-                "reported" if reported else "stopped",
-                finding["key"],
-                finding["file"],
-                check["type"] if check else NO_CHECK,
-                json.dumps(check["params"], separators=(",", ":"))
-                if check
-                else NO_CHECK,
-            )
-        )
-    # Still-reported first, then by key. One record always prints one order.
-    rows.sort(key=lambda row: (row[0] != "reported", row[1]))
-    for row in rows:
-        print("%-8s %s %s %s %s" % row)
+        # A decision owns its row from the round it was made in. The group only
+        # governs a finding nobody has spoken about, because the reviewer
+        # reclassifying one the developer already settled is not the developer
+        # changing their mind.
+        if state not in IN_TABLE and finding.get("group") != "open":
+            continue
+        # Still-reported first, then by key. One record always prints one order.
+        rank = (finding.get("last_seen") != current, finding["key"])
+        if state in IN_TABLE:
+            rows.append(rank + (finding["title"], decision["note"]))
+        else:
+            undecided.append(rank)
+    rows.sort()
+    undecided.sort()
+
+    if rows:
+        print("| Finding | Why |")
+        print("|---|---|")
+        for _, _, title, note in rows:
+            print("| %s | %s |" % (title, note))
+    else:
+        print("No findings were decided on this branch.")
+
+    def keys(stopped):
+        return ", ".join("`%s`" % key for gone, key in undecided if gone == stopped)
+
+    notes = []
+    if keys(False):
+        notes.append("Not decided, and round %d still reports these: %s."
+                     % (current, keys(False)))
+    if keys(True):
+        notes.append("Not decided, and round %d does not report these: %s."
+                     % (current, keys(True)))
+    if notes:
+        print()
+        for line in notes:
+            print(line)
     return 0
 
 
@@ -611,6 +768,9 @@ def cmd_write(args):
     merged, new_count, carried, returned = [], 0, 0, []
     for finding in findings:
         was = prior_findings.get(finding["key"])
+        ordinal = finding.pop("ordinal")
+        finding["ordinals"] = {}
+        finding["decision"] = None
         if was is None:
             new_count += 1
             finding["first_seen"] = round_number
@@ -620,14 +780,24 @@ def cmd_write(args):
             # None when the prior record predates timestamps. Filling it with
             # the current time would claim this round first saw it.
             finding["first_seen_at"] = was.get("first_seen_at")
+            # Every round's number for this finding, kept. "F2 of round 1" is
+            # then a lookup, and a later round taking F2 costs nothing.
+            finding["ordinals"] = dict(was.get("ordinals") or {})
+            finding["decision"] = was.get("decision")
             if was.get("last_seen") == prior_round:
                 carried += 1
             elif was_open(was):
                 returned.append(finding["key"])
+                # It was decided, then it came back. The decision answered a
+                # state of the tree that no longer holds, so asking again is
+                # better than carrying an answer to a question that changed.
+                finding["decision"] = None
             else:
                 # Known to the record, and it was never open, so nothing was
                 # fixed and nothing came back. Not news.
                 carried += 1
+        if ordinal:
+            finding["ordinals"][str(round_number)] = ordinal
         finding["last_seen"] = round_number
         finding["last_seen_at"] = now
         merged.append(finding)
@@ -639,11 +809,16 @@ def cmd_write(args):
     for key, was in prior_findings.items():
         if key in reported:
             continue
-        if was.get("last_seen") == prior_round and was_open(was):
+        # Accepted or deferred, and the reviewer stopped repeating it: that is
+        # the decision working, not a fix. `fixed` still counts, because the
+        # developer said the diff would carry it and the reviewer agrees.
+        held = (was.get("decision") or {}).get("state") in ("accepted", "deferred")
+        if was.get("last_seen") == prior_round and was_open(was) and not held:
             resolved.append(key)
-        # Drop the ordinal. It pointed at a position in the round that
-        # reported it, and this round has given that number to something else.
-        merged.append(dict(was, ordinal=None))
+        # Kept exactly as it is, decision included. Its numbers are filed under
+        # the rounds that printed them, so this round giving F2 to something
+        # else takes nothing away from it.
+        merged.append(was)
 
     record = {
         "version": RECORD_VERSION,
@@ -685,12 +860,22 @@ def cmd_concerns(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, handler in (("read", cmd_read), ("write", cmd_write), ("table", cmd_table)):
+    for name, handler in (
+        ("read", cmd_read),
+        ("write", cmd_write),
+        ("decide", cmd_decide),
+        ("pr-table", cmd_pr_table),
+    ):
         child = sub.add_parser(name)
         child.add_argument("--record", default=None)
         child.add_argument("--project-dir", default=os.getcwd())
         if name == "write":
             child.add_argument("--session-id", default="")
+        if name == "decide":
+            child.add_argument("target", help="F<n> from a round, or a finding key")
+            child.add_argument("--state", choices=DECISIONS, required=True)
+            child.add_argument("--note", required=True)
+            child.add_argument("--round", type=int, default=None)
         child.set_defaults(handler=handler)
     sub.add_parser("concerns").set_defaults(handler=cmd_concerns)
     matcher = sub.add_parser("match-checks")

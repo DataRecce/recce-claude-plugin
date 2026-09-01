@@ -235,7 +235,7 @@ Open this session in Recce: {host}/launch/{SESSION_ID}
 **Checks:** {n} created on this Recce session. No check for {keys}: no diff re-runs them.
 
 ```recce-findings
-{one line per finding: <ordinal> <group> <model[.column]:concern> <file>}
+{one line per finding: <ordinal> <group> <model[.column]:concern> <file> <title>}
 ```
 ````
 
@@ -398,19 +398,20 @@ End the summary with this. Only the check-params block below may follow it:
 
 ````
 ```recce-findings
-F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml
-F2 open finance_revenue.gross_revenue:test_cannot_hold models/finance_revenue.sql
-- verified customers.customer_lifetime_value:value_shift models/customers.sql
-- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql
+F1 open customers.customer_lifetime_value:doc_mismatch models/schema.yml CLV documentation omits the completed-orders restriction
+F2 open finance_revenue.gross_revenue:test_cannot_hold models/finance_revenue.sql A not_null test the new left join can break
+- verified customers.customer_lifetime_value:value_shift models/customers.sql CLV moved on 12 of 998 customers
+- verified stg_payments.coupon_amount:schema_add models/staging/stg_payments.sql coupon_amount is a new column
 ```
 ````
 
-One line per finding. Four fields, and no field contains a space:
+One line per finding. Five fields. The first four contain no space; the fifth runs to the end of the line:
 
 - **ordinal** — `F<n>` for an `open` finding, `-` for a `verified` one. The open ordinals must be exactly `F1` to `Fn` with no gap and no repeat, and every verified line must carry `-`. `findings.py` rejects the block otherwise, so a number on a verified line is an error: it means the summary printed one. A finding moved onto the overflow line by the cap still gets a line here, with the same ordinal rule for its group. Leaving a finding out of the block makes it look resolved next round.
 - **group** — `open` or `verified`, matching the table it was printed in.
 - **key** — `model:concern`, or `model.column:concern` when the finding is about one column. This is how the next round recognises the same finding, so the concern word comes from the `CONCERNS=` list in your dispatch and from nowhere else. An invented word never matches, and the finding then returns as new for ever.
 - **file** — the file the finding names, relative to the project root. It has to exist.
+- **title** — the finding's own line of text, copied unchanged: the `Open items` Finding cell for an open finding, and the opening phrase of the bullet for a verified one. It runs to the end of the line, so it is the only field that may contain a space. `/recce-pr-prep` prints it in the PR table, and without it that step has to read the title back out of this summary — which is not there to read when the round ran in an earlier session. No `|` in it: it goes in a markdown table cell.
 
 **When the review found nothing at all, the block is the single word `none`:**
 
