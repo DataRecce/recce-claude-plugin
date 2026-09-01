@@ -360,7 +360,7 @@ The reviewer can turn each open finding a diff re-runs into a check on this Recc
 
 That costs something, so the developer decides. Ask once, before the first dispatch in this session:
 
-> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created. Recce records it as created and approved by you, by name, and it cannot delete a single check afterwards.
+> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created, and Recce saves it on this session under your name.
 
 Asking means ending your turn. Ask **once per session**: later rounds use the same answer, because the developer already decided for this session.
 

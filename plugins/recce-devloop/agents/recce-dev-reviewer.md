@@ -161,15 +161,16 @@ mcp__plugin_recce-devloop_recce__create_check(
   type: "<the type from that finding's check-params line>",
   params: <the params from that finding's check-params line>,
   name: "Open finding: <key>",
-  description: "Open at round <ROUND> of /recce-dev-review. Approved here means the check ran, not that the finding was accepted. File: <file>."
+  description: "Open at round <ROUND> of /recce-dev-review. File: <file>.",
+  approve: false
 )
 ```
 
 `<ROUND>` is one more than the `PRIOR_ROUND=` in your dispatch. `<key>` and `<file>` are the record block's own fields, unchanged. Take `type` and `params` from your check-params line and change nothing: a params key Recce does not recognise is dropped without an error, and the check then measures nothing.
 
-**The name has to say the finding is open, because the tick will not.** Recce approves a check as soon as its run succeeds, and no argument turns that off. It also records the check as created and approved by the developer, by name, because the MCP server authenticates with their token. So the name is the only field that reaches the reader before the tick does.
+**`approve: false` is not optional.** Without it Recce approves the check the moment its run succeeds, and an open finding reads as done.
 
-**One check per finding, for ever.** Never call `create_check` a second time for a finding, in this round or a later one: not to add what the developer decided, not to correct the wording. Every call costs a warehouse query, a second call on a Cloud session leaves a second check, and nothing in Recce deletes a single check. What the developer decided belongs in the PR table `/recce-pr-prep` prints.
+**One check per finding, for ever.** Never call `create_check` a second time for a finding, in this round or a later one: not to add what the developer decided, not to correct the wording. Every call costs a warehouse query, and a second call on a Cloud session leaves a second check. What the developer decided belongs in the PR table `/recce-pr-prep` prints.
 
 If a call fails, do not retry it. Count it as not created and say so on the `**Checks:**` line.
 
@@ -444,7 +445,7 @@ One line per finding you measured. Three fields:
 - **type** — one of `row_count_diff`, `schema_diff`, `query_diff`, `profile_diff`, `value_diff`, `value_diff_detail`, `top_k_diff`, `histogram_diff`.
 - **params** — the arguments you actually passed to that tool, as JSON, taking the rest of the line.
 
-**Write the call you made, not a call you could have made.** These are the arguments that produced the number in the Evidence cell. Copy them from the call, do not retype them from the finding: a check built from invented params measures something the finding never measured, and nothing in Recce deletes a check afterwards.
+**Write the call you made, not a call you could have made.** These are the arguments that produced the number in the Evidence cell. Copy them from the call, do not retype them from the finding: a check built from invented params measures something the finding never measured.
 
 **Use each tool's own argument names.** `row_count_diff` takes `node_names`, not `model`. Recce drops a params key it does not recognise, with no error, so `{"model": "orders"}` creates a check with no model selected at all.
 

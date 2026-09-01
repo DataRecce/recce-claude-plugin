@@ -164,8 +164,7 @@ CONCERNS = [
 # The five concerns read from code or documentation. create_check's type is one
 # of eight diff types, and none of them re-runs a claim about a document, a
 # test, a filter, a join grain, or a cause nobody determined. A check built from
-# one of these measures something the finding never measured, it arrives
-# approved, and nothing in Recce deletes it afterwards.
+# one of these measures something the finding never measured.
 NO_CHECK_CONCERNS = (
     "doc_mismatch",
     "test_cannot_hold",
