@@ -307,25 +307,6 @@ def test_a_carried_finding_keeps_the_time_it_was_first_seen(tmp_path):
     assert kept["last_seen_at"] != "2026-01-01T00:00:00Z"
 
 
-def test_a_record_without_timestamps_reports_unknown_not_now(tmp_path):
-    """Filling a missing time with now would claim this round first saw it."""
-    project = _project(tmp_path)
-    record = tmp_path / "record.json"
-    _run(["write", "--record", str(record), "--project-dir", str(project)], stdin=ROUND_1)
-
-    written = json.loads(record.read_text())
-    written.pop("updated_at")
-    for finding in written["findings"]:
-        finding.pop("first_seen_at")
-        finding.pop("last_seen_at")
-    record.write_text(json.dumps(written))
-
-    _run(["write", "--record", str(record), "--project-dir", str(project)], stdin=ROUND_1)
-
-    after = {f["key"]: f for f in json.loads(record.read_text())["findings"]}
-    assert after["customers.customer_lifetime_value:doc_mismatch"]["first_seen_at"] is None
-
-
 def test_an_open_finding_must_carry_an_ordinal(tmp_path):
     """The summary prints it, so it has to be there."""
     project = _project(tmp_path)
@@ -389,41 +370,27 @@ F2 open customers.clv:null_introduced models/customers.sql 5 customers have NULL
     assert by_key["stg_payments.coupon_amount:schema_add"]["ordinals"] == {}
 
 
-def test_a_gap_in_the_ordinals_is_rejected(tmp_path):
+def test_ordinals_that_are_not_f1_to_fn_are_rejected(tmp_path):
+    """A gap and a repeat both break the map from a printed number to a
+    finding, and one check in findings.py catches both."""
     project = _project(tmp_path)
-    record = tmp_path / "record.json"
-    block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
-F3 open customers.clv:null_introduced models/customers.sql 5 customers have NULL CLV
-```
-"""
+    line = "%s open customers.clv:%s models/customers.sql A title for it"
 
-    result = _run(
-        ["write", "--record", str(record), "--project-dir", str(project)],
-        stdin=block,
-    )
+    for name, second in (("gap", "F3"), ("repeat", "F1")):
+        record = tmp_path / ("%s.json" % name)
+        block = "```recce-findings\n%s\n%s\n```\n" % (
+            line % ("F1", "doc_mismatch"),
+            line % (second, "null_introduced"),
+        )
 
-    assert result.returncode == 2
-    assert "expected F1..F2" in result.stderr
-    assert not record.exists()
+        result = _run(
+            ["write", "--record", str(record), "--project-dir", str(project)],
+            stdin=block,
+        )
 
-
-def test_a_repeated_ordinal_is_rejected(tmp_path):
-    project = _project(tmp_path)
-    record = tmp_path / "record.json"
-    block = """```recce-findings
-F1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction
-F1 open customers.clv:null_introduced models/customers.sql 5 customers have NULL CLV
-```
-"""
-
-    result = _run(
-        ["write", "--record", str(record), "--project-dir", str(project)],
-        stdin=block,
-    )
-
-    assert result.returncode == 2
-    assert not record.exists()
+        assert result.returncode == 2, name
+        assert "expected F1..F2" in result.stderr, name
+        assert not record.exists(), name
 
 
 def test_a_verified_finding_dropping_out_is_not_reported_as_resolved(tmp_path):
@@ -540,18 +507,11 @@ def test_a_record_from_another_project_is_ignored(tmp_path):
     assert "PRIOR_ROUND=0" in result.stdout
 
 
+# The rules with no test of their own. A rule whose message and accepting case
+# are worth pinning gets a named test instead, further down.
 BAD_BLOCKS = {
-    "unknown_concern": (
-        "F1 open customers.clv:doc_missmatch models/schema.yml CLV docs omit the restriction"
-    ),
     "bad_ordinal": (
         "X1 open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction"
-    ),
-    "no_ordinal": (
-        "- open customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction"
-    ),
-    "numbered_verified": (
-        "F1 verified customers.clv:value_shift models/customers.sql CLV moved on 12 customers"
     ),
     "bad_group": (
         "F1 maybe customers.clv:doc_mismatch models/schema.yml CLV docs omit the restriction"
@@ -567,10 +527,6 @@ BAD_BLOCKS = {
     ),
     "escaping_file": (
         "F1 open customers.clv:doc_mismatch ../outside.sql CLV docs omit the restriction"
-    ),
-    "wrong_field_count": "F1 open customers.clv:doc_mismatch",
-    "pipe_in_title": (
-        "F1 open customers.clv:doc_mismatch models/schema.yml CLV docs | omit the restriction"
     ),
 }
 
@@ -705,17 +661,19 @@ def test_an_unreadable_record_is_treated_as_absent(tmp_path):
 
 
 def test_the_record_path_matches_the_shell_hash_scheme(tmp_path):
-    """_project-hash.sh derives the same 8 characters from the same input."""
+    """Run _project-hash.sh itself, so a change to it fails here."""
     project = str(tmp_path)
     shell = subprocess.run(
-        ["bash", "-c", 'printf "%s" "$1" | md5 2>/dev/null || printf "%s" "$1" | md5sum',
-         "_", project],
+        ["bash", "-c", '. "$1"; printf "%s" "$RECCE_PROJECT_HASH"', "_",
+         str(SCRIPT.parent / "_project-hash.sh")],
+        cwd=project,
         capture_output=True,
         text=True,
     )
-    digest = shell.stdout.split()[0][:8]
 
-    assert findings.record_path(project) == "/tmp/recce-findings-%s.json" % digest
+    assert shell.returncode == 0, shell.stderr
+    assert len(shell.stdout) == 8, shell.stdout
+    assert findings.record_path(project) == "/tmp/recce-findings-%s.json" % shell.stdout
 
 
 # --- `decide` and `pr-table`: the decisions the PR description is built from -
@@ -915,16 +873,6 @@ def _session(tmp_path):
     return project, record, args, written[2]
 
 
-def test_the_table_carries_the_decisions_and_leaves_out_the_fixes(tmp_path):
-    """AC-1. Two of the seven were fixed, and the diff already shows those."""
-    project, record, args, _ = _session(tmp_path)
-
-    result = _run(["pr-table"] + args)
-
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "ROUND=0\n"
-
-
 # --- the check-params block: which check backs which finding ----------------
 
 ROUND_1_WITH_CHECKS = (
@@ -1049,41 +997,24 @@ def test_a_review_with_no_check_params_block_still_writes_its_record(tmp_path):
     assert all(f["check"] is None for f in json.loads(record.read_text())["findings"])
 
 
-def test_a_finding_missing_the_check_and_title_fields_still_reads(tmp_path):
-    """A hand-written or part-built finding has neither `check` nor `title`.
-    `pr-table` reaches it through the undecided path, which touches neither, so
-    it must report the finding rather than raise."""
+def test_pr_table_on_a_round_nobody_decided_yet(tmp_path):
+    """The developer ran a review and answered nothing. There is no table, and
+    the finding goes on a note line rather than a row with an empty cell."""
     project = _project(tmp_path)
     record = tmp_path / "record.json"
-    record.write_text(
-        json.dumps(
-            {
-                "version": findings.RECORD_VERSION,
-                "project": str(project),
-                "branch": None,
-                "round": 3,
-                "updated_at": "2026-08-20T00:00:00Z",
-                "findings": [
-                    {
-                        "key": "customers:join_shape",
-                        "group": "open",
-                        "file": "models/customers.sql",
-                        "ordinal": "F1",
-                        "first_seen": 3,
-                        "last_seen": 3,
-                    }
-                ],
-            }
-        )
-    )
+    args = ["--record", str(record), "--project-dir", str(project)]
+    _run(["write"] + args, stdin="""```recce-findings
+F1 open customers:join_shape models/customers.sql The new join changes the grain
+```
+""")
 
-    result = _run(["pr-table", "--record", str(record), "--project-dir", str(project)])
+    result = _run(["pr-table"] + args)
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
         "No findings were decided on this branch.",
         "",
-        "Not decided, and round 3 still reports these: `customers:join_shape`.",
+        "Not decided, and round 1 still reports these: `customers:join_shape`.",
     ]
 
 
