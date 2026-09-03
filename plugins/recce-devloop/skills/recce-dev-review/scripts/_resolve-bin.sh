@@ -9,16 +9,13 @@
 # Exposes:
 #   resolve_bin <name>  -- prints the absolute path and exits 0 when found;
 #                          prints nothing and exits 1 when not.
-#
-# Claude Code's Bash tool does not inherit an activated venv, so a bare
-# `command -v <name>` reports "missing" for a correctly installed project.
-# That false negative silently disables whole code paths -- it is why
-# session-start.sh grew its own copy of this lookup. Order mirrors
-# run-mcp-stdio.sh, which activates venv/.venv before looking for `recce`:
-#   1. venv/bin/<name>
-#   2. .venv/bin/<name>
-#   3. <name> on PATH (global install, or an already-activated venv)
 
+# Claude Code's Bash tool does not inherit an activated venv, so a bare
+# `command -v <name>` reports "missing" for a correctly installed project, and
+# that false negative silently disables whole code paths. Order mirrors
+# run-mcp-stdio.sh, which activates venv/.venv before looking for `recce`, then
+# falls back to PATH (a global install, or an already-activated venv).
+# hooks/scripts/session-start.sh keeps its own copy of this lookup.
 resolve_bin() {
     local name="$1" venv_dir candidate
     for venv_dir in venv .venv; do

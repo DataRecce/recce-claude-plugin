@@ -4,23 +4,17 @@
 #
 # Used by /recce-dev-review's Precondition step, on every invocation.
 #
-# Whether the recce MCP tools (mcp__plugin_recce-devloop_recce__*) are bound in this
-# session is the one fact no script can read -- only the model can see its own
-# tool list. The caller passes that in as one word; every other decision is
-# made here.
-#
-# Args:    --tools present|absent   (required)
+# Args:    --tools present|absent   (required). Whether the recce MCP tools
+#          (mcp__plugin_recce-devloop_recce__*) are bound is the one fact no
+#          script can read: only the model sees its own tool list.
 # Stdout:  REMEDY=install|dbt-docs|restart|none
 #          INSTALL=<pip argument list>       (only when REMEDY=install)
 #          RECCE_CLOUD=<path>|missing        (only when REMEDY=none)
+#          Nothing else. The resolved `recce` path and the presence of
+#          target/manifest.json are inputs to REMEDY and nothing more, so
+#          printing them only creates output the caller must be told to ignore.
 # Exit:    0 always, except 64 for a bad --tools value (a caller bug, not a
 #          user state -- do not paper over it with a default).
-#
-# Only actionable keys are printed. The resolved `recce` path, the presence of
-# target/manifest.json, and the state of target-base/ are all inputs to REMEDY
-# and nothing else, so printing them only creates output the caller has to be
-# told to ignore. RECCE_CLOUD is printed because the Cloud readiness step
-# genuinely needs it, and only once there is a readiness step to reach.
 
 set -u
 
@@ -60,9 +54,7 @@ echo "REMEDY=$REMEDY"
 
 if [ "$REMEDY" = "install" ]; then
     # recce-cloud needs no restart of its own, so bundling it into this one
-    # pip command saves the user a second restart cycle. The target user is an
-    # existing Recce Cloud client who has only ever used the web app, so on a
-    # first dev-time run neither package is present.
+    # pip command saves the user a second restart cycle.
     if [ "$RECCE_CLOUD" = "missing" ]; then
         echo "INSTALL='recce[mcp]' recce-cloud"
     else

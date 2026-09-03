@@ -22,29 +22,24 @@ Stdin:   write and match-checks. The agent's output, or just its block. The fenc
          ```recce-findings block is extracted from whatever is given, so the
          caller does not have to cut it out first.
 
-         A second block, ```recce-check-params, carries the (type, params) of
-         the diff call that produced each finding. It is optional: five of the
-         ten concerns are read from code and no diff re-runs them. The reviewer
-         creates the check itself during the round, so what is stored here is
-         the record of which check backs which finding.
+         A review that finds nothing sends a block holding the single word
+         `none`. An empty block is an error.
 
-         A review that finds nothing writes a block holding the single word
-         `none`. An empty block is an error, because a forgotten block looks
-         exactly like an all-fixed round, and the two must not be confused: one
-         should be reported as a success, the other loudly as a fault.
-
-         An open finding carries an ordinal, F1..Fn with no gap and no
-         repeat. A verified finding carries "-", because the summary never
-         prints a number for one. Every finding also carries a title: the
-         Finding cell the summary printed for it, so no later step has to
-         read the title back out of the conversation.
+         One line per finding: key, group, file, ordinal, title. An open
+         finding carries an ordinal, F1..Fn with no gap and no repeat. A
+         verified finding carries "-". The title is the Finding cell the
+         summary printed, so no later step has to read it back out of the
+         conversation.
 
          The ordinal is a position in one round's list, not a name. Sorting
          the list again moves the numbers, so nothing compares ordinals
-         between rounds. Each round's ordinal is kept under its own round
-         number, which is what lets `decide F2 --round 2` mean one finding
-         and `decide F2 --round 1` mean another. `key` is what identifies a
-         finding over time.
+         between rounds. `key` is what identifies a finding over time.
+
+         A second block, ```recce-check-params, carries the (type, params) of
+         the diff call that produced each finding. It is optional: a concern
+         in NO_CHECK_CONCERNS is read from code and no diff re-runs it. The
+         reviewer creates the check itself during the round, so what is
+         stored here is the record of which check backs which finding.
 
 Stdout:  read      PRIOR_ROUND=<n>
                    <group> <key> <file>        (one per live prior finding)
@@ -61,7 +56,10 @@ Stdout:  read      PRIOR_ROUND=<n>
                                                written)
          decide    DECIDED=<key>
                    STATE=<state>
-         pr-table  the finished markdown table, then any note lines
+         pr-table  the markdown table, then any note lines. A decided finding
+                   gets a row, `fixed` excluded. A finding nobody decided goes
+                   on a note line instead, because a row would put an empty
+                   cell where the grounds belong.
          concerns  CONCERNS=<comma separated>
          match-checks
                    CREATE=<key> <type> <params>   (no check covers it yet)
@@ -80,54 +78,8 @@ against the round number, so no field stores it:
     last_seen <  prior round, in the block        -> returned, it came back
     last_seen <  prior round, not in the block    -> still resolved, silent
 
-`resolved` and `returned` are reported for findings that were **open**. Only an
-open finding is something the developer acts on, so only an open one can be
-fixed or come back. A verified finding that stops being reported is not a fix:
-the column is still there, the agent just did not repeat it. Reporting that as
-resolved is noise the developer cannot act on, and it was doing so.
-
-An accepted or deferred finding that stops being reported is not a fix either.
-The developer said it stays, and the reviewer has stopped repeating it, which
-is the record doing its job. Only `fixed` and undecided findings can be
-resolved.
-
-Deleting a resolved finding would make the fourth case impossible to see: the
-same problem coming back would be indistinguishable from a first sighting, for
-ever, including for any display written later. `read` lists live findings only,
-so the reviewer's view is unchanged by the ones being kept.
-
-`decide` and `pr-table` are the PR side of the same record. `decide` stores
-what the developer said about one finding at the moment they say it, while the
-round that printed the number is still on screen. `pr-table` prints the
-finished markdown, so one record always gives one table and no agent composes
-any part of it.
-
-A fix is visible in the diff and a decision is not, so `pr-table` prints the
-decisions and leaves the fixes out. `fixed` is therefore a way of saying "drop
-this row", not a claim that the fix landed: nothing in this script reads the
-tree. A finding nobody decided is neither a fix nor a decision, so it goes
-under the table on a note line rather than into a row. Hiding it would lose an
-open problem, and giving it a row would put an empty cell exactly where the
-grounds belong.
-
-A decision owns its row from the round it was made in, whatever group a later
-round gives the finding. The group only decides what happens to a finding
-nobody has spoken about: an open one goes on the note line, and a verified one
-is not printed at all, because it needs no decision from anyone. A verified
-finding can still be `accepted` -- that is the developer agreeing with it out
-loud -- but not `deferred` or `fixed`, because nothing is owed on one the
-reviewer already settled.
-
-The three state words never reach the output. They select which findings get a
-row; the note is what the reader sees, and it says what was decided in prose.
-
-Round numbers drive every comparison above, because ordering is all the
-comparison needs and integers cannot drift. Timestamps are stored alongside
-them as information, not mechanism. A round number cannot answer "how old is
-this finding", and the time it happened cannot be recovered afterwards, so it
-is written even though nothing displays it yet. A finding carried over from a
-record written before timestamps existed has `first_seen_at: null`, which says
-unknown rather than inventing a time.
+`resolved` and `returned` are reported for findings that were open only. `read`
+lists live findings only, so what the record keeps does not reach the reviewer.
 """
 
 import argparse
@@ -139,9 +91,6 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-# Same scheme as _project-hash.sh in this directory, and as the two copies
-# named in its header comment. Four places now derive this hash; change them
-# together.
 RECORD_DIR = "/tmp"
 RECORD_VERSION = 2
 
@@ -241,10 +190,16 @@ When the review found nothing at all, the whole block is one word:
 
 
 def utc_now():
+    # Every comparison in this script uses round numbers, not these: ordering
+    # is all the comparison needs and integers cannot drift. A round number
+    # cannot answer "how old is this finding", and the time cannot be
+    # recovered afterwards, so it is written even though nothing displays it.
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def record_path(project_dir):
+    # Same scheme as _project-hash.sh in this directory, and as the two copies
+    # named in its header comment. Change all four together.
     digest = hashlib.md5(project_dir.encode()).hexdigest()[:8]
     return os.path.join(RECORD_DIR, "recce-findings-%s.json" % digest)
 
@@ -316,7 +271,8 @@ def parse_check_params(text):
     """Pull the (key, type, params) lines out of the agent's second block.
 
     The block is optional. A review whose findings all come from code has no
-    diff call to record, and five of the ten concerns can never have one --
+    diff call to record, and a concern in NO_CHECK_CONCERNS can never have
+    one --
     a line for one of those is an error, not an omission, because the check it
     would build is permanent and measures something else.
 
@@ -748,8 +704,7 @@ def cmd_write(args):
             print("ERROR=%s" % message, file=sys.stderr)
         return 2
     for finding in findings:
-        # None when the finding was read from code, which is correct for five
-        # of the ten concerns and never becomes a check.
+        # None when the finding was read from code, so no diff re-runs it.
         finding["check"] = check_params.get(finding["key"])
 
     prior = load_record(path, project_dir, branch)
@@ -804,6 +759,8 @@ def cmd_write(args):
     # Everything the block did not report stays in the record untouched. Only
     # the round it goes missing reports it, so last_seen is what makes the
     # difference between "resolved just now" and "resolved a while ago".
+    # Deleting it instead would make the same problem coming back
+    # indistinguishable from a first sighting, for ever.
     resolved = []
     for key, was in prior_findings.items():
         if key in reported:
@@ -814,9 +771,7 @@ def cmd_write(args):
         held = (was.get("decision") or {}).get("state") in ("accepted", "deferred")
         if was.get("last_seen") == prior_round and was_open(was) and not held:
             resolved.append(key)
-        # Kept exactly as it is, decision included. Its numbers are filed under
-        # the rounds that printed them, so this round giving F2 to something
-        # else takes nothing away from it.
+        # Kept exactly as it is, decision included.
         merged.append(was)
 
     record = {

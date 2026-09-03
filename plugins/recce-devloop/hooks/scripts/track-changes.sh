@@ -3,7 +3,6 @@
 # Silent: no stdout, always exit 0
 # Tracks model SQL file edits to project-scoped temp file
 
-# Graceful degradation: require jq
 command -v jq &>/dev/null || exit 0
 
 INPUT=$(cat)
@@ -16,7 +15,6 @@ if [[ ! "$FILE_PATH" =~ /models/.*\.sql$ ]]; then
     exit 0
 fi
 
-# Compute project-scoped hash from cwd
 if command -v md5 >/dev/null 2>&1; then
     PROJECT_HASH=$(printf '%s' "${CWD:-$PWD}" | md5 | cut -c1-8)
 else
@@ -24,10 +22,8 @@ else
 fi
 CHANGES_FILE="/tmp/recce-changed-${PROJECT_HASH}.txt"
 
-# Append with deduplication
 if ! grep -qxF "$FILE_PATH" "$CHANGES_FILE" 2>/dev/null; then
     echo "$FILE_PATH" >> "$CHANGES_FILE"
 fi
 
-# Critical: no stdout (async hook must be silent)
 exit 0

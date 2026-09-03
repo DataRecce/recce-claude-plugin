@@ -3,10 +3,9 @@
 #
 # Used by /recce-dev-review when the user reports a fresh recce-cloud install.
 #
-# Thin wrapper over _resolve-bin.sh, which carries the lookup order and the
-# reason for it. Kept as its own script because check-preflight.sh reports
-# RECCE_CLOUD only on a clean run, so a mid-session install needs a way to
-# re-resolve it without re-running the whole precondition.
+# Its own script because check-preflight.sh reports RECCE_CLOUD only on a clean
+# run, so a mid-session install needs a way to re-resolve it without re-running
+# the whole precondition. _resolve-bin.sh carries the lookup order.
 #
 # Args:    none (run from the dbt project root)
 # Stdout:  exactly one of:

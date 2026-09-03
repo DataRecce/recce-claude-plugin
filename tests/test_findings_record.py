@@ -89,8 +89,6 @@ def test_valid_block_writes_the_record(tmp_path):
         "customers.customer_lifetime_value:value_shift",
         "stg_payments.coupon_amount:schema_add",
     ]
-    # The title the summary printed, kept so no later step reads it back out
-    # of the conversation.
     assert (
         written["findings"][0]["title"]
         == "CLV documentation omits the completed-orders restriction"
@@ -153,13 +151,10 @@ F2 open customers:join_shape models/customers.sql The new join changes the grain
     assert by_key["customers.customer_lifetime_value:doc_mismatch"]["first_seen"] == 1
     assert by_key["customers.customer_lifetime_value:doc_mismatch"]["last_seen"] == 2
     assert by_key["customers:join_shape"]["first_seen"] == 2
-    # The resolved finding stays, with last_seen behind the round. Deleting it
-    # would make a later return indistinguishable from a first sighting.
+    # The resolved finding stays, with last_seen behind the round.
     gone = by_key["customers.customer_lifetime_value:null_introduced"]
     assert gone["last_seen"] == 1
     assert written["round"] == 2
-    # Its number is filed under the round that printed it, so round 2 giving F2
-    # to another finding takes nothing away from it.
     assert gone["ordinals"] == {"1": "F2"}
     assert by_key["customers:join_shape"]["ordinals"] == {"2": "F2"}
     # Open ordinals only, and unambiguous within the round.
@@ -1040,7 +1035,7 @@ def test_check_params_that_is_not_json_is_rejected(tmp_path):
 
 
 def test_a_review_with_no_check_params_block_still_writes_its_record(tmp_path):
-    """Five of the ten concerns can never carry one, so the block is optional."""
+    """A concern no diff re-runs can never carry one, so the block is optional."""
     project = _project(tmp_path)
     record = tmp_path / "record.json"
 
@@ -1094,8 +1089,8 @@ def test_a_finding_missing_the_check_and_title_fields_still_reads(tmp_path):
 
 # --- `match-checks`: is this check already on the session? -------------------
 
-# The two checks that were on session 3a5fa9a6 during the 2026-08-31 run,
-# copied from artifacts/stream.jsonl line 91. Both are Recce presets.
+# The two checks that were on the session during a recorded run. Both are
+# Recce presets.
 LIVE_CHECKS = {
     "checks": [
         {
@@ -1198,13 +1193,12 @@ def test_match_checks_stops_when_it_cannot_read_the_existing_checks(tmp_path):
     assert result.stdout == ""
 
 
-# --- the five concerns no diff re-runs ---------------------------------------
+# --- the concerns no diff re-runs --------------------------------------------
 
-# The reviewer's own check-params block from the 2026-08-31 round-3 run,
-# verbatim from artifacts/r2-summary.md. Its fourth line created check
-# 0c4e12fa, a profile_diff of stg_payments standing in for "two filters remove
-# zero rows" -- a check that passes whatever those filters do, and that nothing
-# in Recce can delete.
+# The reviewer's own check-params block from a recorded round-3 run. Its
+# fourth line created a profile_diff of stg_payments standing in for "two
+# filters remove zero rows": a check that passes whatever those filters do,
+# and that nothing in Recce can delete.
 LIVE_BLOCK_LINES = [
     'customers.customer_lifetime_value:value_shift value_diff'
     ' {"model":"customers","primary_key":"customer_id"}',
@@ -1225,9 +1219,8 @@ DEAD_FILTER_LINE = LIVE_BLOCK_LINES[3]
 # The three the reviewer actually offered as open candidates, minus that one.
 LIVE_OPEN_CANDIDATES = LIVE_BLOCK_LINES[:3]
 
-# The four checks on the session at that moment, verbatim from the file the
-# reviewer piped into match-checks (artifacts/r2-stream.jsonl line 100). The
-# two presets, plus the two the round before had created.
+# The four checks on the session at that moment, as the reviewer piped them
+# into match-checks: the two presets, plus the two the round before created.
 LIVE_CHECKS_ROUND3 = {
     "checks": LIVE_CHECKS["checks"]
     + [
@@ -1370,8 +1363,8 @@ def test_the_legitimate_live_candidates_still_match_as_they_did(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    # The same three SKIP lines, with the same check ids, that
-    # artifacts/r2-stream.jsonl line 101 recorded for these candidates.
+    # The same three SKIP lines, with the same check ids, that the recorded
+    # run produced for these candidates.
     assert result.stdout.splitlines() == [
         "SKIP=customer_segments.value_segment:value_shift"
         " b0e7d841-be6d-471b-8a53-18b9e835eecf",

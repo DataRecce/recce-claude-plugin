@@ -1,27 +1,9 @@
 #!/usr/bin/env python3
 """check-artifacts.py -- Decide whether target/ still describes the working tree.
 
-Used by /recce-dev-review before the upload decision.
-
-The upload decision compares the session's timestamp against
-target/manifest.json. That says nothing about whether the artifacts describe
-the current source, or whether the warehouse was ever rebuilt -- both can be
-stale while the manifest looks fresh. Uploading then reviews code the
-developer no longer has.
-
-Two mtime comparisons answer it, one per dbt command:
-
-  models/<path>.sql  vs  target/manifest.json
-      newer source means the artifacts predate the edit -> dbt docs generate
-
-  models/<path>.sql  vs  target/run/<project>/<path>.sql
-      target/run/ is written only by dbt run / dbt build, so a newer source
-      (or a missing file) means the warehouse never got this version
-      -> dbt run
-
-target/run_results.json is not usable for the second check: `dbt docs
-generate` rewrites it (args.which == "generate"), so its mtime says nothing
-about a run.
+Used by /recce-dev-review before the upload decision, which compares the
+session timestamp against target/manifest.json and so cannot see whether the
+artifacts still describe the current source.
 
 Args:    [--target-path PATH]  (default: target)
 Stdout:  ARTIFACTS=ok|stale_docs|stale_tables|stale_both
@@ -29,11 +11,6 @@ Stdout:  ARTIFACTS=ok|stale_docs|stale_tables|stale_both
 Exit:    0 always. An unreadable or absent manifest reports ok -- the
          precondition step already owns the missing-artifacts case, and a
          second opinion here would contradict it.
-
-mtime is not content: git checkout, a formatter, or touch moves it with no
-real change, so this can ask for a rebuild that changes nothing. It never
-reports fresh for a file that genuinely changed later, which is the
-direction that matters.
 """
 
 import argparse
@@ -83,11 +60,21 @@ def main() -> int:
 
         name = node.get("name") or rel
 
+        # Newer source means the artifacts predate the edit, so the fix is
+        # `dbt docs generate`. mtime is not content: a git checkout, a
+        # formatter, or touch moves it with no real change, so this can ask
+        # for a rebuild that changes nothing. It never reports fresh for a
+        # file that genuinely changed later, which is the direction that
+        # matters.
         if src_mtime > manifest_mtime:
             stale_docs.append(name)
 
         if (node.get("config") or {}).get("materialized") in NO_RUN_FILE:
             continue
+        # target/run/ is written only by `dbt run` and `dbt build`, so a newer
+        # source (or a missing file) means the warehouse never got this
+        # version. target/run_results.json cannot stand in for it: `dbt docs
+        # generate` rewrites that too, so its mtime says nothing about a run.
         run_path = os.path.join(target, "run", node.get("package_name") or project, rel)
         try:
             if src_mtime > os.path.getmtime(run_path):
