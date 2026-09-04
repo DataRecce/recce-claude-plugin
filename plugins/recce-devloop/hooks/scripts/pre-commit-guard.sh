@@ -9,7 +9,7 @@ INPUT=$(cat)
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
 CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
 
-if ! echo "$COMMAND" | grep -qE 'git commit'; then
+if ! echo "$COMMAND" | grep -qE '(^|[;&|[:space:]])git[[:space:]]+commit([[:space:]]|$)'; then
     exit 0
 fi
 
