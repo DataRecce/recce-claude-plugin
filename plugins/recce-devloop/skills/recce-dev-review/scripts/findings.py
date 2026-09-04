@@ -65,6 +65,9 @@ Stdout:  read      PRIOR_ROUND=<n>
                    CREATE=<key> <type> <params>   (no check covers it yet)
                    SKIP=<key> <check_id>          (this check already does)
 
+Stderr:  ERROR=<message>, one per rejection. Every non-zero exit prints at
+         least one ERROR line, and stdout stays empty.
+
 Exit:    0 on success. 2 when a block fails validation, and then nothing is
          written -- a half-written record is worse than none, because next
          round would report live findings as resolved.
