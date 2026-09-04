@@ -1,0 +1,29 @@
+#!/bin/bash
+# track-changes.sh -- PostToolUse Write|Edit (async: true)
+# Silent: no stdout, always exit 0
+# Tracks model SQL file edits to project-scoped temp file
+
+command -v jq &>/dev/null || exit 0
+
+INPUT=$(cat)
+
+FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty')
+CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
+
+# Only track model SQL files (support nested dirs: models/staging/stg_foo.sql)
+if [[ ! "$FILE_PATH" =~ /models/.*\.sql$ ]]; then
+    exit 0
+fi
+
+if command -v md5 >/dev/null 2>&1; then
+    PROJECT_HASH=$(printf '%s' "${CWD:-$PWD}" | md5 | cut -c1-8)
+else
+    PROJECT_HASH=$(printf '%s' "${CWD:-$PWD}" | md5sum | cut -c1-8)
+fi
+CHANGES_FILE="/tmp/recce-changed-${PROJECT_HASH}.txt"
+
+if ! grep -qxF "$FILE_PATH" "$CHANGES_FILE" 2>/dev/null; then
+    echo "$FILE_PATH" >> "$CHANGES_FILE"
+fi
+
+exit 0
