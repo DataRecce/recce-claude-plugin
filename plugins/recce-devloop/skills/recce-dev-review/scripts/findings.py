@@ -15,7 +15,6 @@ Args:    read     [--record PATH] [--project-dir PATH]
          decide   <F<n>|key> --state STATE --note TEXT [--round N]
                   [--record PATH] [--project-dir PATH]
          pr-table [--record PATH] [--project-dir PATH]
-         concerns
          match-checks --existing PATH
 
 Stdin:   write and match-checks. The agent's output, or just its block. The fenced
@@ -60,7 +59,6 @@ Stdout:  read      PRIOR_ROUND=<n>
                    gets a row, `fixed` excluded. A finding nobody decided goes
                    on a note line instead, because a row would put an empty
                    cell where the grounds belong.
-         concerns  CONCERNS=<comma separated>
          match-checks
                    CREATE=<key> <type> <params>   (no check covers it yet)
                    SKIP=<key> <check_id>          (this check already does)
@@ -820,11 +818,6 @@ def cmd_write(args):
     return 0
 
 
-def cmd_concerns(args):
-    print("CONCERNS=%s" % ",".join(CONCERNS))
-    return 0
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -845,7 +838,6 @@ def main(argv=None):
             child.add_argument("--note", required=True)
             child.add_argument("--round", type=int, default=None)
         child.set_defaults(handler=handler)
-    sub.add_parser("concerns").set_defaults(handler=cmd_concerns)
     matcher = sub.add_parser("match-checks")
     matcher.add_argument("--existing", required=True)
     matcher.set_defaults(handler=cmd_match_checks, project_dir=os.getcwd())
