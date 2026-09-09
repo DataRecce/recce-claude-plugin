@@ -249,6 +249,15 @@ def load_record(path, project_dir, branch):
     return record
 
 
+def write_record(path, record):
+    # os.replace is atomic when the temp file is on the same filesystem.
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(record, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
 def parse_block(text):
     """Pull the finding lines out of the agent's output.
 
@@ -611,9 +620,7 @@ def cmd_decide(args):
         "round": round_number,
         "at": utc_now(),
     }
-    with open(path, "w") as fh:
-        json.dump(record, fh, indent=2)
-        fh.write("\n")
+    write_record(path, record)
     print("DECIDED=%s" % finding["key"])
     print("STATE=%s" % args.state)
     return 0
@@ -795,9 +802,7 @@ def cmd_write(args):
         "updated_at": now,
         "findings": merged,
     }
-    with open(path, "w") as fh:
-        json.dump(record, fh, indent=2)
-        fh.write("\n")
+    write_record(path, record)
 
     # FINDINGS counts what this round reported, not what the record holds --
     # the record also carries every finding already resolved.

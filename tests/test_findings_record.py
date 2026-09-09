@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = (
     Path(__file__).parent.parent
     / "plugins"
@@ -1678,3 +1680,25 @@ def test_the_branch_is_part_of_the_record_path(tmp_path):
     # describes it.
     assert on_branch.startswith(plain[: -len(".json")])
     assert "/" not in Path(on_branch).name
+
+
+# --- the record write ---------------------------------------------------------
+
+
+def test_a_crash_mid_write_leaves_the_previous_record_intact(tmp_path, monkeypatch):
+    project = _project(tmp_path)
+    record = tmp_path / "record.json"
+    args = ["--record", str(record), "--project-dir", str(project)]
+    assert _run(["write"] + args, stdin=ROUND_1).returncode == 0
+    before = record.read_text()
+
+    def dies_half_way(obj, fh, **kwargs):
+        fh.write('{"version": 2, "findi')
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(findings.json, "dump", dies_half_way)
+    with pytest.raises(KeyboardInterrupt):
+        findings.write_record(str(record), {"version": 2, "findings": []})
+
+    assert record.read_text() == before
+    assert findings.load_record(str(record), str(project), "") is not None
