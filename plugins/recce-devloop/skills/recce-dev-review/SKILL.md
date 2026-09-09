@@ -52,9 +52,9 @@ It prints one `REMEDY`, and nothing you have to ignore.
 | `none` | Say nothing. Keep the `RECCE_CLOUD` value it printed for Step 2 and continue. |
 | `install` | Say the install message below, then stop. |
 | `dbt-docs` | Say: "This project has no `target/` artifacts yet. Run `dbt docs generate`, then `/recce-dev-review` again." Then stop. |
-| `restart` | Say: "Recce is installed but its MCP server isn't connected in this session. Restart Claude Code — a new session, not `--resume` — then run `/recce-dev-review` again." Then stop. |
+| `restart` | Say: "Recce is installed but its MCP server isn't connected in this session. Restart Claude Code — a new session, not `--resume` — then run `/recce-dev-review` again. If the Recce tools are still missing after that, your `recce` has no MCP support: `pip install -U 'recce[mcp]'`, then start another new session." Then stop. |
 
-The `restart` case is the common one after a fresh `pip install`: the server only starts when a session starts, and resuming does not relaunch it.
+`restart` covers two states the script cannot tell apart. The server only starts when a session starts, and resuming does not relaunch it, so a restart is the answer for a Recce that can serve MCP. A `pip install recce` without the `[mcp]` extra also resolves the binary, and no restart ever fixes that one: `recce mcp-server` fails on its own import. That is why the line names the upgrade as well. `-U` is not optional, because an already-installed Recce satisfies a bare `recce` requirement and the install would do nothing.
 
 For `install`, copy the script's own `INSTALL` line so the package list matches what is actually missing:
 
