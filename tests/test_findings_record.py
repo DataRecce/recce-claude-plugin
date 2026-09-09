@@ -1602,3 +1602,79 @@ def test_an_accepted_finding_the_reviewer_drops_is_not_a_fix(tmp_path):
         "customers.customer_lifetime_value:doc_mismatch",
         "customers.customer_lifetime_value:null_introduced",
     ]
+
+
+# --- the record path: keyed on the project and the branch -------------------
+
+
+def _git(project, *args):
+    return subprocess.run(
+        ["git"] + list(args),
+        cwd=str(project),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _git_project(tmp_path, branch):
+    """A project that is a real git repo on `branch`, with one commit.
+
+    `git checkout <branch>` cannot return to a branch that never had a commit.
+    """
+    project = _project(tmp_path)
+    _git(project, "init", "-q", "-b", branch)
+    _git(project, "config", "user.email", "t@example.com")
+    _git(project, "config", "user.name", "t")
+    _git(project, "add", "-A")
+    _git(project, "commit", "-qm", "models")
+    return project
+
+
+def test_two_branches_keep_their_own_findings_record(tmp_path):
+    """Reviewing a second branch must not destroy the first branch's decisions.
+
+    This test must not pass `--record`: the default path is what it exercises.
+    """
+    project = _git_project(tmp_path, "feature/a")
+    args = ["--project-dir", str(project)]
+    note = "Intended on branch A: the grain change is the point of the model."
+    on_a = Path(findings.record_path(str(project), "feature/a"))
+    on_b = Path(findings.record_path(str(project), "feature/b"))
+    try:
+        assert on_a != on_b
+
+        assert _run(["write"] + args, stdin=ROUND_1).returncode == 0
+        decided = _run(
+            ["decide", "F1", "--state", "accepted", "--note", note] + args
+        )
+        assert decided.returncode == 0, decided.stderr
+
+        _git(project, "checkout", "-q", "-b", "feature/b")
+        assert _run(["write"] + args, stdin=ROUND_2_ONE_FIX).returncode == 0
+
+        assert json.loads(on_a.read_text())["branch"] == "feature/a"
+
+        _git(project, "checkout", "-q", "feature/a")
+        table = _run(["pr-table"] + args)
+
+        assert table.returncode == 0, table.stderr
+        assert note in table.stdout
+    finally:
+        on_a.unlink(missing_ok=True)
+        on_b.unlink(missing_ok=True)
+
+
+def test_the_branch_is_part_of_the_record_path(tmp_path):
+    """The project half stays the shell hash; the branch adds a second half."""
+    project = str(tmp_path)
+    plain = findings.record_path(project)
+    on_branch = findings.record_path(project, "feature/a")
+
+    assert findings.record_path(project, "") == plain
+    assert on_branch != plain
+    assert findings.record_path(project, "feature/b") != on_branch
+    # The project half is unchanged, so the shell-hash test above still
+    # describes it.
+    assert on_branch.startswith(plain[: -len(".json")])
+    assert "/" not in Path(on_branch).name

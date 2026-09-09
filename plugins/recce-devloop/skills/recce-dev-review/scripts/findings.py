@@ -200,11 +200,18 @@ def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def record_path(project_dir):
-    # Same scheme as _project-hash.sh in this directory, and as the two copies
-    # named in its header comment. Change all four together.
+def record_path(project_dir, branch=""):
+    # The project digest is the same scheme as _project-hash.sh in this
+    # directory, and as the two copies named in its header comment. Change all
+    # four together.
+    #
+    # A branch name may hold `/`, so it is hashed. current_branch returns ""
+    # on a detached HEAD.
     digest = hashlib.md5(project_dir.encode()).hexdigest()[:8]
-    return os.path.join(RECORD_DIR, "recce-findings-%s.json" % digest)
+    if not branch:
+        return os.path.join(RECORD_DIR, "recce-findings-%s.json" % digest)
+    tag = hashlib.md5(branch.encode()).hexdigest()[:8]
+    return os.path.join(RECORD_DIR, "recce-findings-%s-%s.json" % (digest, tag))
 
 
 def current_branch(project_dir):
@@ -505,7 +512,9 @@ def validate(lines, project_dir):
 def cmd_read(args):
     project_dir = args.project_dir
     branch = current_branch(project_dir)
-    record = load_record(args.record or record_path(project_dir), project_dir, branch)
+    record = load_record(
+        args.record or record_path(project_dir, branch), project_dir, branch
+    )
     if record is None:
         print("PRIOR_ROUND=0")
     else:
@@ -559,8 +568,9 @@ def cmd_decide(args):
     reconstructing it from the conversation is what this replaces.
     """
     project_dir = args.project_dir
-    path = args.record or record_path(project_dir)
-    record = load_record(path, project_dir, current_branch(project_dir))
+    branch = current_branch(project_dir)
+    path = args.record or record_path(project_dir, branch)
+    record = load_record(path, project_dir, branch)
     if record is None:
         print("ERROR=no findings record for this branch", file=sys.stderr)
         return 2
@@ -614,10 +624,11 @@ def cmd_decide(args):
 def cmd_pr_table(args):
     """Print the PR table, finished. The whole product of /recce-pr-prep."""
     project_dir = args.project_dir
+    branch = current_branch(project_dir)
     record = load_record(
-        args.record or record_path(project_dir),
+        args.record or record_path(project_dir, branch),
         project_dir,
-        current_branch(project_dir),
+        branch,
     )
     if record is None:
         print("ERROR=no findings record for this branch", file=sys.stderr)
@@ -672,8 +683,8 @@ def cmd_pr_table(args):
 
 def cmd_write(args):
     project_dir = args.project_dir
-    path = args.record or record_path(project_dir)
     branch = current_branch(project_dir)
+    path = args.record or record_path(project_dir, branch)
 
     text = sys.stdin.read()
     lines, error = parse_block(text)

@@ -11,11 +11,11 @@
 #   RECCE_CHANGES_FILE  -- /tmp/recce-changed-<hash>.txt
 
 # hooks/scripts/track-changes.sh and hooks/scripts/pre-commit-guard.sh both
-# inline this scheme, so the file the hook writes is the one this skill clears,
-# and findings.py derives the same 8 characters for its own record. Change all
-# four together. plugins/recce carries its own copies: separate plugins cannot
-# share a file, but they do share /tmp, so a project with both installed must
-# still resolve to one hash.
+# inline this scheme, so the file the hook writes is the one this skill clears.
+# findings.py derives the same 8 characters for the project half of its own
+# record name. Change all four together. plugins/recce carries its own copies:
+# separate plugins cannot share a file, but they do share /tmp, so a project
+# with both installed must still resolve to one hash.
 #
 # Use an explicit `command -v md5` branch instead of `md5 ... || md5sum ...`.
 # The pipeline form returns `cut`'s exit status (which is 0 on empty input),
