@@ -65,6 +65,7 @@ Each impacted model carries its own `next_action` (or `null`). When non-null it 
 **Interpret `data_impact` for each model:**
 - `confirmed`: value_diff verified actual data changes — prioritize for code investigation
 - `none`: value_diff verified NO data changes — safe, note briefly in summary
+- `potential`: nothing was measured. The impact comes from the lineage graph alone (`classification_source: lineage_dag`, no row counts). A cloud session usually returns this for every model, so call `row_count_diff`, `value_diff`, `value_diff_detail` or `profile_diff` to get data evidence. See Section 5.
 - `null` (or absent): couldn't run value_diff (views, no PK) — unknown, use profile_diff to assess
 
 If `confirmed_impacted_models` is empty: output the "No impact detected" summary (see Section 4) and STOP.
