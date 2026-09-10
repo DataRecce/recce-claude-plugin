@@ -662,6 +662,59 @@ def test_an_unreadable_record_is_treated_as_absent(tmp_path):
     assert "ROUND=1" in write.stdout
 
 
+def test_a_record_with_a_damaged_finding_is_treated_as_absent(tmp_path):
+    """The version check passes anything written at this path."""
+    _, record, args, _ = _session(tmp_path)
+    intact = json.loads(record.read_text())
+
+    kept = intact["findings"][0]
+    for damaged in (
+        ["not a finding"],
+        [{"key": "customers:value_shift"}],
+        [dict(kept, decision={"state": "accepted"})],
+        [dict(kept, decision="accepted")],
+        [dict(kept, ordinals="F1")],
+        [dict(kept, key=["customers:value_shift"])],
+    ):
+        record.write_text(json.dumps(dict(intact, findings=damaged)))
+
+        read = _run(["read"] + args)
+        assert read.returncode == 0, read.stderr
+        assert "PRIOR_ROUND=0" in read.stdout
+
+        table = _run(["pr-table"] + args)
+        assert table.returncode == 2
+        assert "ERROR=no findings record for this branch" in table.stderr
+
+        # write replaces the file, so the damage costs this round and no more.
+        write = _run(["write"] + args, stdin=ROUND_1)
+        assert write.returncode == 0, write.stderr
+        assert "ROUND=1" in write.stdout
+        assert json.loads(record.read_text())["round"] == 1
+
+
+def test_a_round_that_is_not_a_number_is_treated_as_absent(tmp_path):
+    """The round is formatted and added to, so its type is not free."""
+    _, record, args, _ = _session(tmp_path)
+    intact = json.loads(record.read_text())
+
+    for damaged in ("two", None, [2], True):
+        record.write_text(json.dumps(dict(intact, round=damaged)))
+
+        read = _run(["read"] + args)
+        assert read.returncode == 0, read.stderr
+        assert "PRIOR_ROUND=0" in read.stdout
+
+        table = _run(["pr-table"] + args)
+        assert table.returncode == 2
+        assert table.stdout == ""
+        assert "ERROR=no findings record for this branch" in table.stderr
+
+        write = _run(["write"] + args, stdin=ROUND_1)
+        assert write.returncode == 0, write.stderr
+        assert "ROUND=1" in write.stdout
+
+
 def test_the_record_path_matches_the_shell_hash_scheme(tmp_path):
     """Run _project-hash.sh itself, so a change to it fails here."""
     project = str(tmp_path)

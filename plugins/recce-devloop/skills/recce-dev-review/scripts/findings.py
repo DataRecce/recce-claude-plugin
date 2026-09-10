@@ -95,6 +95,13 @@ from datetime import datetime, timezone
 RECORD_DIR = "/tmp"
 RECORD_VERSION = 2
 
+# What every finding this script writes holds, and every reader depends on.
+FINDING_FIELDS = frozenset(
+    ["key", "group", "file", "title", "first_seen", "last_seen", "ordinals",
+     "decision"]
+)
+DECISION_FIELDS = frozenset(["state", "note", "round"])
+
 # Closed list. A finding's identity across rounds is model[.column]:concern, so
 # two rounds must name the same problem the same way -- an invented word never
 # matches next round. Add a word here rather than inline.
@@ -246,6 +253,29 @@ def load_record(path, project_dir, branch):
         return None
     if not isinstance(record.get("findings"), list):
         return None
+    # Formatted with %d and added to, unlike the fields above, which are only
+    # compared. A bool passes isinstance(int) and is not a round.
+    if not isinstance(record.get("round"), int) or isinstance(
+        record.get("round"), bool
+    ):
+        return None
+    for finding in record["findings"]:
+        if not isinstance(finding, dict):
+            return None
+        if not FINDING_FIELDS.issubset(finding):
+            return None
+        # A dict key and a sort key. The other strings are only printed or compared.
+        if not isinstance(finding["key"], str):
+            return None
+        if not isinstance(finding["ordinals"], dict):
+            return None
+        decision = finding["decision"]
+        if decision is None:
+            continue
+        if not isinstance(decision, dict):
+            return None
+        if not DECISION_FIELDS.issubset(decision):
+            return None
     return record
 
 
