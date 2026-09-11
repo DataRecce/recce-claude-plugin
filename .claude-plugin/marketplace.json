@@ -27,6 +27,16 @@
         "name": "DataRecce",
         "email": "support@datarecce.io"
       }
+    },
+    {
+      "name": "recce-devloop",
+      "source": "./plugins/recce-devloop",
+      "description": "Dev-loop data review for dbt - review the working tree against the team's Recce Cloud base",
+      "version": "0.1.0",
+      "author": {
+        "name": "DataRecce",
+        "email": "support@datarecce.io"
+      }
     }
   ]
 }

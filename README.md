@@ -12,6 +12,7 @@ dbt developers modify models, run `dbt run`, and hope nothing breaks downstream.
 |--------|-------------|---------|
 | **recce-quickstart** | New Recce users getting started | `/plugin install recce-quickstart@recce-claude-plugin` |
 | **recce** | dbt developers using Recce daily | `/plugin install recce@recce-claude-plugin` |
+| **recce-devloop** | dbt developers who want a review in the dev cycle, before the PR | `/plugin install recce-devloop@recce-claude-plugin` |
 
 ### recce-quickstart
 
@@ -31,6 +32,17 @@ Automated data review for daily development. Once installed:
 - Claude **auto-tracks** which model files you edit
 - After `dbt run`, Claude **suggests** a data review based on tracked changes
 - `/recce-review` validates impacted models and produces a **risk-assessed summary**
+
+### recce-devloop
+
+Review the working tree before you commit, against your team's base in Recce Cloud. No PR needed.
+
+| Skill | What it does |
+|-------|-------------|
+| `recce-dev-review` | Reviews your changed models and everything downstream. Run it again after a fix; it remembers what you already accepted |
+| `recce-pr-prep` | Prints the findings and your decisions as a markdown table for the PR description |
+
+Needs `recce[mcp]`, `recce-cloud`, and a Recce Cloud login. The review checks these and walks you through what is missing.
 
 ## Getting Started
 
