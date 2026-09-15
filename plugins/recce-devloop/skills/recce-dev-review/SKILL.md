@@ -375,16 +375,16 @@ It prints `PRIOR_ROUND=<n>`, one line per prior finding, and a `CONCERNS=` list.
 
 ### Checks: ask once per session
 
-The reviewer can turn each open finding a diff re-runs into a check on this Recce session, so the finding outlives this conversation. It creates them during the round, while it still holds the call that produced the finding. Nothing here writes back to a check afterwards.
+The reviewer can turn each open finding a diff re-runs into a check, so the finding outlives this conversation. It creates them during the round, while it still holds the call that produced the finding. Nothing here writes back to a check afterwards. Where a check is saved differs by mode, and Section 0 of `recce-dev-reviewer.md` is the one place that says so; this step does not need to know.
 
 That costs something, so the developer decides. Ask once, before the first dispatch in this session:
 
-> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created, and Recce saves it on this session under your name.
+> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created, and Recce saves it so you can re-run it later.
 
 Asking means ending your turn. Ask **once per session**: later rounds use the same answer, because the developer already decided for this session.
 
 - **Yes** — put `Checks: create them.` in the dispatch.
-- **No, or the answer settles nothing** — put `Checks: do not create any.` in the dispatch. A review still runs; it just leaves the session as it found it.
+- **No, or the answer settles nothing** — put `Checks: do not create any.` in the dispatch. A review still runs; it just creates no checks.
 
 Use the `agent:` tool to dispatch `recce-dev-reviewer`. The MCP server is owned by Claude Code (stdio child of `.mcp.json`); the skill does not start or health-check it.
 
