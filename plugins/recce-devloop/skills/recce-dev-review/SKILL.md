@@ -488,7 +488,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    The link belongs under `Open items` because it is the tool for investigating those rows. Do not move it to the end, and do not add a second copy there.
 
-Offer nothing else here. On the cloud journey that means no login prompt, since the user is already authenticated, and no local `recce server`, since the data is in the cloud. On the local journey the one thing that follows is L4, and it prints a command rather than offering to run one.
+Offer nothing else here. On the cloud journey that means no login prompt, since the user is already authenticated, and no local `recce server`, since the data is in the cloud. On the local journey the one thing that follows is L5, and it prints a command rather than offering to run one.
 
 ---
 
@@ -559,7 +559,30 @@ That restart is the cost of not calling `set_backend`, and it is the cheaper fai
 
 On `single_env: false`, say nothing and continue.
 
-### L2: Dispatch the reviewer
+### L2: Check the artifacts describe the working tree
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/check-artifacts.py
+```
+
+It prints one `ARTIFACTS` verdict, plus `STALE_MODELS` when there is something to name. This is the same script and the same contract the cloud journey uses in Step 3:
+
+| `ARTIFACTS` | What to do |
+|---|---|
+| `ok` | Say nothing. Continue. |
+| `stale_docs` | Ask them to run `dbt docs generate`, then stop. |
+| `stale_tables` | Ask them to run `dbt run`, then stop. |
+| `stale_both` | Ask them to run `dbt run && dbt docs generate`, then stop. |
+
+Word it as one line naming the models and the command, and nothing else:
+
+> `<STALE_MODELS>` changed after your last `<dbt run / dbt docs generate>`, so `target/` no longer matches your working tree. Run `<command>`, then `/recce-dev-review` again.
+
+**Stop there. Do not review anyway and do not offer to.** The diff tools read `target/` directly, so a stale `target/` makes the review describe code the developer has already changed. Nothing downstream would catch it: the run reports `Data status: measured`, because the comparison did happen. It just happened on the wrong version.
+
+The check reads file modification times, so a `git checkout`, a formatter, or a `touch` can make it ask for a rebuild that changes nothing. That direction is cheap. It never reports fresh for a file that changed later, which is the direction that matters.
+
+### L3: Dispatch the reviewer
 
 Do Step 5, with two changes:
 
@@ -570,15 +593,15 @@ Do Step 5, with two changes:
 
 Everything else in Step 5 is the same: the prior-findings read, the checks question, the context passthrough, and what to do when the agent reports it cannot run.
 
-### L3: Report
+### L4: Report
 
 Do Step 6, with three changes:
 
 - **`findings.py write` takes no `--session-id`.** There is no session to name, and the record accepts an empty one.
 - **Skip point 6.** There is no session link to place or to correct.
-- **L4 below comes after point 5's closing line.**
+- **L5 below comes after point 5's closing line.**
 
-### L4: Say where the review was saved
+### L5: Say where the review was saved
 
 **Only when the round created at least one check.** The state file is written by a check, so a round that created none leaves no file to point at. Skip this whole section then, and say nothing about `recce server`.
 
@@ -598,7 +621,7 @@ Take the count from the reviewer's `**Checks:**` line.
 
 **Do not start it later in this session either.** While the MCP server is alive it owns that file: a local state file is written whole and never merged, so a check the developer edits in the browser is lost the next time a review writes. Printing the command and leaving it to them is the whole of this step.
 
-### L5: Decisions
+### L6: Decisions
 
 Do Step 7, unchanged.
 
@@ -608,15 +631,21 @@ Do Step 7, unchanged.
 
 Reached from the **cloud** journey when the user declines a setup step, or when Cloud preparation fails in a way this skill cannot fix. It is a normal ending, not an error.
 
-**Restore local mode explicitly and verify it:**
+**Restore local mode only when this session flipped to cloud.** Step 4 is the only thing that flips it, so the question is whether Step 4's `set_backend` succeeded in this session:
 
-> `mcp__plugin_recce-devloop_recce__set_backend(mode="local", project_dir="<absolute project path>")`
-> `mcp__plugin_recce-devloop_recce__get_server_info()` → require `mode=local`
+- **It did** — restore and verify:
 
-This restore is the whole point of the fallback. A cloud flip earlier in the same Claude Code session leaves the long-lived MCP process attached to that session, and every later tool call in this project would then read someone else's data. Never leave it attached to a session this skill could not verify.
+  > `mcp__plugin_recce-devloop_recce__set_backend(mode="local", project_dir="<absolute project path>")`
+  > `mcp__plugin_recce-devloop_recce__get_server_info()` → require `mode=local`
 
-Then say one line naming what stopped, and stop:
+  This restore is the whole point of the fallback after a real flip. A cloud flip earlier in the same Claude Code session leaves the long-lived MCP process attached to that session, and every later tool call in this project would then read someone else's data. Never leave it attached to a session this skill could not verify.
 
-> Cloud preparation did not finish, so there is nothing to compare your working tree against. Your Recce MCP server is back in local mode.
+- **It did not** — the run stopped in Step 2 or Step 3, or the flip itself failed. There is nothing to restore. Confirm with `get_server_info` that the mode is already local, say nothing about it, and go to the closing line.
+
+Then say one line naming what stopped, and stop. Use the wording that matches what actually happened:
+
+> Cloud preparation did not finish, so there is nothing to compare your working tree against. Your Recce MCP server is in local mode.
+
+After a real flip, say "is back in local mode" instead. On a run that never flipped, "back" claims a round trip that did not happen, and the developer is left wondering what it went to.
 
 There is no review to give. Comparing against the team's base is the only thing the cloud journey does, so a run that never reached the cloud produced no evidence. Do not assemble a summary from the model SQL, do not call the diff tools against local mode and present the result as a review, and do not append a Cloud launch link to a run that never reached the cloud.
