@@ -1,20 +1,26 @@
 ---
 name: recce-dev-review
 description: >
-  Review the dbt changes in the current working tree against the team's base in
-  Recce Cloud. Uploads the local `target/` artifacts to a Cloud dev session,
-  attaches the Recce MCP server to that session, and produces an impact report.
-  Triggers when: user asks to review their local dbt changes through Recce
-  Cloud, run a dev review, upload their working tree and review it, or review
-  this branch against the cloud base. Does not attach to a session that already
-  exists — this skill prepares one from the working tree.
+  Review the dbt changes in the current working tree against a base, and
+  produce an impact report. With Recce Cloud, uploads the local `target/`
+  artifacts to a Cloud dev session and diffs against the team's base. Without
+  it, diffs against the project's own `target-base/` artifacts. Triggers when:
+  user asks to review their local dbt changes, run a dev review, upload their
+  working tree and review it, review this branch against the cloud base, or
+  review the working tree against their local base. Does not attach to a
+  session that already exists — this skill prepares its own.
 ---
 
-# /recce-dev-review — Cloud dev-session review of the current working tree
+# /recce-dev-review — review of the current working tree
 
-This skill reviews **what is in the working tree right now**. It prepares a Recce Cloud dev session from the local `target/` artifacts, points the running MCP server at that session, and dispatches `recce-dev-reviewer` against it.
+This skill reviews **what is in the working tree right now**. It attaches the running MCP server to a base and dispatches `recce-dev-reviewer` against it.
 
-Recce Cloud holds a base maintained by CI. Uploading the current `target/` as a dev session turns this into a full base-vs-current diff with no local `target-base/`. The base is attached on the cloud side; it does not need naming.
+There are two journeys, and Step 1 decides which one this run takes:
+
+- **Cloud** (Steps 2 to 7). Recce Cloud holds a base maintained by CI. Uploading the current `target/` as a dev session turns this into a full base-vs-current diff with no local `target-base/`. The base is attached on the cloud side; it does not need naming.
+- **Local** (the [Local review](#local-review) section). The developer builds `target-base/` themselves, usually from the main branch. The base is already on disk, so nothing is uploaded and nothing is logged in to.
+
+A session does one journey or the other. Nothing here switches between them mid-session.
 
 Claude Code launches `recce mcp-server` (stdio) at session start in **local mode** and the same server stays alive for the whole session. Mode switching happens **inside** that running server via MCP tool calls — no reconnect, no restart.
 
@@ -49,7 +55,7 @@ It prints one `REMEDY`, and nothing you have to ignore.
 
 | `REMEDY` | What to do |
 |---|---|
-| `none` | Say nothing. Keep the `RECCE_CLOUD` value it printed for Step 2 and continue. |
+| `none` | Say nothing. Keep the `RECCE_CLOUD` and `BASE` values it printed, and go to "Which journey this run takes" below. |
 | `install` | Say the install message below, then stop. |
 | `dbt-docs` | Say: "This project has no `target/` artifacts yet. Run `dbt docs generate`, then `/recce-dev-review` again." Then stop. |
 | `restart` | Say: "Recce is installed but its MCP server isn't connected in this session. Restart Claude Code — a new session, not `--resume` — then run `/recce-dev-review` again. If the Recce tools are still missing after that, your `recce` has no MCP support: `pip install -U 'recce[mcp]'`, then start another new session." Then stop. |
@@ -72,9 +78,22 @@ For `install`, copy the script's own `INSTALL` line so the package list matches 
 Say nothing beyond the line for your `REMEDY`. In particular:
 
 - **Do not explain the cause** — not the SessionStart hook, not `.mcp.json`, not PATH resolution. The user asked for a review, not a diagnosis.
-- **Do not mention base artifacts.** A missing `target-base/` is not a precondition problem.
+- **Do not mention base artifacts.** A missing `target-base/` is not a precondition problem. It decides the journey below, and the user has nothing to fix either way.
 - **Do not start the MCP server by hand** to learn more.
 - **Do not ask the user to choose.** There is one fix.
+
+### Which journey this run takes
+
+On `REMEDY=none` the script prints two more lines, `RECCE_CLOUD=` and `BASE=`. Together they say which journey this is. Do not ask the user:
+
+| `BASE` | `RECCE_CLOUD` | Route |
+|---|---|---|
+| `present` | `missing` | **[Local review](#local-review)**. Go there now. Do not read Step 2. |
+| anything else | anything else | Step 2, below. |
+
+`BASE=present` means this project builds its own base artifacts into `target-base/`. Together with no `recce-cloud` installed, that is a developer who is not a Recce Cloud user and who already has everything a base-vs-current review needs on disk. Sending them through Step 2 asks them to install and log in to a product they have not bought, and ends with no review when they decline.
+
+**Both signals are required.** `target-base/` on its own is not enough. A Recce Cloud user who once ran `dbt docs generate --target-path target-base` and left the folder there would be routed to a local base that may be months old, and nothing in the review would say so. The two wrong routes do not cost the same: an unwanted Cloud question wastes one turn the user can decline, while a stale local base gives a confident wrong review.
 
 ---
 
@@ -356,16 +375,16 @@ It prints `PRIOR_ROUND=<n>`, one line per prior finding, and a `CONCERNS=` list.
 
 ### Checks: ask once per session
 
-The reviewer can turn each open finding a diff re-runs into a check on this Recce session, so the finding outlives this conversation. It creates them during the round, while it still holds the call that produced the finding. Nothing here writes back to a check afterwards.
+The reviewer can turn each open finding a diff re-runs into a check, so the finding outlives this conversation. It creates them during the round, while it still holds the call that produced the finding. Nothing here writes back to a check afterwards. Where a check is saved differs by mode, and Section 0 of `recce-dev-reviewer.md` is the one place that says so; this step does not need to know.
 
 That costs something, so the developer decides. Ask once, before the first dispatch in this session:
 
-> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created, and Recce saves it on this session under your name.
+> Should this review also create Recce checks for the findings a diff can re-run? Each check runs its query when it is created, and Recce saves it so you can re-run it later.
 
 Asking means ending your turn. Ask **once per session**: later rounds use the same answer, because the developer already decided for this session.
 
 - **Yes** — put `Checks: create them.` in the dispatch.
-- **No, or the answer settles nothing** — put `Checks: do not create any.` in the dispatch. A review still runs; it just leaves the session as it found it.
+- **No, or the answer settles nothing** — put `Checks: do not create any.` in the dispatch. A review still runs; it just creates no checks.
 
 Use the `agent:` tool to dispatch `recce-dev-reviewer`. The MCP server is owned by Claude Code (stdio child of `.mcp.json`); the skill does not start or health-check it.
 
@@ -382,7 +401,7 @@ Include in the dispatch context:
 
 > "Put this line directly under your `Open items` table, unchanged: `Open this session in Recce: <host>/launch/<SESSION_ID>`. It is the tool for investigating those rows, so it belongs with them and not at the end."
 
-> "Active backend is cloud (session `<SESSION_ID>`), uploaded from this working tree. Use `state:modified+` as the selector — the MCP server resolves it against the session's stored base and head manifests, which are the authoritative pair. Do **not** read the local tracked-changes file; it adds nothing here."
+> "Mode: cloud. Active backend is cloud (session `<SESSION_ID>`), uploaded from this working tree. Use `state:modified+` as the selector — the MCP server resolves it against the session's stored base and head manifests, which are the authoritative pair. Do **not** read the local tracked-changes file; it adds nothing here."
 
 > "The data path either works for this session or it does not, and the first data-path call tells you which. If your first two data-path calls both come back `null` or with an HTTP error, stop calling data tools: report `Data status: unmeasured`, quote the error text if you got one, and score from metadata and code. A `null` on a later call, when earlier ones returned data, means that one measurement is unavailable — record it in `Not measured:` and carry on. Do **not** wait and retry with `sleep`; this harness runs `sleep` in the background, so the wait never happens and you only burn turns."
 
@@ -469,7 +488,7 @@ Check whether the agent's output contains `## Data Review Summary`.
 
    The link belongs under `Open items` because it is the tool for investigating those rows. Do not move it to the end, and do not add a second copy there.
 
-Offer nothing else here — no login prompt, since the user is already authenticated, and no local `recce server`, since the data is in the cloud.
+Offer nothing else here. On the cloud journey that means no login prompt, since the user is already authenticated, and no local `recce server`, since the data is in the cloud. On the local journey the one thing that follows is L5, and it prints a command rather than offering to run one.
 
 ---
 
@@ -514,19 +533,119 @@ Fixing a finding is a separate decision from recording it. When the developer as
 
 ---
 
+## Local review
+
+Reached from Step 1 when this project has its own `target-base/` and no `recce-cloud`. The base is already on disk, so there is nothing to prepare and nothing to upload.
+
+**Say nothing about Recce Cloud on this path.** Not an install, not a login, not a session, not a link, not "your team's base". The developer already has a base, and a product they have not bought is not the answer to anything here.
+
+This journey reuses Steps 5, 6 and 7. The sections below say what is different; everything they do not name is unchanged.
+
+### L1: Confirm the MCP server is in local mode
+
+> `mcp__plugin_recce-devloop_recce__get_server_info()`
+
+**`mode=local`** — say nothing and continue. **Do not call `set_backend`.** The server was launched in local mode with a state file, and `set_backend` rebuilds its context without one, so every check this review creates would live only in memory and the file the ending points at would never appear.
+
+**`mode=cloud`** — an earlier run in this session attached the server to a Recce Cloud session. Say one line and stop:
+
+> This session already reviewed against a Recce Cloud session. Start a new Claude Code session and run `/recce-dev-review` again for a local review.
+
+That restart is the cost of not calling `set_backend`, and it is the cheaper failure: a flip back to local produces checks that vanish when the session ends, with nothing in the output to say so.
+
+`get_server_info` also reports `single_env`. **`single_env: true` means the server did not load `target-base/`**, so the base is a copy of the current artifacts and every diff would compare the working tree against itself. Say one line and stop:
+
+> Recce did not load your `target-base/` artifacts, so there is nothing to compare against. Rebuild them with `dbt docs generate --target-path target-base`, then run `/recce-dev-review` again.
+
+On `single_env: false`, say nothing and continue.
+
+### L2: Check the artifacts describe the working tree
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/check-artifacts.py
+```
+
+It prints one `ARTIFACTS` verdict, plus `STALE_MODELS` when there is something to name. This is the same script and the same contract the cloud journey uses in Step 3:
+
+| `ARTIFACTS` | What to do |
+|---|---|
+| `ok` | Say nothing. Continue. |
+| `stale_docs` | Ask them to run `dbt docs generate`, then stop. |
+| `stale_tables` | Ask them to run `dbt run`, then stop. |
+| `stale_both` | Ask them to run `dbt run && dbt docs generate`, then stop. |
+
+Word it as one line naming the models and the command, and nothing else:
+
+> `<STALE_MODELS>` changed after your last `<dbt run / dbt docs generate>`, so `target/` no longer matches your working tree. Run `<command>`, then `/recce-dev-review` again.
+
+**Stop there. Do not review anyway and do not offer to.** The diff tools read `target/` directly, so a stale `target/` makes the review describe code the developer has already changed. Nothing downstream would catch it: the run reports `Data status: measured`, because the comparison did happen. It just happened on the wrong version.
+
+The check reads file modification times, so a `git checkout`, a formatter, or a `touch` can make it ask for a rebuild that changes nothing. That direction is cheap. It never reports fresh for a file that changed later, which is the direction that matters.
+
+### L3: Dispatch the reviewer
+
+Do Step 5, with two changes:
+
+- **Leave out the session-link paragraph entirely.** There is no link, and nothing takes its place.
+- **Replace the backend paragraph with this one:**
+
+  > "Mode: local. Active backend is local: `target/` against `target-base/` in this project. Use `state:modified+` as the selector — the MCP server resolves it against those two manifests, which are the authoritative pair. Do **not** read the local tracked-changes file; it adds nothing here."
+
+Everything else in Step 5 is the same: the prior-findings read, the checks question, the context passthrough, and what to do when the agent reports it cannot run.
+
+### L4: Report
+
+Do Step 6, with three changes:
+
+- **`findings.py write` takes no `--session-id`.** There is no session to name, and the record accepts an empty one.
+- **Skip point 6.** There is no session link to place or to correct.
+- **L5 below comes after point 5's closing line.**
+
+### L5: Say where the review was saved
+
+**Only when the round created at least one check.** The state file is written by a check, so a round that created none leaves no file to point at. Skip this whole section then, and say nothing about `recce server`.
+
+Print this under Step 6's closing line:
+
+```
+2 checks created.
+Your review is saved at target/recce_state.json.
+When you're done here, open them with:
+
+    recce server target/recce_state.json
+```
+
+Take the count from the reviewer's `**Checks:**` line.
+
+**Do not run `recce server` yourself, and do not offer to.** It runs in the foreground and never returns, so a Bash call that starts it hangs until the tool gives up, and the developer gets nothing. This is the same failure the skill avoids for a bare `recce-cloud init`.
+
+**Do not start it later in this session either.** While the MCP server is alive it owns that file: a local state file is written whole and never merged, so a check the developer edits in the browser is lost the next time a review writes. Printing the command and leaving it to them is the whole of this step.
+
+### L6: Decisions
+
+Do Step 7, unchanged.
+
+---
+
 ## Local fallback
 
-Reached when the user declines a setup step, or when Cloud preparation fails in a way this skill cannot fix. It is a normal ending, not an error.
+Reached from the **cloud** journey when the user declines a setup step, or when Cloud preparation fails in a way this skill cannot fix. It is a normal ending, not an error.
 
-**Restore local mode explicitly and verify it:**
+**Restore local mode only when this session flipped to cloud.** Step 4 is the only thing that flips it, so the question is whether Step 4's `set_backend` succeeded in this session:
 
-> `mcp__plugin_recce-devloop_recce__set_backend(mode="local", project_dir="<absolute project path>")`
-> `mcp__plugin_recce-devloop_recce__get_server_info()` → require `mode=local`
+- **It did** — restore and verify:
 
-This restore is the whole point of the fallback. A cloud flip earlier in the same Claude Code session leaves the long-lived MCP process attached to that session, and every later tool call in this project would then read someone else's data. Never leave it attached to a session this skill could not verify.
+  > `mcp__plugin_recce-devloop_recce__set_backend(mode="local", project_dir="<absolute project path>")`
+  > `mcp__plugin_recce-devloop_recce__get_server_info()` → require `mode=local`
 
-Then say one line naming what stopped, and stop:
+  This restore is the whole point of the fallback after a real flip. A cloud flip earlier in the same Claude Code session leaves the long-lived MCP process attached to that session, and every later tool call in this project would then read someone else's data. Never leave it attached to a session this skill could not verify.
 
-> Cloud preparation did not finish, so there is nothing to compare your working tree against. Your Recce MCP server is back in local mode.
+- **It did not** — the run stopped in Step 2 or Step 3, or the flip itself failed. There is nothing to restore. Confirm with `get_server_info` that the mode is already local, say nothing about it, and go to the closing line.
 
-There is no review to give. Comparing against the team's base is the only thing this skill does, so a run that never reached the cloud produced no evidence. Do not assemble a summary from the model SQL, do not call the diff tools against local mode and present the result as a review, and do not append a Cloud launch link to a run that never reached the cloud.
+Then say one line naming what stopped, and stop. Use the wording that matches what actually happened:
+
+> Cloud preparation did not finish, so there is nothing to compare your working tree against. Your Recce MCP server is in local mode.
+
+After a real flip, say "is back in local mode" instead. On a run that never flipped, "back" claims a round trip that did not happen, and the developer is left wondering what it went to.
+
+There is no review to give. Comparing against the team's base is the only thing the cloud journey does, so a run that never reached the cloud produced no evidence. Do not assemble a summary from the model SQL, do not call the diff tools against local mode and present the result as a review, and do not append a Cloud launch link to a run that never reached the cloud.
