@@ -26,6 +26,31 @@ Follow these steps in order.
 
 ---
 
+## Pre-flight: Verify `recce` is installed
+
+Before any other step, confirm the `recce` CLI is available on this machine. The MCP server is launched by Claude Code via stdio (`run-mcp-stdio.sh`) and silently fails to start if `recce` is missing — the user only finds out when a tool call errors out mid-review. Catch it here instead.
+
+Run:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-review/scripts/check-recce-installed.sh
+```
+
+The script auto-activates a local `venv/` or `.venv/` (mirroring `run-mcp-stdio.sh`) and prints `RECCE=ready` (with `RECCE_VIA` and `RECCE_VERSION`) or `RECCE=missing`.
+
+- `RECCE=ready` — continue to Step 0.
+- `RECCE=missing` — tell the user, verbatim, then **stop**:
+
+  > `recce` is not installed in this environment, so the Recce MCP server can't start and `/recce-review` can't run.
+  >
+  > To install:
+  > - If your dbt project uses a virtualenv, activate it first (e.g. `source .venv/bin/activate`), then re-run `/recce-review`.
+  > - Otherwise install Recce: `pip install 'recce[mcp]'` (or `uv pip install 'recce[mcp]'`), then restart Claude Code so the MCP server picks up the new binary, and re-run `/recce-review`.
+
+  Do not attempt to install `recce` automatically — environment choices (venv vs. system, pip vs. uv vs. poetry) belong to the user.
+
+---
+
 ## Step 0: Cloud-mode resolution (only if user provided a relevant URL or asked for cloud review)
 
 > Skip this step if the user did not provide a PR/MR URL, a Cloud session/launch URL, a bare UUID, and did not mention "cloud", "cloud session", or "Recce Cloud".
