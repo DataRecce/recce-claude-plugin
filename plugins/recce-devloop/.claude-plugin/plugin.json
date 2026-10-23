@@ -1,6 +1,6 @@
 {
   "name": "recce-devloop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dev-loop data review for dbt — reviews the current working tree against the team's Recce Cloud base, and carries the findings into the PR description",
   "author": {
     "name": "DataRecce",

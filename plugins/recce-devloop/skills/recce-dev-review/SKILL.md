@@ -36,12 +36,13 @@ Do not prepare a dev session, and do not upload anything, when an explicit sessi
 
 ## Step 1: Precondition — the Recce MCP server
 
-Look at whether the `recce` MCP tools (`mcp__plugin_recce-devloop_recce__*`) are available in this session. Every step below needs them.
+Look at whether the `recce` MCP tools (`mcp__plugin_recce-devloop_recce__*`) are available in this session, and whether `mcp__plugin_recce-devloop_recce__set_backend` is among them. Every step below needs them.
 
 That is the only judgement you make here. No script can read your tool list. Pass what you saw:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/check-preflight.sh --tools present
+bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/check-preflight.sh --tools missing-set-backend
 bash ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/check-preflight.sh --tools absent
 ```
 
@@ -51,6 +52,7 @@ It prints one `REMEDY`, and nothing you have to ignore.
 |---|---|
 | `none` | Say nothing. Keep the `RECCE_CLOUD` value it printed for Step 2 and continue. |
 | `install` | Say the install message below, then stop. |
+| `upgrade` | Say: "This Recce is too old to attach a Cloud session. Upgrade it to the latest: run `pip install -U <INSTALL>` in the project venv, then start a new Claude Code session (not `--resume`) and run `/recce-dev-review` again." Then stop. |
 | `dbt-docs` | Say: "This project has no `target/` artifacts yet. Run `dbt docs generate`, then `/recce-dev-review` again." Then stop. |
 | `restart` | Say: "Recce is installed but its MCP server isn't connected in this session. Restart Claude Code — a new session, not `--resume` — then run `/recce-dev-review` again. If the Recce tools are still missing after that, your `recce` has no MCP support: `pip install -U 'recce[mcp]'`, then start another new session." Then stop. |
 
