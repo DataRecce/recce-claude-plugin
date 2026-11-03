@@ -11,6 +11,7 @@
 # Stdout:  REMEDY=install|upgrade|dbt-docs|restart|none
 #          INSTALL=<pip argument list>       (only when REMEDY=install|upgrade)
 #          RECCE_CLOUD=<path>|missing        (only when REMEDY=none)
+#          BASE=present|missing              (only when REMEDY=none)
 #          Nothing else. The resolved `recce` path and the presence of
 #          target/manifest.json are inputs to REMEDY and nothing more, so
 #          printing them only creates output the caller must be told to ignore.
@@ -37,6 +38,18 @@ esac
 RECCE=$(resolve_bin recce) || RECCE=missing
 RECCE_CLOUD=$(resolve_bin recce-cloud) || RECCE_CLOUD=missing
 [ -f "target/manifest.json" ] && TARGET=true || TARGET=false
+# Both artifacts, not the directory. An empty target-base/ carries no base to
+# diff against, and recce's own single-environment detection keys on the
+# directory, so it would not catch that case either. The catalog is required
+# alongside the manifest because the column types and statistics the diff
+# tools read live there: `dbt docs generate` writes both, so a manifest on its
+# own means an interrupted run, and routing that to the local journey reaches
+# the diff tools with nothing for them to read.
+if [ -f "target-base/manifest.json" ] && [ -f "target-base/catalog.json" ]; then
+    BASE=present
+else
+    BASE=missing
+fi
 
 # set_backend, which Step 4 needs, first shipped in recce 1.46.3.
 MIN_RECCE=1.46.3
@@ -80,6 +93,9 @@ if [ "$REMEDY" = "install" ] || [ "$REMEDY" = "upgrade" ]; then
     fi
 fi
 
-[ "$REMEDY" = "none" ] && echo "RECCE_CLOUD=$RECCE_CLOUD"
+if [ "$REMEDY" = "none" ]; then
+    echo "RECCE_CLOUD=$RECCE_CLOUD"
+    echo "BASE=$BASE"
+fi
 
 exit 0

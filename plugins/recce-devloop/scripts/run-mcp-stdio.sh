@@ -22,4 +22,10 @@ if ! command -v recce &>/dev/null; then
     exit 1
 fi
 
-exec recce mcp-server
+# Without a state file argument, local-mode checks live in process memory and
+# go away with the session. `recce server <path>` reads the same file back.
+# The state writer opens the path directly and does not create its parent, so
+# a missing target/ would fail create_check rather than skip the write.
+mkdir -p target
+
+exec recce mcp-server target/recce_state.json
