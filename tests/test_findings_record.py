@@ -806,6 +806,61 @@ def test_pr_table_prints_one_order_for_one_record(tmp_path):
     ]
 
 
+def _session_args(tmp_path):
+    project = _project(tmp_path)
+    return [
+        "--record", str(tmp_path / "record.json"),
+        "--session", str(tmp_path / "session.json"),
+        "--project-dir", str(project),
+    ]
+
+
+TAG = "DEV_SESSION_TAG=<!-- RECCE_CLOUD_DEV_SESSION: c29669b4 | name: dev-andy-feat-x -->"
+
+
+def test_pr_table_ends_with_the_dev_session_tag(tmp_path):
+    args = _session_args(tmp_path)
+    _run(["session", "--session-id", "c29669b4", "--session-name", "dev-andy-feat-x"]
+         + args)
+    _run(["write"] + args, stdin=ROUND_1)
+
+    result = _run(["pr-table"] + args)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == TAG
+
+
+def test_pr_table_offers_the_tag_when_there_is_no_findings_record(tmp_path):
+    args = _session_args(tmp_path)
+    _run(["session", "--session-id", "c29669b4", "--session-name", "dev-andy-feat-x"]
+         + args)
+
+    result = _run(["pr-table"] + args)
+
+    assert result.returncode == 2
+    assert "ERROR=no findings record for this branch" in result.stderr
+    assert result.stdout.splitlines() == [TAG]
+
+
+def test_pr_table_tags_by_id_only_when_the_session_has_no_name(tmp_path):
+    args = _session_args(tmp_path)
+    _run(["session", "--session-id", "c29669b4", "--session-name", ""] + args)
+
+    result = _run(["pr-table"] + args)
+
+    assert result.stdout.splitlines() == [
+        "DEV_SESSION_TAG=<!-- RECCE_CLOUD_DEV_SESSION: c29669b4 -->"
+    ]
+
+
+def test_pr_table_has_no_tag_without_a_saved_session(tmp_path):
+    """The record's session_id is not a source for the tag."""
+    args = _session_args(tmp_path)
+    _run(["write", "--session-id", "c29669b4"] + args, stdin=ROUND_1)
+
+    assert "DEV_SESSION_TAG" not in _run(["pr-table"] + args).stdout
+
+
 def test_pr_table_errors_when_there_is_no_record(tmp_path):
     """No review has run on this branch, so there is nothing to write up."""
     project = _project(tmp_path)
