@@ -12,9 +12,11 @@ enforced (plugin scripts cannot assume `pip install`) and would go stale.
 
 Args:    read     [--record PATH] [--project-dir PATH]
          write    [--record PATH] [--project-dir PATH] [--session-id ID]
+         session  --session-id ID --session-name NAME [--session PATH]
+                  [--project-dir PATH]
          decide   <F<n>|key> --state STATE --note TEXT [--round N]
                   [--record PATH] [--project-dir PATH]
-         pr-table [--record PATH] [--project-dir PATH]
+         pr-table [--record PATH] [--session PATH] [--project-dir PATH]
          match-checks --existing PATH
 
 Stdin:   write and match-checks. The agent's output, or just its block. The fenced
@@ -59,12 +61,16 @@ Stdout:  read      PRIOR_ROUND=<n>
                    gets a row, `fixed` excluded. A finding nobody decided goes
                    on a note line instead, because a row would put an empty
                    cell where the grounds belong.
+                   DEV_SESSION_TAG=<tag>       (last, only when a session
+                                               file exists for this branch)
+         session   SESSION_SAVED=<id>
          match-checks
                    CREATE=<key> <type> <params>   (no check covers it yet)
                    SKIP=<key> <check_id>          (this check already does)
 
 Stderr:  ERROR=<message>, one per rejection. Every non-zero exit prints at
-         least one ERROR line, and stdout stays empty.
+         least one ERROR line, and stdout stays empty, except for the
+         DEV_SESSION_TAG line of pr-table.
 
 Exit:    0 on success. 2 when a block fails validation, and then nothing is
          written -- a half-written record is worse than none, because next
@@ -205,7 +211,7 @@ def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def record_path(project_dir, branch=""):
+def record_path(project_dir, branch="", prefix="recce-findings"):
     # The project digest is the same scheme as _project-hash.sh in this
     # directory, and as the two copies named in its header comment. Change all
     # four together.
@@ -214,9 +220,34 @@ def record_path(project_dir, branch=""):
     # on a detached HEAD.
     digest = hashlib.md5(project_dir.encode()).hexdigest()[:8]
     if not branch:
-        return os.path.join(RECORD_DIR, "recce-findings-%s.json" % digest)
+        return os.path.join(RECORD_DIR, "%s-%s.json" % (prefix, digest))
     tag = hashlib.md5(branch.encode()).hexdigest()[:8]
-    return os.path.join(RECORD_DIR, "recce-findings-%s-%s.json" % (digest, tag))
+    return os.path.join(RECORD_DIR, "%s-%s-%s.json" % (prefix, digest, tag))
+
+
+def session_path(project_dir, branch=""):
+    # Separate from the findings record: a review can end before it writes
+    # the record, and the session still exists in Recce Cloud.
+    return record_path(project_dir, branch, prefix="recce-dev-session")
+
+
+def dev_session_tag(path, project_dir, branch):
+    try:
+        with open(path) as fh:
+            session = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(session, dict) or session.get("project") != project_dir:
+        return None
+    if branch and session.get("branch") not in (branch, None):
+        return None
+    session_id = session.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    name = session.get("session_name")
+    if isinstance(name, str) and name:
+        return "<!-- RECCE_CLOUD_DEV_SESSION: %s | name: %s -->" % (session_id, name)
+    return "<!-- RECCE_CLOUD_DEV_SESSION: %s -->" % session_id
 
 
 def current_branch(project_dir):
@@ -665,8 +696,13 @@ def cmd_pr_table(args):
         project_dir,
         branch,
     )
+    tag = dev_session_tag(
+        args.session or session_path(project_dir, branch), project_dir, branch
+    )
     if record is None:
         print("ERROR=no findings record for this branch", file=sys.stderr)
+        if tag:
+            print("DEV_SESSION_TAG=%s" % tag)
         return 2
     current = record.get("round", 0)
 
@@ -713,6 +749,27 @@ def cmd_pr_table(args):
         print()
         for line in notes:
             print(line)
+
+    if tag:
+        print()
+        print("DEV_SESSION_TAG=%s" % tag)
+    return 0
+
+
+def cmd_session(args):
+    project_dir = args.project_dir
+    branch = current_branch(project_dir)
+    write_record(
+        args.session or session_path(project_dir, branch),
+        {
+            "project": project_dir,
+            "branch": branch,
+            "session_id": args.session_id,
+            "session_name": args.session_name,
+            "updated_at": utc_now(),
+        },
+    )
+    print("SESSION_SAVED=%s" % args.session_id)
     return 0
 
 
@@ -861,12 +918,18 @@ def main(argv=None):
         ("write", cmd_write),
         ("decide", cmd_decide),
         ("pr-table", cmd_pr_table),
+        ("session", cmd_session),
     ):
         child = sub.add_parser(name)
         child.add_argument("--record", default=None)
         child.add_argument("--project-dir", default=os.getcwd())
+        if name in ("pr-table", "session"):
+            child.add_argument("--session", default=None)
         if name == "write":
             child.add_argument("--session-id", default="")
+        if name == "session":
+            child.add_argument("--session-id", required=True)
+            child.add_argument("--session-name", required=True)
         if name == "decide":
             child.add_argument("target", help="F<n> from a round, or a finding key")
             child.add_argument("--state", choices=DECISIONS, required=True)

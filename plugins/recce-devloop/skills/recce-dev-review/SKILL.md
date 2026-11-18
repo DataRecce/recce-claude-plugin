@@ -322,7 +322,13 @@ Do **not** probe upfront. A metadata call always succeeds and tells you nothing;
 
 Outcomes:
 
-- **Confirmed `mode=cloud` with the matching session** — tell the user, verbatim, replacing `<SESSION_ID>`:
+- **Confirmed `mode=cloud` with the matching session** — save the session for `/recce-pr-prep`, which offers it as a tag in the PR description:
+
+  ```bash
+  python3 ${CLAUDE_PLUGIN_ROOT}/skills/recce-dev-review/scripts/findings.py session --session-id <SESSION_ID> --session-name <SESSION_NAME>
+  ```
+
+  Then tell the user, verbatim, replacing `<SESSION_ID>`:
 
   ```
   Recce MCP flipped to cloud mode.

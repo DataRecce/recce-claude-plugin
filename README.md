@@ -40,7 +40,7 @@ Review the working tree before you commit, against your team's base in Recce Clo
 | Skill | What it does |
 |-------|-------------|
 | `recce-dev-review` | Reviews your changed models and everything downstream. Run it again after a fix; it remembers what you already accepted |
-| `recce-pr-prep` | Prints the findings and your decisions as a markdown table for the PR description |
+| `recce-pr-prep` | Prints the findings and your decisions as a markdown table for the PR description, and offers the hidden tag that links your Recce Cloud dev session to the PR |
 
 Needs `recce[mcp]`, `recce-cloud`, and a Recce Cloud login. The review checks these and walks you through what is missing.
 
